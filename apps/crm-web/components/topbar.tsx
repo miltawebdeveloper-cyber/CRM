@@ -8,11 +8,12 @@ import { tokenStore } from '@/lib/api';
 import { availabilityApi } from '@/lib/availability';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { NotificationBell } from '@/components/notification-bell';
+import { PageTabsSlot, useHasPageTabs } from '@/components/page-tabs';
 import { titleForPath, subForPath } from '@/lib/nav';
 
 function IconBtn({ children, label, href, onClick }: { children: React.ReactNode; label: string; href?: string; onClick?: () => void }) {
   const cls =
-    'relative grid h-[38px] w-[38px] place-items-center rounded-[10px] text-[#333f25] transition-colors hover:bg-muted dark:text-foreground/80';
+    'relative grid h-[38px] w-[38px] place-items-center rounded-[10px] text-[#1d491f] transition-colors hover:bg-muted dark:text-foreground/80';
   if (href)
     return (
       <Link href={href} aria-label={label} title={label} className={cls}>
@@ -33,6 +34,7 @@ export function Topbar({ email }: { email?: string }) {
 
   const title = titleForPath(pathname);
   const sub = subForPath(pathname);
+  const hasTabs = useHasPageTabs();
   const initial = (email ?? 'U').charAt(0).toUpperCase();
 
   async function logout() {
@@ -44,11 +46,17 @@ export function Topbar({ email }: { email?: string }) {
 
   return (
     <header className="sticky top-0 z-40 flex h-[62px] items-center gap-4 border-b bg-card/85 px-6 backdrop-blur">
-      {/* Page title + subtitle */}
-      <div className="shrink-0">
-        <div className="font-display text-[18px] font-semibold leading-tight tracking-tight">{title}</div>
-        {sub && <div className="text-[11.5px] text-muted-foreground">{sub}</div>}
-      </div>
+      {/* Page title + subtitle. A page with tabs names itself in its first tab,
+          so the title stands down rather than repeating the same word. */}
+      {!hasTabs && (
+        <div className="shrink-0">
+          <div className="font-display text-[18px] font-semibold leading-tight tracking-tight">{title}</div>
+          {sub && <div className="text-[11.5px] text-muted-foreground">{sub}</div>}
+        </div>
+      )}
+
+      {/* Where a page hangs its view tabs. Empty on pages that don't have any. */}
+      <PageTabsSlot className="shrink-0" />
 
       {/* Search */}
       <form

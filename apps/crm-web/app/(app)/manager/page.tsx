@@ -34,7 +34,7 @@ export default function ManagerPage() {
 
   return (
     <div>
-      <PageHead lead="Real-time floor status. Supervisor alerts fire when idle exceeds 20 minutes.">
+      <PageHead>
         <SearchInput value={q} onChange={setQ} placeholder="Search caller…" className="min-w-[200px]" />
         <FilterSelect icon={Filter} value={presence} onChange={setPresence} options={PRESENCE_OPTS} />
         <StatusPill status="On Call" kind="presence" />
@@ -42,8 +42,8 @@ export default function ManagerPage() {
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={Headphones} iconBg="#e8f2e4" iconColor="#3f7a32" value={onCall} label="On Call" />
-        <KpiCard icon={Phone} iconBg="#e7eed8" iconColor="#42512f" value={k?.totalCallsToday ?? 0} label="Calls Today" />
+        <KpiCard icon={Headphones} iconBg="#e4f2e4" iconColor="#317d34" value={onCall} label="On Call" />
+        <KpiCard icon={Phone} iconBg="#d8eed9" iconColor="#266929" value={k?.totalCallsToday ?? 0} label="Calls Today" />
         <KpiCard icon={Clock} iconBg="#e3f1ee" iconColor="#2f6f63" value={formatDuration(k?.totalTalkSecs ?? 0)} label="Talk Time Today" />
         <KpiCard icon={Percent} iconBg="#fbf3e2" iconColor="#c98a18" value={`${k?.conversionRate ?? 0}%`} label="Conversion Rate" />
       </div>

@@ -3,10 +3,10 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { RefreshCw, Download, PhoneCall, Target, Zap, Layers, Percent, Phone, CheckCircle2, DollarSign } from 'lucide-react';
+import { RefreshCw, Download, PhoneCall, Target, Zap, Percent, Phone, CheckCircle2, DollarSign } from 'lucide-react';
 import Link from 'next/link';
 import { leadsApi, type Lead } from '@/lib/leads';
-import { metricsApi, tasksApi, callsApi, type Task, type Followup } from '@/lib/crm';
+import { metricsApi, tasksApi, callsApi, communicationsApi, type Task, type Followup, type MissedCall } from '@/lib/crm';
 import { AvailabilityPanel } from '@/components/availability-panel';
 import { WidgetCard, type Column } from '@/components/dashboard/widget-card';
 import { KpiCard } from '@/components/dashboard/kpi-card';
@@ -48,6 +48,12 @@ const closedColumns: Column<Lead>[] = [
   { key: 'city', header: 'Location', cell: (r) => `${r.city}, ${r.state}` },
   { key: 'status', header: 'Status', cell: (r) => <StatusPill status={r.status} /> },
 ];
+const missedColumns: Column<MissedCall>[] = [
+  { key: 'at', header: 'When', cell: (r) => new Date(r.at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) },
+  { key: 'businessName', header: 'Customer', cell: (r) => <Link href={`/leads/${r.leadId}`} className="font-medium hover:underline">{r.businessName}</Link> },
+  { key: 'phone', header: 'Phone' },
+  { key: 'assignedTo', header: 'Assigned To', cell: (r) => r.assignedTo ?? '—' },
+];
 
 export default function DashboardPage() {
   const qc = useQueryClient();
@@ -59,9 +65,10 @@ export default function DashboardPage() {
     return { from: new Date(Date.now() - days * 86_400_000).toISOString() };
   }, [period]);
 
-  const { data: leads = [] } = useQuery({ queryKey: ['leads', 'today'], queryFn: leadsApi.list, retry: false, refetchInterval: LIVE_MS });
+  const { data: leads = [] } = useQuery({ queryKey: ['leads', 'today'], queryFn: () => leadsApi.list(), retry: false, refetchInterval: LIVE_MS });
   const { data: tasks = [] } = useQuery({ queryKey: ['tasks'], queryFn: tasksApi.list, retry: false });
   const { data: followups = [] } = useQuery({ queryKey: ['followups'], queryFn: () => callsApi.followups(), retry: false });
+  const { data: missed = [] } = useQuery({ queryKey: ['missed-calls'], queryFn: communicationsApi.missedCalls, retry: false, refetchInterval: LIVE_MS });
   const summaryQ = useQuery({ queryKey: ['metrics', 'summary', period], queryFn: () => metricsApi.summary(range), retry: false, refetchInterval: LIVE_MS, refetchOnWindowFocus: true });
   const s = summaryQ.data;
 
@@ -98,7 +105,7 @@ export default function DashboardPage() {
             onClick={() => downloadCsv('dashboard-snapshot', ['Metric', 'Value'], [
               ['Total Leads', s?.totalLeads ?? 0],
               ['Planned Leads', s?.plannedLeads ?? 0],
-              ['Balance Leads', s?.balanceLeads ?? 0],
+              ['Contacted', s?.contactedLeads ?? 0],
               ['Progress %', `${s?.progressPct ?? 0}%`],
               ['Closed Leads', s?.closedLeads ?? 0],
               ['Open Tasks', openTasks.length],
@@ -118,19 +125,20 @@ export default function DashboardPage() {
       {/* KPI cards */}
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
         <KpiCard index={0} icon={Target} iconBg="#e7f0f8" iconColor="#2c5d8f" value={<AnimatedNumber value={s?.totalLeads ?? 0} />} label="Total Leads" trend="4.2%" trendDir="up" spark={[40, 42, 45, 43, 50, 55, 58, 62, 70]} sparkColor="#2c5d8f" />
-        <KpiCard index={1} icon={Zap} iconBg="#e7eed8" iconColor="#42512f" value={<AnimatedNumber value={s?.plannedLeads ?? 0} />} label="Planned Leads" trend="2.1%" trendDir="up" spark={[30, 28, 33, 38, 36, 42, 44, 48, 52]} sparkColor="#556b34" />
-        <KpiCard index={2} icon={Layers} iconBg="#fbf3e2" iconColor="#c98a18" value={<AnimatedNumber value={s?.balanceLeads ?? 0} />} label="Balance Leads" spark={[40, 38, 35, 33, 30, 28, 25, 22, 20]} sparkColor="#c98a18" />
-        <KpiCard index={3} icon={Percent} iconBg="#e8f2e4" iconColor="#3f7a32" value={<AnimatedNumber value={s?.progressPct ?? 0} decimals={2} suffix="%" />} label="Progress to Target" trend="0.4%" trendDir="up" spark={[6, 6.5, 7, 7.2, 7.8, 8, 8.2, 8.4, 8.56]} sparkColor="#3f7a32" />
-        <KpiCard index={4} icon={CheckCircle2} iconBg="#e8f2e4" iconColor="#3f7a32" value={<AnimatedNumber value={s?.closedLeads ?? 0} />} label="Closed Leads" trend="8%" trendDir="up" spark={[10, 15, 18, 22, 25, 30, 33, 38, 41]} sparkColor="#3f7a32" />
+        <KpiCard index={1} icon={Zap} iconBg="#d8eed9" iconColor="#266929" value={<AnimatedNumber value={s?.plannedLeads ?? 0} />} label="Planned Leads" trend="2.1%" trendDir="up" spark={[30, 28, 33, 38, 36, 42, 44, 48, 52]} sparkColor="#2b732f" />
+        <KpiCard index={2} icon={PhoneCall} iconBg="#e3f1ee" iconColor="#2f6f63" value={<AnimatedNumber value={s?.contactedLeads ?? 0} />} label="Contacted" spark={[8, 12, 16, 20, 25, 30, 36, 42, 50]} sparkColor="#2f6f63" />
+        <KpiCard index={3} icon={Percent} iconBg="#e4f2e4" iconColor="#317d34" value={<AnimatedNumber value={s?.progressPct ?? 0} decimals={2} suffix="%" />} label="Progress to Target" trend="0.4%" trendDir="up" spark={[6, 6.5, 7, 7.2, 7.8, 8, 8.2, 8.4, 8.56]} sparkColor="#317d34" />
+        <KpiCard index={4} icon={CheckCircle2} iconBg="#e4f2e4" iconColor="#317d34" value={<AnimatedNumber value={s?.closedLeads ?? 0} />} label="Closed Leads" trend="8%" trendDir="up" spark={[10, 15, 18, 22, 25, 30, 33, 38, 41]} sparkColor="#317d34" />
         <KpiCard index={5} icon={Phone} iconBg="#e3f1ee" iconColor="#2f6f63" value={openTasks.length} label="Open Tasks" spark={[12, 18, 22, 30, 28, 35, 40, 46, 53]} sparkColor="#2f6f63" />
         <KpiCard index={6} icon={RefreshCw} iconBg="#fbf3e2" iconColor="#c98a18" value={followups.length} label="Follow-Ups" spark={[20, 22, 25, 28, 30, 29, 31, 33, 34]} sparkColor="#c98a18" />
-        <KpiCard index={7} icon={Percent} iconBg="#e7eed8" iconColor="#42512f" value={`${s?.progressPct ?? 0}%`} label="Conversion Rate" trend="0.4%" trendDir="up" spark={[6, 6.5, 7, 7.2, 7.8, 8, 8.2, 8.4, 8.56]} sparkColor="#556b34" />
+        <KpiCard index={7} icon={Percent} iconBg="#d8eed9" iconColor="#266929" value={`${s?.progressPct ?? 0}%`} label="Conversion Rate" trend="0.4%" trendDir="up" spark={[6, 6.5, 7, 7.2, 7.8, 8, 8.2, 8.4, 8.56]} sparkColor="#2b732f" />
       </div>
 
       {/* Widget grid — all live */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.2 }} className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <WidgetCard title="My Open Tasks" columns={taskColumns} rows={openTasks} emptyMessage="No open tasks." />
         <WidgetCard title="Upcoming Follow-Ups" columns={fuColumns} rows={followups} emptyMessage="No follow-ups scheduled." />
+        <WidgetCard title="Missed Calls" columns={missedColumns} rows={missed} emptyMessage="No missed calls." />
         <WidgetCard title="Today's Leads" columns={leadColumns} rows={todaysLeads} emptyMessage="No leads added today." />
         <WidgetCard title="Recently Closed & Interested" columns={closedColumns} rows={recentClosed} emptyMessage="No closed leads yet." />
       </motion.div>

@@ -53,10 +53,10 @@ export default function ActivityPage() {
   const positive = calls.filter((a) => a.newValue === 'closed_deal' || a.newValue === 'interested').length;
 
   const KPIS = [
-    { icon: Phone, bg: '#e7eed8', color: '#42512f', val: calls.length, lab: 'Calls Logged' },
+    { icon: Phone, bg: '#d8eed9', color: '#266929', val: calls.length, lab: 'Calls Logged' },
     { icon: Clock, bg: '#e3f1ee', color: '#2f6f63', val: '5h 10m', lab: 'Talk Time' },
     { icon: NotebookPen, bg: '#fbf3e2', color: '#c98a18', val: activities.length, lab: 'Activities' },
-    { icon: CheckCircle2, bg: '#e8f2e4', color: '#3f7a32', val: positive, lab: 'Positive Outcomes' },
+    { icon: CheckCircle2, bg: '#e4f2e4', color: '#317d34', val: positive, lab: 'Positive Outcomes' },
   ];
 
   const columns = useMemo<ColumnDef<Activity>[]>(() => [
@@ -69,7 +69,7 @@ export default function ActivityPage() {
 
   return (
     <div>
-      <PageHead lead="Every call logged with outcome and notes for the current shift.">
+      <PageHead>
         <SearchInput value={q} onChange={setQ} placeholder="Search lead, user, outcome…" className="min-w-[220px]" />
         <FilterSelect icon={Calendar} value={range} onChange={setRange} options={RANGE_OPTS} />
         <DateRangePicker value={dateRange} onChange={setDateRange} />
@@ -98,6 +98,7 @@ export default function ActivityPage() {
         title="Call Activity Log"
         subtitle={`${activities.length} shown`}
         emptyText={allActivities.length === 0 ? 'No activity yet — complete a call to log activity.' : 'No activity matches the current filters.'}
+        selectionMode="row"
       />
     </div>
   );

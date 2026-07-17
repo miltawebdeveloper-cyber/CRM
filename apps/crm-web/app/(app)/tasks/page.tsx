@@ -12,7 +12,7 @@ const COLS: { key: TaskStatus; name: string; color: string }[] = [
   { key: 'todo', name: 'To Do', color: '#2c5d8f' },
   { key: 'in_progress', name: 'In Progress', color: '#c98a18' },
   { key: 'review', name: 'Review', color: '#2f6f63' },
-  { key: 'done', name: 'Done', color: '#3f7a32' },
+  { key: 'done', name: 'Done', color: '#317d34' },
 ];
 const NEXT: Record<TaskStatus, TaskStatus | null> = { todo: 'in_progress', in_progress: 'review', review: 'done', done: null };
 const PRI_STYLE: Record<string, string> = { high: 'bg-[#fbeeec] text-[#a8431f]', medium: 'bg-[#fbf3e2] text-[#c98a18]', low: 'bg-muted text-muted-foreground' };
@@ -34,7 +34,7 @@ export default function TasksPage() {
 
   return (
     <div>
-      <PageHead lead="Personal task board. Use the arrow on a card to advance it to the next column.">
+      <PageHead>
         <FilterSelect
           icon={Filter}
           value={status}

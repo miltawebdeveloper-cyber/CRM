@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Phone, PhoneOff, Pause, Mic, X, Loader2, Check } from 'lucide-react';
+import { Phone, PhoneOff, X, Loader2, Check } from 'lucide-react';
 import { communicationsApi, callsApi, outcomesApi, type CallPhase, type Outcome } from '@/lib/crm';
 
 /** Minimal lead shape the Call button needs — any caller can pass this. */
@@ -34,7 +34,7 @@ export function useCall(): CallContextValue {
 const PHASES: Record<CallPhase, { label: string; bg: string; fg: string; pulse: boolean }> = {
   initiated: { label: 'Calling…', bg: '#8a6d1f', fg: '#fff', pulse: true },
   ringing: { label: 'Ringing…', bg: '#8a6d1f', fg: '#fff', pulse: true },
-  connected: { label: 'Connected', bg: '#42512f', fg: '#fff', pulse: false },
+  connected: { label: 'Connected', bg: '#266929', fg: '#fff', pulse: false },
   on_hold: { label: 'On Hold', bg: '#2c5d8f', fg: '#fff', pulse: false },
   ended: { label: 'Call ended', bg: '#5b5b5b', fg: '#fff', pulse: false },
 };
@@ -78,11 +78,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     onSuccess: (res) => {
       setActive({ callId: res.callId, lead: res.lead });
       setEnding(false);
-      if (res.tel && typeof window !== 'undefined') {
-        const a = document.createElement('a');
-        a.href = res.tel;
-        a.click();
-      }
+      // The QUO dial pad is opened at the click site (DialPad) so the browser
+      // doesn't block a tel: handoff fired from this async callback.
     },
   });
   const placeCallNumber = (phone: string) => { if (!active) placeByNumber.mutate(phone); };
@@ -108,6 +105,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       await callsApi.end(active.callId, outcome, finalDuration, callbackAt || undefined);
       if (notes.trim()) await callsApi.addNote(active.callId, notes.trim(), callbackAt || undefined, callbackAt || undefined);
     },
+    meta: { successMessage: 'Call logged' },
     onSuccess: () => {
       if (active) {
         qc.invalidateQueries({ queryKey: ['lead', active.lead.id, 'timeline'] });
@@ -119,6 +117,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  const phase: CallPhase = ending
+    ? 'ended'
+    : (place.isPending || placeByNumber.isPending) && !state
+      ? 'initiated'
+      : state?.phase ?? 'initiated';
+
+  // No live timer during the call — only capture the final duration on end, for
+  // the wrap-up screen and the timeline time log.
   const beginEnd = () => { setFinalDuration(state?.durationSecs ?? finalDuration); setEnding(true); };
 
   const value = useMemo<CallContextValue>(() => ({ placeCall, placeCallNumber, active: !!active }), [active]);
@@ -129,8 +135,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
       {active && (
         <CallWidget
           lead={active.lead}
-          phase={ending ? 'ended' : (place.isPending || placeByNumber.isPending) && !state ? 'initiated' : state?.phase ?? 'initiated'}
-          durationSecs={ending ? finalDuration : state?.durationSecs ?? 0}
+          phase={phase}
+          durationSecs={ending ? finalDuration : 0}
           ending={ending}
           outcomes={outcomes}
           outcome={outcome}
@@ -171,16 +177,14 @@ function CallWidget(props: {
   onClose: () => void;
 }) {
   const p = PHASES[props.phase];
-  const live = props.phase === 'connected' || props.phase === 'on_hold';
 
   return (
     <div className="fixed bottom-5 right-5 z-[60] w-[340px] overflow-hidden rounded-2xl border bg-card shadow-2xl">
-      {/* Status header */}
+      {/* Status header — no live timer during the call; only the phase label. */}
       <div className="flex items-center gap-2.5 px-4 py-3" style={{ background: p.bg, color: p.fg }}>
         <Phone className={`h-4 w-4 ${p.pulse ? 'animate-pulse' : ''}`} />
         <span className="text-[13px] font-semibold">{props.ending ? 'Wrap up call' : p.label}</span>
-        {live && !props.ending && <span className="ml-auto font-mono text-[13px] tabular-nums">{fmt(props.durationSecs)}</span>}
-        <button onClick={props.onClose} className={`grid h-7 w-7 place-items-center rounded-lg hover:bg-white/10 ${live && !props.ending ? '' : 'ml-auto'}`}>
+        <button onClick={props.onClose} className="ml-auto grid h-7 w-7 place-items-center rounded-lg hover:bg-white/10">
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -194,14 +198,8 @@ function CallWidget(props: {
 
         {!props.ending ? (
           <>
-            {/* In-call controls */}
-            <div className="mt-3.5 flex items-center gap-2">
-              <button disabled title="Mute is controlled in your OpenPhone dialer" className="grid h-10 w-10 place-items-center rounded-full border text-muted-foreground opacity-50">
-                <Mic className="h-4 w-4" />
-              </button>
-              <button disabled title="Hold is controlled in your OpenPhone dialer" className="grid h-10 w-10 place-items-center rounded-full border text-muted-foreground opacity-50">
-                <Pause className="h-4 w-4" />
-              </button>
+            {/* In-call controls — mute/hold live in the OpenPhone dialer, not here. */}
+            <div className="mt-3.5 flex items-center">
               <button
                 onClick={props.onEndCall}
                 className="ml-auto inline-flex items-center gap-2 rounded-full bg-[#9e2b21] px-5 py-2.5 text-[13px] font-semibold text-white hover:opacity-90"
@@ -210,7 +208,7 @@ function CallWidget(props: {
               </button>
             </div>
             <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground">
-              Live status updates automatically. Audio runs through your OpenPhone dialer; this stays your control panel.
+              Live status updates automatically. Audio, mute, and hold run through your OpenPhone dialer; this stays your control panel.
             </p>
           </>
         ) : (

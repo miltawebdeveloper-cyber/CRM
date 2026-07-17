@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Calendar, Plus, Clock, RefreshCw, CheckCircle2, AlertTriangle, Phone, Filter, Pencil, CircleCheckBig, Users } from 'lucide-react';
 import { callsApi, assignmentsApi, type Followup } from '@/lib/crm';
+import { openQuoDialer } from '@/lib/dialer';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { DateRangePicker, FilterSelect, SearchInput } from '@/components/filter-controls';
@@ -87,7 +88,7 @@ export default function FollowupsPage() {
   const columns = useMemo<ColumnDef<Followup>[]>(() => [
     {
       key: 'when', header: 'When', required: true,
-      render: (f) => { const w = whenLabel(f.nextFollowupDate); return <div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: w.overdue ? '#a8431f' : w.today ? '#c98a18' : '#94ab68' }} /><b>{w.text}</b></div>; },
+      render: (f) => { const w = whenLabel(f.nextFollowupDate); return <div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: w.overdue ? '#a8431f' : w.today ? '#c98a18' : '#a6c74d' }} /><b>{w.text}</b></div>; },
     },
     { key: 'company', header: 'Company', render: (f) => <div className="flex items-center gap-[10px]"><Avatar name={f.lead?.businessName ?? '—'} /><span className="font-semibold">{f.lead?.businessName ?? '—'}</span></div> },
     { key: 'note', header: 'Note', cellClassName: 'max-w-[280px] truncate text-muted-foreground', render: (f) => f.noteText },
@@ -98,7 +99,7 @@ export default function FollowupsPage() {
       required: true,
       render: (f) => (
         <div className="flex items-center gap-2">
-          <button onClick={() => router.push('/calling')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-50 transition-opacity hover:bg-primary hover:text-primary-foreground group-hover:opacity-100" title="Open calling">
+          <button onClick={() => { if (f.lead) { openQuoDialer(f.lead.phone); router.push(`/calling?leadId=${f.lead.id}&autocall=1`); } else { router.push('/calling'); } }} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-50 transition-opacity hover:bg-primary hover:text-primary-foreground group-hover:opacity-100" title="Call lead">
             <Phone className="h-[15px] w-[15px]" />
           </button>
           <button onClick={() => void mutateFollowup(f.kind, f.id, 'edit')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-60 transition-opacity hover:bg-muted hover:opacity-100" title="Edit follow-up">
@@ -114,7 +115,7 @@ export default function FollowupsPage() {
 
   return (
     <div>
-      <PageHead lead="Scheduled callbacks and follow-up reminders from call notes, sorted by due time.">
+      <PageHead>
         <button onClick={() => router.push('/calendar')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted"><Calendar className="h-4 w-4" /> Calendar</button>
         <button onClick={() => router.push('/calling')} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> Schedule</button>
       </PageHead>
@@ -122,7 +123,7 @@ export default function FollowupsPage() {
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
         <KpiCard icon={Clock} iconBg="#fbeeec" iconColor="#a8431f" value={dueToday} label="Due Today" />
         <KpiCard icon={RefreshCw} iconBg="#fbf3e2" iconColor="#c98a18" value={thisWeek} label="This Week" />
-        <KpiCard icon={CheckCircle2} iconBg="#e8f2e4" iconColor="#3f7a32" value={fus.length} label="Total Scheduled" />
+        <KpiCard icon={CheckCircle2} iconBg="#e4f2e4" iconColor="#317d34" value={fus.length} label="Total Scheduled" />
         <KpiCard icon={AlertTriangle} iconBg="#fbeeec" iconColor="#a8431f" value={overdue} label="Overdue" />
       </div>
 

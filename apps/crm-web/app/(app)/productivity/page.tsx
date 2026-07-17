@@ -35,8 +35,8 @@ export default function ProductivityPage() {
       key: 'output', header: 'Output', cellClassName: 'min-w-[160px]',
       render: (r) => (
         <div className="flex items-center gap-[9px]">
-          <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#e7eed8]">
-            <span className="block h-full rounded-full" style={{ width: `${(r.conversionPct / maxConv) * 100}%`, background: 'linear-gradient(90deg,#556b34,#6f8745)' }} />
+          <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#d8eed9]">
+            <span className="block h-full rounded-full" style={{ width: `${(r.conversionPct / maxConv) * 100}%`, background: 'linear-gradient(90deg,#2b732f,#7e9933)' }} />
           </div>
         </div>
       ),
@@ -45,15 +45,15 @@ export default function ProductivityPage() {
 
   return (
     <div>
-      <PageHead lead="Productivity and conversion across the calling floor.">
+      <PageHead>
         <Segmented options={PERIODS} value={period} onChange={setPeriod} />
       </PageHead>
 
       <div className={`mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))] transition-opacity ${isFetching ? 'opacity-60' : ''}`}>
-        <KpiCard icon={Phone} iconBg="#e7eed8" iconColor="#42512f" value={totalCalls} label={`Total Calls (${PERIOD_LABEL[period]})`} />
+        <KpiCard icon={Phone} iconBg="#d8eed9" iconColor="#266929" value={totalCalls} label={`Total Calls (${PERIOD_LABEL[period]})`} />
         <KpiCard icon={Clock} iconBg="#e3f1ee" iconColor="#2f6f63" value={formatDuration(totalTalk)} label="Total Talk Time" />
         <KpiCard icon={Percent} iconBg="#fbf3e2" iconColor="#c98a18" value={totalCalls ? formatDuration(Math.round(totalTalk / totalCalls)) : '0s'} label="Avg Call Time" />
-        <KpiCard icon={Star} iconBg="#e8f2e4" iconColor="#3f7a32" value={best?.name?.split(' ')[0] ?? '—'} label="Best Performer" />
+        <KpiCard icon={Star} iconBg="#e4f2e4" iconColor="#317d34" value={best?.name?.split(' ')[0] ?? '—'} label="Best Performer" />
       </div>
 
       <DataTable

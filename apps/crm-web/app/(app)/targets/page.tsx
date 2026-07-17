@@ -12,7 +12,7 @@ export default function TargetsPage() {
   const { data: targets = [], isLoading } = useQuery({ queryKey: ['targets'], queryFn: targetsApi.list });
 
   const columns = useMemo<ColumnDef<Target>[]>(() => [
-    { key: 'timezone', header: 'Timezone', required: true, render: (t) => <span className="rounded-full bg-[#e7eed8] px-2 py-0.5 text-[11px] font-semibold text-[#42512f]">{t.timezone}</span> },
+    { key: 'timezone', header: 'Timezone', required: true, render: (t) => <span className="rounded-full bg-[#d8eed9] px-2 py-0.5 text-[11px] font-semibold text-[#266929]">{t.timezone}</span> },
     { key: 'state', header: 'State', render: (t) => t.state },
     { key: 'city', header: 'City', cellClassName: 'font-semibold', render: (t) => t.city },
     { key: 'target', header: 'Monthly Target', headerClassName: 'text-right', cellClassName: 'text-right font-mono tabular-nums', render: (t) => t.monthlyTarget.toLocaleString(), footer: (rows) => rows.reduce((a, t) => a + t.monthlyTarget, 0).toLocaleString() },
@@ -23,10 +23,9 @@ export default function TargetsPage() {
 
   return (
     <div>
-      <PageHead lead="Per-city lead targets used in progress calculations across the dashboard and pivot." />
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={Flag} iconBg="#e7eed8" iconColor="#42512f" value={totalTarget.toLocaleString()} label="Total Planned Leads" />
+        <KpiCard icon={Flag} iconBg="#d8eed9" iconColor="#266929" value={totalTarget.toLocaleString()} label="Total Planned Leads" />
         <KpiCard icon={Building2} iconBg="#e7f0f8" iconColor="#2c5d8f" value={cities} label="Cities with Targets" />
         <KpiCard icon={MapPin} iconBg="#fbf3e2" iconColor="#c98a18" value={states} label="States Covered" />
       </div>

@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class SendSmsDto {
@@ -12,6 +12,41 @@ export class SendSmsDto {
   @IsOptional()
   @IsString()
   from?: string;
+}
+
+/** Shared filters for the Calling Panel's Recordings / SMS tabs. */
+export class HistoryQueryDto {
+  @ApiPropertyOptional({ description: 'Free-text search (customer, number, agent, message body)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  search?: string;
+
+  @ApiPropertyOptional({ enum: ['inbound', 'outbound'] })
+  @IsOptional()
+  @IsIn(['inbound', 'outbound'])
+  direction?: 'inbound' | 'outbound';
+
+  @ApiPropertyOptional({ description: 'Message status (sent, delivered, undelivered, received, failed)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  status?: string;
+
+  @ApiPropertyOptional({ description: 'Start of the date range (yyyy-mm-dd)' })
+  @IsOptional()
+  @IsString()
+  from?: string;
+
+  @ApiPropertyOptional({ description: 'End of the date range (yyyy-mm-dd)' })
+  @IsOptional()
+  @IsString()
+  to?: string;
+
+  @ApiPropertyOptional({ description: 'Restrict to a single lead' })
+  @IsOptional()
+  @IsUUID()
+  leadId?: string;
 }
 
 export class CallByPhoneDto {

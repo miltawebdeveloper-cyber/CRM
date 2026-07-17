@@ -50,7 +50,7 @@ export function AvailabilityPanel() {
       {/* Availability control */}
       <div className="flex flex-wrap items-center gap-3 rounded-2xl border bg-card p-4 shadow-sm">
         <span className="inline-flex items-center gap-2 text-[13px] font-semibold">
-          <Circle className={`h-2.5 w-2.5 ${online ? 'fill-[#3f7a32] text-[#3f7a32]' : 'fill-[#9e2b21] text-[#9e2b21]'}`} />
+          <Circle className={`h-2.5 w-2.5 ${online ? 'fill-[#317d34] text-[#317d34]' : 'fill-[#9e2b21] text-[#9e2b21]'}`} />
           {online ? 'Online' : `Offline${status?.reason ? ` · ${status.reason}` : ''}`}
         </span>
         <div className="ml-auto flex items-center gap-2">
@@ -68,7 +68,7 @@ export function AvailabilityPanel() {
               </button>
             )
           ) : (
-            <button disabled={busy} onClick={goOnline} className="inline-flex items-center gap-2 rounded-md bg-[#3f7a32] px-3 py-1.5 text-[12.5px] font-semibold text-white disabled:opacity-50">
+            <button disabled={busy} onClick={goOnline} className="inline-flex items-center gap-2 rounded-md bg-[#317d34] px-3 py-1.5 text-[12.5px] font-semibold text-white disabled:opacity-50">
               <Power className="h-3.5 w-3.5" /> Go Online
             </button>
           )}

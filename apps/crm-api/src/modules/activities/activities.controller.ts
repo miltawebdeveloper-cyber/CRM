@@ -17,6 +17,7 @@ export class ActivitiesController {
     return this.activities.list(user, limit ? Number(limit) : 100);
   }
 
+  // Lead History is Admin + Team Leader only; employees have no access at all.
   @Roles(Role.admin, Role.team_leader)
   @Get('lead/:leadId')
   listLead(@Param('leadId') leadId: string, @CurrentUser() user: AuthUser, @Query('limit') limit?: string) {

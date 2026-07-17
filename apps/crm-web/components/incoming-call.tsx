@@ -43,7 +43,7 @@ export function IncomingCallPopup() {
 
   return (
     <div className="fixed bottom-5 right-5 z-50 w-[320px] overflow-hidden rounded-2xl border bg-card shadow-2xl">
-      <div className="flex items-center gap-2.5 bg-[#42512f] px-4 py-3 text-white">
+      <div className="flex items-center gap-2.5 bg-[#266929] px-4 py-3 text-white">
         <PhoneIncoming className="h-4 w-4 animate-pulse" />
         <span className="text-[13px] font-semibold">{active.connected ? 'Call connected' : 'Incoming call'}</span>
         <button onClick={close} className="ml-auto grid h-7 w-7 place-items-center rounded-lg hover:bg-white/10"><X className="h-4 w-4" /></button>

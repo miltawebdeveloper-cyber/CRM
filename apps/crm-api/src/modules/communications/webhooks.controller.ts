@@ -1,4 +1,4 @@
-import { Controller, Post, Req, Headers, ForbiddenException, HttpCode } from '@nestjs/common';
+import { Controller, Post, Req, Headers, ForbiddenException, HttpCode, Logger } from '@nestjs/common';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags } from '@nestjs/swagger';
@@ -9,6 +9,8 @@ import { CommunicationsService } from './communications.service';
 @ApiTags('webhooks')
 @Controller('webhooks')
 export class WebhooksController {
+  private readonly logger = new Logger(WebhooksController.name);
+
   constructor(private readonly comms: CommunicationsService) {}
 
   @Public()
@@ -21,6 +23,10 @@ export class WebhooksController {
       headers['openphone-signature'] ||
       headers['x-openphone-signature'] ||
       headers['x-webhook-signature'];
+    // Log every delivery so a real QUO event is visible even if it later fails
+    // signature verification (distinguishes "not delivered" from "rejected").
+    const type = (req.body as { type?: string })?.type ?? 'unknown';
+    this.logger.log(`Webhook delivery received: type=${type}, signed=${sig ? 'yes' : 'no'}`);
     if (!this.comms.verifySignature(raw, sig)) throw new ForbiddenException('Invalid webhook signature');
     return this.comms.handleEvent((req.body as Record<string, unknown>) ?? {});
   }

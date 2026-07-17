@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import * as crypto from 'crypto';
-import { CommDirection, Timezone, LeadStatus } from '@crm/database';
+import { CommDirection, Timezone, LeadStatus, Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OpenPhoneService } from '../openphone/openphone.service';
 
@@ -23,21 +23,48 @@ export class CommunicationsService {
     return process.env.QUO_WEBHOOK_SECRET || process.env.OPENPHONE_WEBHOOK_SECRET || '';
   }
 
-  /** Verify a webhook signature. Accepts hex or base64, with optional
-   * `sha256=` prefix or OpenPhone's `hmac;v;ts;sig` format (last segment). */
+  /**
+   * Verify a webhook signature.
+   *
+   * OpenPhone/Quo scheme: the `openphone-signature` header is
+   * `hmac;<version>;<timestamp>;<digest>`. The digest is base64(HMAC-SHA256)
+   * where the KEY is the base64-DECODED signing secret and the signed data is
+   * `${timestamp}.${rawBody}`. Falls back to a plain hex/base64 HMAC of the raw
+   * body (secret as a UTF-8 key) for simpler/other providers.
+   */
   verifySignature(raw: Buffer | string, signature?: string): boolean {
     const secret = this.webhookSecret;
     if (!secret) {
       this.logger.warn('No QUO_WEBHOOK_SECRET set — accepting webhook unverified (dev only)');
       return true;
     }
-    if (!signature) return false;
+    if (!signature) {
+      this.logger.warn('Webhook rejected: no signature header present');
+      return false;
+    }
     const body = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+    const eq = (a: string, b: string) => a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+
+    const parts = signature.split(';');
+    // OpenPhone/Quo: hmac;version;timestamp;digest
+    if (parts.length >= 4) {
+      const timestamp = parts[2];
+      const digest = parts[3];
+      const key = Buffer.from(secret, 'base64');
+      const signed = Buffer.concat([Buffer.from(`${timestamp}.`), body]);
+      const computed = crypto.createHmac('sha256', key).update(signed).digest('base64');
+      const ok = eq(digest, computed);
+      if (!ok) this.logger.warn('Webhook rejected: OpenPhone signature mismatch');
+      return ok;
+    }
+
+    // Fallback: plain HMAC of the raw body, secret used as a UTF-8 key.
+    const provided = signature.replace(/^sha256=/, '');
     const hex = crypto.createHmac('sha256', secret).update(body).digest('hex');
     const b64 = Buffer.from(hex, 'hex').toString('base64');
-    const provided = signature.includes(';') ? signature.split(';').pop()! : signature.replace(/^sha256=/, '');
-    const eq = (a: string, b: string) => a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
-    return eq(provided, hex) || eq(provided, b64);
+    const ok = eq(provided, hex) || eq(provided, b64);
+    if (!ok) this.logger.warn('Webhook rejected: signature mismatch');
+    return ok;
   }
 
   // ── Event dispatch ──
@@ -60,6 +87,21 @@ export class CommunicationsService {
       this.fallbackAdminId = admin?.id ?? (await this.prisma.user.findFirst({ select: { id: true } }))!.id;
     }
     return this.fallbackAdminId;
+  }
+
+  /**
+   * Owner of an inbound call: the agent who most recently called this customer
+   * (outbound) before it. That way a missed call is assigned to whoever was
+   * working the lead, not a fallback admin. Falls back to the lead's assignee,
+   * then an admin.
+   */
+  private async resolveInboundOwner(leadId: string, assignedToId: string | null): Promise<string> {
+    const lastOutbound = await this.prisma.call.findFirst({
+      where: { leadId, direction: CommDirection.outbound },
+      orderBy: { startTime: 'desc' },
+      select: { callerId: true },
+    });
+    return lastOutbound?.callerId ?? (await this.resolveCallerId(assignedToId));
   }
 
   /** Find a lead by phone (last 10 digits) or create a minimal one. */
@@ -91,6 +133,20 @@ export class CommunicationsService {
 
   private async touchLead(leadId: string) {
     await this.prisma.lead.update({ where: { id: leadId }, data: { lastCommunicationAt: new Date() } });
+  }
+
+  /**
+   * Mirror a webhook-delivered recording into call_recordings so it shows up in
+   * the Calling Panel's Recordings tab, which reads segments rather than the
+   * single Call.recordingUrl column. Keyed on the URL so repeated call.* events
+   * for the same recording don't stack up duplicate rows.
+   */
+  private async linkRecording(callId: string, url: string, durationSecs?: number | null) {
+    const exists = await this.prisma.callRecording.findFirst({ where: { callId, url }, select: { id: true } });
+    if (exists) return;
+    await this.prisma.callRecording.create({
+      data: { callId, url, durationSecs: durationSecs ?? null, status: 'completed', startTime: new Date() },
+    });
   }
 
   // ── Messages (SMS) ──
@@ -161,6 +217,7 @@ export class CommunicationsService {
           ...(isFinal ? { endTime: new Date() } : {}),
         },
       });
+      if (recordingUrl) await this.linkRecording(existing.id, recordingUrl, durationSecs);
       await this.touchLead(existing.leadId);
       return { ok: true, callId: existing.id };
     }
@@ -173,7 +230,12 @@ export class CommunicationsService {
     if (!external) return { ignored: 'no phone' };
 
     const lead = await this.findOrCreateLeadByPhone(external);
-    const callerId = await this.resolveCallerId(lead.assignedToId);
+    // Inbound calls are owned by whoever last called this customer (so missed
+    // calls land with the right agent); outbound falls back to the assignee.
+    const callerId =
+      direction === CommDirection.inbound
+        ? await this.resolveInboundOwner(lead.id, lead.assignedToId)
+        : await this.resolveCallerId(lead.assignedToId);
     const startTime = o.createdAt ? new Date(o.createdAt as string) : new Date();
     const created = await this.prisma.call.create({
       data: {
@@ -183,6 +245,7 @@ export class CommunicationsService {
         startTime, endTime: durationSecs != null ? new Date() : null,
       },
     });
+    if (recordingUrl) await this.linkRecording(created.id, recordingUrl, durationSecs);
     await this.touchLead(lead.id);
 
     // Workflow: missed inbound call → follow-up task for the owner.
@@ -398,6 +461,36 @@ export class CommunicationsService {
     // auto-open). Conservative allowlist so ringing/initiated don't trigger it.
     const connected = ['in-progress', 'in_progress', 'answered', 'connected', 'ongoing', 'active'].includes((call.status ?? '').toLowerCase());
     return { callId: call.id, at: call.startTime, status: call.status, connected, lead: call.lead };
+  }
+
+  // ── Missed calls (dashboard "Missed Calls" widget) ──
+  /** Recent missed inbound calls. Employees see only the ones assigned to them
+   *  (i.e. calls attributed to them via resolveInboundOwner); managers see all. */
+  async getMissedCalls(userId: string, role: string, limit = 20) {
+    const where: Prisma.CallWhereInput = {
+      direction: CommDirection.inbound,
+      OR: [{ status: { in: ['missed', 'no-answer', 'no_answer'] } }, { durationSecs: 0 }],
+    };
+    if (role === 'employee') where.callerId = userId;
+    const calls = await this.prisma.call.findMany({
+      where,
+      include: {
+        lead: { select: { id: true, businessName: true, phone: true, city: true, state: true } },
+        caller: { select: { id: true, name: true } },
+      },
+      orderBy: { startTime: 'desc' },
+      take: limit,
+    });
+    return calls.map((c) => ({
+      id: c.id,
+      at: c.startTime,
+      leadId: c.lead.id,
+      businessName: c.lead.businessName,
+      phone: c.lead.phone,
+      status: c.status,
+      assignedTo: c.caller?.name ?? null,
+      assignedToId: c.callerId,
+    }));
   }
 
   // ── Communication analytics ──

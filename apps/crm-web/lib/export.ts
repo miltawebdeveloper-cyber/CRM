@@ -40,12 +40,12 @@ export function printTable(title: string, headers: string[], rows: (string | num
   if (!w) return;
   const esc = (s: unknown) => String(s ?? '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]!));
   w.document.write(`<!DOCTYPE html><html><head><title>${esc(title)}</title><style>
-    body{font-family:Inter,Arial,sans-serif;color:#11140d;padding:28px}
-    h1{font-size:18px;margin:0 0 4px} .sub{color:#6b7359;font-size:12px;margin-bottom:18px}
+    body{font-family:Inter,Arial,sans-serif;color:#0c120d;padding:28px}
+    h1{font-size:18px;margin:0 0 4px} .sub{color:#5a725b;font-size:12px;margin-bottom:18px}
     table{width:100%;border-collapse:collapse;font-size:12px}
-    th{text-align:left;text-transform:uppercase;font-size:10px;letter-spacing:.06em;color:#6b7359;border-bottom:1px solid #e3e7d6;padding:8px 10px}
-    td{padding:8px 10px;border-bottom:1px solid #eef0e8}
-    tr:nth-child(even){background:#fafbf6}
+    th{text-align:left;text-transform:uppercase;font-size:10px;letter-spacing:.06em;color:#5a725b;border-bottom:1px solid #d7e5d7;padding:8px 10px}
+    td{padding:8px 10px;border-bottom:1px solid #eaf1ea}
+    tr:nth-child(even){background:#f5faf5}
   </style></head><body>
     <h1>${esc(title)}</h1><div class="sub">Ranger CRM · ${new Date().toLocaleString()}</div>
     <table><thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead>

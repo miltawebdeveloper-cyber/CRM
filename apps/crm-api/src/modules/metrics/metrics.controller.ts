@@ -2,6 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { MetricsService } from './metrics.service';
 import { MetricsQueryDto } from './dto/metrics.dto';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('metrics')
 @ApiBearerAuth()
@@ -10,8 +11,8 @@ export class MetricsController {
   constructor(private readonly metrics: MetricsService) {}
 
   @Get('summary')
-  summary(@Query() q: MetricsQueryDto) {
-    return this.metrics.summary(q);
+  summary(@Query() q: MetricsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.metrics.summary(q, user);
   }
 
   @Get('by-timezone')

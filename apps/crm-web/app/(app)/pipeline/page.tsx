@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { GitBranch, DollarSign, Percent, Clock, MapPin, Building2 } from 'lucide-react';
 import { leadsApi, type Lead } from '@/lib/leads';
 import { PageHead, Avatar } from '@/components/page-head';
@@ -20,8 +20,8 @@ const STAGES: { key: Lead['status']; name: string; color: string }[] = [
   { key: 'new', name: 'New', color: '#2c5d8f' },
   { key: 'in_progress', name: 'In Progress', color: '#c98a18' },
   { key: 'contacted', name: 'Contacted', color: '#2f6f63' },
-  { key: 'interested', name: 'Interested', color: '#6f8745' },
-  { key: 'closed', name: 'Closed Won', color: '#3f7a32' },
+  { key: 'interested', name: 'Interested', color: '#7e9933' },
+  { key: 'closed', name: 'Closed Won', color: '#317d34' },
   { key: 'rejected', name: 'Rejected', color: '#a8431f' },
 ];
 
@@ -33,7 +33,15 @@ export default function PipelinePage() {
   const [city, setCity] = useState('');
   const [created, setCreated] = useState<DateRange>({ from: '', to: '' });
   const [q, setQ] = useState('');
-  const { data: allLeads = [] } = useQuery({ queryKey: ['leads'], queryFn: leadsApi.list });
+  const qc = useQueryClient();
+  const { data: allLeads = [] } = useQuery({ queryKey: ['leads'], queryFn: () => leadsApi.list() });
+
+  // Soft-delete selected leads (own leads only for employees, enforced server-side).
+  const removeLeads = useMutation({
+    mutationFn: async (rows: Lead[]) => { for (const l of rows) await leadsApi.remove(l.id); },
+    meta: { successMessage: 'Lead(s) deleted' },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['leads'] }),
+  });
 
   // Timezone → State → City: each level's options narrow to the picks above it.
   const tzOpts = optionsFrom(allLeads.map((l) => l.timezone), 'All Timezones');
@@ -69,7 +77,7 @@ export default function PipelinePage() {
 
   return (
     <div>
-      <PageHead lead="Move deals across stages. Click a card to open the lead.">
+      <PageHead>
         <SearchInput value={q} onChange={setQ} placeholder="Search deal or location…" className="min-w-[220px]" />
         <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={tzOpts} />
         <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
@@ -79,8 +87,8 @@ export default function PipelinePage() {
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={GitBranch} iconBg="#e7eed8" iconColor="#42512f" value={openDeals} label="Open Deals" />
-        <KpiCard icon={DollarSign} iconBg="#e8f2e4" iconColor="#3f7a32" value="$284K" label="Weighted Value" />
+        <KpiCard icon={GitBranch} iconBg="#d8eed9" iconColor="#266929" value={openDeals} label="Open Deals" />
+        <KpiCard icon={DollarSign} iconBg="#e4f2e4" iconColor="#317d34" value="$284K" label="Weighted Value" />
         <KpiCard icon={Percent} iconBg="#fbf3e2" iconColor="#c98a18" value="22%" label="Win Rate" />
         <KpiCard icon={Clock} iconBg="#e3f1ee" iconColor="#2f6f63" value="14 days" label="Avg Cycle" />
       </div>
@@ -96,7 +104,15 @@ export default function PipelinePage() {
                   <span className="rounded-full border bg-card px-2 py-px text-[11px] font-bold text-muted-foreground">{deals.length}</span>
                 </div>
                 {deals.slice(0, 8).map((d) => (
-                  <div key={d.id} onClick={() => router.push(`/leads/${d.id}`)} className="mb-[9px] cursor-pointer rounded-[11px] border bg-card p-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
+                  <div
+                    key={d.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Open ${d.businessName}`}
+                    onClick={() => router.push(`/leads/${d.id}`)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/leads/${d.id}`); } }}
+                    className="mb-[9px] cursor-pointer rounded-[11px] border bg-card p-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                  >
                     <div className="text-[13px] font-semibold">{d.businessName}</div>
                     <div className="my-1.5 font-display text-[15px] font-semibold text-primary">{d.city}, {d.state}</div>
                     <div className="flex items-center justify-between text-[11px] text-muted-foreground"><span>{d.timezone}</span><Avatar name={d.businessName} /></div>
@@ -115,6 +131,8 @@ export default function PipelinePage() {
           getRowKey={(d) => d.id}
           emptyText="No deals."
           onRowClick={(d) => router.push(`/leads/${d.id}`)}
+          onDeleteSelected={(rows) => removeLeads.mutateAsync(rows)}
+          deleteConfirm={(rows) => `Delete ${rows.length} lead${rows.length > 1 ? 's' : ''}? (History is kept.)`}
         />
       )}
     </div>

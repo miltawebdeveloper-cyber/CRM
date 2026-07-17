@@ -83,7 +83,7 @@ export default function OutcomesPage() {
 
   return (
     <div>
-      <PageHead lead="All call outcomes with callback scheduling, pinned reminders, and outcome-level filtering.">
+      <PageHead>
         <div className="flex flex-wrap items-center gap-2.5">
           <SearchInput value={q} onChange={setQ} placeholder="Search lead, caller, phone…" className="min-w-[220px]" />
           {isManager && <FilterSelect icon={User} value={userId} onChange={setUserId} options={userOpts} />}
@@ -101,6 +101,7 @@ export default function OutcomesPage() {
         subtitle={`${filtered.length} shown`}
         loading={isLoading}
         emptyText="No outcome records match the current filters."
+        selectionMode="row"
       />
     </div>
   );

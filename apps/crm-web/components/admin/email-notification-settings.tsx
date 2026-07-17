@@ -18,7 +18,7 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
     <button
       type="button"
       onClick={() => onChange(!on)}
-      className={`relative h-6 w-[42px] shrink-0 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-[#ccd3ba]'}`}
+      className={`relative h-6 w-[42px] shrink-0 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-[#bbd3bc]'}`}
       aria-pressed={on}
     >
       <span className={`absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all ${on ? 'left-[21px]' : 'left-[3px]'}`} />
@@ -74,7 +74,7 @@ export function EmailNotificationSettings() {
   return (
     <div className="rounded-2xl border bg-card shadow-sm">
       <div className="flex items-center gap-2 border-b px-[18px] py-4">
-        <Mail className="h-4 w-4 text-[#42512f]" />
+        <Mail className="h-4 w-4 text-[#266929]" />
         <div>
           <h3 className="font-display text-[15px] font-semibold">Email Notification Settings</h3>
           <div className="text-xs text-muted-foreground">Recipients & types for callback emails — editable without code changes</div>
@@ -139,7 +139,7 @@ export function EmailNotificationSettings() {
           >
             <Check className="h-4 w-4" /> {save.isPending ? 'Saving…' : 'Save settings'}
           </button>
-          {save.isSuccess && !dirty && <span className="text-[12.5px] font-medium text-[#3f7a32]">Saved.</span>}
+          {save.isSuccess && !dirty && <span className="text-[12.5px] font-medium text-[#317d34]">Saved.</span>}
           {save.isError && <span className="text-[12.5px] font-medium text-[#9e2b21]">Failed to save.</span>}
         </div>
       </div>

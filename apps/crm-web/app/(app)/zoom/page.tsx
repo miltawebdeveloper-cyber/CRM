@@ -71,7 +71,7 @@ export default function ZoomPage() {
 
   return (
     <div>
-      <PageHead lead="Schedule Zoom meetings with clients and keep a complete per-client meeting history.">
+      <PageHead>
         <button onClick={() => setScheduleOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground">
           <Plus className="h-4 w-4" /> Schedule Meeting
         </button>
@@ -79,9 +79,9 @@ export default function ZoomPage() {
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
         <KpiCard icon={CalendarClock} iconBg="#e7f0f8" iconColor="#2c5d8f" value={kpis.today} label="Today" />
-        <KpiCard icon={Video} iconBg="#eef0e8" iconColor="#6b7359" value={kpis.scheduled} label="Upcoming" />
+        <KpiCard icon={Video} iconBg="#eaf1ea" iconColor="#5a725b" value={kpis.scheduled} label="Upcoming" />
         <KpiCard icon={PlayCircle} iconBg="#fbf3e2" iconColor="#c98a18" value={kpis.inProgress} label="In Progress" />
-        <KpiCard icon={CheckCircle2} iconBg="#e8f2e4" iconColor="#3f7a32" value={kpis.completed} label="Completed" />
+        <KpiCard icon={CheckCircle2} iconBg="#e4f2e4" iconColor="#317d34" value={kpis.completed} label="Completed" />
       </div>
 
       {/* Toolbar */}
@@ -152,7 +152,7 @@ export default function ZoomPage() {
                         <button onClick={() => act(() => zoomApi.start(m.id))} className="rounded-md border px-2.5 py-1.5 text-[12px] font-semibold hover:bg-muted">Start</button>
                       )}
                       {m.status === 'in_progress' && (
-                        <button onClick={() => setCompleteFor(m)} className="rounded-md bg-[#3f7a32] px-2.5 py-1.5 text-[12px] font-semibold text-white">Complete</button>
+                        <button onClick={() => setCompleteFor(m)} className="rounded-md bg-[#317d34] px-2.5 py-1.5 text-[12px] font-semibold text-white">Complete</button>
                       )}
                       <button onClick={() => setDetailId(m.id)} className="rounded-md border px-2.5 py-1.5 text-[12px] font-semibold hover:bg-muted">Details</button>
                     </div>
@@ -181,7 +181,7 @@ export default function ZoomPage() {
 
 // ──────────────────────── Schedule modal ────────────────────────
 function ScheduleModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const { data: leads = [] } = useQuery({ queryKey: ['leads'], queryFn: leadsApi.list });
+  const { data: leads = [] } = useQuery({ queryKey: ['leads'], queryFn: () => leadsApi.list() });
   const [leadId, setLeadId] = useState('');
   const [when, setWhen] = useState(() => {
     const d = new Date();
@@ -326,7 +326,7 @@ function CompleteModal({ meeting, onClose, onSaved }: { meeting: ZoomMeeting; on
       </div>
       <div className="mt-5 flex justify-end gap-2">
         <button onClick={onClose} className="rounded-md border px-4 py-2 text-sm font-semibold hover:bg-muted">Cancel</button>
-        <button onClick={save} disabled={busy} className="rounded-md bg-[#3f7a32] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Save & complete</button>
+        <button onClick={save} disabled={busy} className="rounded-md bg-[#317d34] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Save & complete</button>
       </div>
     </Modal>
   );

@@ -27,34 +27,38 @@
   --radius-md: calc(var(--radius) - 3px);
 }
 
-/* ── Ranger CRM — military-olive design tokens ──────────────────── */
+/* ── Milta CRM — brand green design tokens ─────────────────────────
+   Taken from the Milta logo: forest #266929 (hue 123) carries the brand, lime
+   #99ba3b (hue 76) is its highlight. Each token keeps the lightness the old
+   olive scale had — lightness is what carries contrast, so every ratio the UI
+   already passed still passes; only the hue moved onto the brand. */
 :root {
-  --background: 72 33% 97%;       /* bone */
-  --foreground: 86 21% 6%;        /* ink */
+  --background: 123 30% 97%;      /* bone */
+  --foreground: 123 20% 6%;       /* ink */
   --card: 0 0% 100%;
-  --card-foreground: 86 21% 6%;
-  --primary: 85 27% 25%;          /* olive-600 */
+  --card-foreground: 123 20% 6%;
+  --primary: 123 47% 28%;         /* brand forest — #266929 */
   --primary-foreground: 0 0% 100%;
-  --accent: 39 79% 44%;           /* amber */
-  --accent-foreground: 86 21% 6%;
-  --muted: 76 38% 95%;            /* olive-050 */
-  --muted-foreground: 78 13% 40%;
-  --border: 74 26% 87%;           /* line */
+  --accent: 39 79% 44%;           /* amber — a function (pending/attention), not brand */
+  --accent-foreground: 123 20% 6%;
+  --muted: 123 30% 95%;
+  --muted-foreground: 123 10% 40%;
+  --border: 123 22% 87%;          /* line */
   --radius: 0.7rem;
 }
 
 .dark {
-  --background: 86 26% 9%;
-  --foreground: 76 38% 95%;
-  --card: 86 24% 13%;
-  --card-foreground: 76 38% 95%;
-  --primary: 85 32% 42%;          /* olive-400 */
-  --primary-foreground: 86 26% 9%;
+  --background: 123 26% 9%;
+  --foreground: 123 25% 95%;
+  --card: 123 22% 13%;
+  --card-foreground: 123 25% 95%;
+  --primary: 110 38% 42%;         /* brand forest, lifted toward the lime to carry on a dark surface */
+  --primary-foreground: 123 26% 9%;
   --accent: 39 70% 52%;
-  --accent-foreground: 86 26% 9%;
-  --muted: 86 18% 18%;
-  --muted-foreground: 83 22% 62%;
-  --border: 86 14% 22%;
+  --accent-foreground: 123 26% 9%;
+  --muted: 123 16% 18%;
+  --muted-foreground: 100 18% 62%;
+  --border: 123 14% 22%;
 }
 
 @layer base {
@@ -69,6 +73,12 @@
     -webkit-font-smoothing: antialiased;
   }
   ::selection {
-    background: hsl(85 40% 75%);
+    background: hsl(110 45% 75%);
+  }
+  /* Consistent keyboard-focus ring on every interactive element. Only shows for
+     keyboard/programmatic focus (:focus-visible), never on mouse clicks. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--primary));
+    outline-offset: 2px;
   }
 }

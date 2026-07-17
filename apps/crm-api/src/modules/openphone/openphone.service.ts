@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { OpenPhoneClient } from './openphone.client';
-import { OpenPhoneMessagePayload, OpenPhoneContactPayload } from './openphone.types';
+import { OpenPhoneMessagePayload, OpenPhoneContactPayload, OpenPhoneHistoryQuery } from './openphone.types';
 
 @Injectable()
 export class OpenPhoneService {
@@ -28,5 +28,27 @@ export class OpenPhoneService {
 
   createContact(payload: OpenPhoneContactPayload) {
     return this.client.createContact(payload);
+  }
+
+  /** Workspace numbers, used as the `phoneNumberId` side of every history pull. */
+  async phoneNumbers() {
+    const res = await this.client.listPhoneNumbers();
+    return res.success ? res.data ?? [] : [];
+  }
+
+  listConversations(opts: { maxResults?: number; pageToken?: string } = {}) {
+    return this.client.listConversations(opts);
+  }
+
+  listCalls(q: OpenPhoneHistoryQuery) {
+    return this.client.listCalls(q);
+  }
+
+  listMessages(q: OpenPhoneHistoryQuery) {
+    return this.client.listMessages(q);
+  }
+
+  getCallRecordings(callId: string) {
+    return this.client.getCallRecordings(callId);
   }
 }

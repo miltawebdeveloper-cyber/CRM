@@ -1,7 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
-import { ManualAssignDto, AutoAssignDto, AssignStrategy } from './dto/assignment.dto';
+import { ManualAssignDto, AutoAssignDto, AssignStrategy, BatchAssignDto } from './dto/assignment.dto';
 
 @Injectable()
 export class AssignmentsService {
@@ -34,10 +34,10 @@ export class AssignmentsService {
     // Snapshot prior owners so we can label new assignment vs. reassignment.
     const prior = await this.prisma.lead.findMany({
       where: { id: { in: leadIds } },
-      select: { id: true, assignedToId: true },
+      select: { id: true, assignedToId: true, callStatus: true },
     });
     const caller = await this.prisma.user.findUnique({ where: { id: callerId }, select: { name: true } });
-    const priorById = new Map(prior.map((p) => [p.id, p.assignedToId]));
+    const priorById = new Map(prior.map((p) => [p.id, p]));
 
     await this.prisma.$transaction([
       // close prior active assignments for these leads
@@ -55,16 +55,19 @@ export class AssignmentsService {
       // Lead Activity Log entry per lead (admin/TL audit trail).
       this.prisma.activity.createMany({
         data: leadIds
-          .filter((leadId) => priorById.get(leadId) !== callerId) // skip no-op re-assigns to same owner
+          .filter((leadId) => priorById.get(leadId)?.assignedToId !== callerId) // skip no-op re-assigns to same owner
           .map((leadId) => {
-            const had = !!priorById.get(leadId);
+            const p = priorById.get(leadId);
+            const had = !!p?.assignedToId;
             return {
               leadId,
               userId: assignedById,
               action: had ? 'lead_reassigned' : 'lead_assigned',
-              oldValue: priorById.get(leadId) ?? null,
+              oldValue: p?.assignedToId ?? null,
               newValue: callerId,
               remarks: `${had ? 'Reassigned' : 'Assigned'} to ${caller?.name ?? 'caller'}${batchName ? ` (batch: ${batchName})` : ''}`,
+              callStatus: p?.callStatus ?? null,
+              assignedToId: callerId,
             };
           }),
       }),
@@ -74,6 +77,31 @@ export class AssignmentsService {
 
   manual(dto: ManualAssignDto, assignedById: string) {
     return this.assignMany(dto.leadIds, dto.callerId, assignedById, dto.batchName);
+  }
+
+  /**
+   * Manual multi-employee distribution. Each allocation assigns its own slice of
+   * leads to one caller. Guards against a lead landing in two allocations so no
+   * lead is ever assigned twice in a single operation.
+   */
+  async batch(dto: BatchAssignDto, assignedById: string) {
+    const seen = new Set<string>();
+    for (const alloc of dto.allocations) {
+      for (const id of alloc.leadIds) {
+        if (seen.has(id)) {
+          throw new BadRequestException('A lead cannot be assigned to more than one employee in the same operation.');
+        }
+        seen.add(id);
+      }
+    }
+
+    const perCaller: Record<string, number> = {};
+    for (const alloc of dto.allocations) {
+      if (!alloc.leadIds.length) continue;
+      await this.assignMany(alloc.leadIds, alloc.callerId, assignedById, dto.batchName);
+      perCaller[alloc.callerId] = (perCaller[alloc.callerId] ?? 0) + alloc.leadIds.length;
+    }
+    return { assigned: seen.size, perCaller };
   }
 
   /** RES-003..005 — auto-distribute unassigned leads across callers. */

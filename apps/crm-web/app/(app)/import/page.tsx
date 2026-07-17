@@ -13,22 +13,34 @@ import { PageHead } from '@/components/page-head';
  * against the file header so minor naming differences still map.
  */
 const COLUMNS: { key: keyof LeadRow; label: string; aliases: string[] }[] = [
-  { key: 'phone', label: 'PHONE', aliases: ['phone', 'phone number', 'mobile'] },
-  { key: 'businessName', label: 'COMPANY NAME', aliases: ['company name', 'company', 'business name', 'businessname', 'business'] },
-  { key: 'contactName', label: 'NAME', aliases: ['name', 'contact', 'contact name'] },
-  { key: 'timezone', label: 'TIME ZONE', aliases: ['time zone', 'timezone', 'tz'] },
-  { key: 'email', label: 'EMAIL', aliases: ['email', 'e-mail'] },
-  { key: 'industry', label: 'INDUSTRY', aliases: ['industry'] },
-  { key: 'title', label: 'TITLE', aliases: ['title', 'job title'] },
-  { key: 'state', label: 'STATE', aliases: ['state'] },
-  { key: 'city', label: 'CITY', aliases: ['city'] },
-  { key: 'vlc', label: 'VLC', aliases: ['vlc'] },
-  { key: 'employeeCode', label: 'Employee Code', aliases: ['employee code', 'emp code', 'employeecode'] },
-  { key: 'caller', label: 'CALLER', aliases: ['caller', 'assigned to', 'agent'] },
-  { key: 'status', label: 'STATUS', aliases: ['status'] },
-  { key: 'comments', label: 'COMMENTS', aliases: ['comments', 'comment', 'remarks', 'notes'] },
-  { key: 'nextFollowUpDate', label: 'NEXT FOLLOW UP DATE', aliases: ['next follow up date', 'next followup date', 'next follow-up date', 'follow up date', 'followup date'] },
-  { key: 'leadCategory', label: 'LEAD CATEGORY', aliases: ['lead category', 'category'] },
+  { key: 'leadId', label: 'Lead ID', aliases: ['lead id', 'leadid'] },
+  { key: 'leadGenerationId', label: 'Lead Generation ID', aliases: ['lead generation id', 'leadgenerationid', 'lead gen id'] },
+  { key: 'createdAt', label: 'Created Date', aliases: ['created date', 'createddate', 'created_at'] },
+  { key: 'leadSource', label: 'Lead Source', aliases: ['lead source', 'leadsource'] },
+  { key: 'businessName', label: 'Company Name', aliases: ['company name', 'company', 'business name', 'businessname', 'business'] },
+  { key: 'contactName', label: 'Contact Person', aliases: ['contact person', 'contactname', 'contact person 1', 'primary contact'] },
+  { key: 'contactName2', label: 'Contact Person 2', aliases: ['contact person 2', 'contactname2', 'secondary contact'] },
+  { key: 'phone', label: 'Phone', aliases: ['phone', 'phone number', 'mobile'] },
+  { key: 'altPhone', label: 'Alt Phone', aliases: ['alt phone', 'altphone', 'alternate phone'] },
+  { key: 'email', label: 'Email', aliases: ['email', 'e-mail'] },
+  { key: 'website', label: 'Website', aliases: ['website', 'site', 'web'] },
+  { key: 'socialMedia', label: 'Social Media', aliases: ['social media', 'socialmedia', 'social', 'linkedin'] },
+  { key: 'country', label: 'Country', aliases: ['country'] },
+  { key: 'state', label: 'State', aliases: ['state'] },
+  { key: 'city', label: 'City', aliases: ['city'] },
+  { key: 'timezone', label: 'Time Zone', aliases: ['time zone', 'timezone', 'tz'] },
+  { key: 'industry', label: 'Industry', aliases: ['industry'] },
+  { key: 'companySize', label: 'Company Size', aliases: ['company size', 'companysize'] },
+  { key: 'foundedYear', label: 'Founded Year', aliases: ['founded year', 'foundedyear'] },
+  { key: 'address', label: 'Address', aliases: ['address'] },
+  { key: 'caller', label: 'Assigned To', aliases: ['assigned to', 'caller', 'agent'] },
+  { key: 'callStatus', label: 'Call Status', aliases: ['call status', 'callstatus'] },
+  { key: 'firstContact', label: 'First Contact', aliases: ['first contact', 'firstcontact'] },
+  { key: 'lastContact', label: 'Last Contact', aliases: ['last contact', 'lastcontact'] },
+  { key: 'nextFollowUpDate', label: 'Next Follow-up', aliases: ['next follow up', 'next followup', 'next follow-up date'] },
+  { key: 'followupCount', label: 'Follow-up Count', aliases: ['follow-up count', 'followup count'] },
+  { key: 'meetingDate', label: 'Meeting Date', aliases: ['meeting date', 'meetingdate'] },
+  { key: 'lostReason', label: 'Lost Reason', aliases: ['lost reason', 'lostreason'] },
 ];
 
 const STATUS_MAP: Record<string, string> = {
@@ -106,30 +118,42 @@ function parseCsv(text: string): ParseResult {
       row[col.key] = i >= 0 ? normalize(col.key, cells[i] ?? '') : undefined;
     });
     return {
+      leadId: row.leadId,
+      leadGenerationId: row.leadGenerationId,
+      createdAt: row.createdAt,
+      leadSource: row.leadSource,
       businessName: row.businessName ?? '',
+      contactName: row.contactName,
+      contactName2: row.contactName2,
       phone: row.phone ?? '',
+      altPhone: row.altPhone,
       email: row.email,
+      website: row.website,
+      socialMedia: row.socialMedia,
+      country: row.country,
       state: row.state ?? '',
       city: row.city ?? '',
       timezone: row.timezone,
-      status: row.status,
-      contactName: row.contactName,
       industry: row.industry,
-      title: row.title,
-      vlc: row.vlc,
-      employeeCode: row.employeeCode,
-      comments: row.comments,
-      leadCategory: row.leadCategory,
-      nextFollowUpDate: row.nextFollowUpDate,
+      companySize: row.companySize,
+      foundedYear: row.foundedYear,
+      address: row.address,
       caller: row.caller,
+      callStatus: row.callStatus,
+      firstContact: row.firstContact,
+      lastContact: row.lastContact,
+      nextFollowUpDate: row.nextFollowUpDate,
+      followupCount: row.followupCount ? parseInt(row.followupCount, 10) : undefined,
+      meetingDate: row.meetingDate,
+      lostReason: row.lostReason,
     };
   });
   return { rows, matched, unrecognized };
 }
 
 const SAMPLE = `${COLUMNS.map((c) => c.label).join(',')}
-+13055551234,Acme Tax LLC,John Carter,EST,john@acme.com,Accounting,Owner,Florida,Miami,VLC-1,EMP-101,caller1@crm.local,New,"Interested, call back",2026-07-01,Hot
-+14155559876,Bay Books Inc,Mia Wong,PST,mia@baybooks.com,Bookkeeping,CFO,California,San Francisco,VLC-2,EMP-102,caller2@crm.local,Contacted,Left voicemail,2026-07-03,Warm`;
+L-99001,GEN-8802,2026-07-01,Google Ads,Acme Tax LLC,John Carter,Jane Doe,+13055551234,+13055555678,john@acme.com,https://acmetax.com,@acmetax,USA,Florida,Miami,EST,Accounting,10-50,2010,"123 Main St",caller1@crm.local,Contacted,2026-06-01,2026-07-01,2026-07-15,3,2026-07-10,
+L-99002,GEN-8803,2026-07-02,Referral,Bay Books Inc,Mia Wong,Alex Smith,+14155559876,,mia@baybooks.com,https://baybooks.com,,USA,California,San Francisco,PST,Bookkeeping,50-200,1995,"456 Market St",caller2@crm.local,In Progress,2026-06-05,2026-07-02,2026-07-20,5,2026-07-12,`;
 
 export default function ImportPage() {
   const [rows, setRows] = useState<LeadRow[]>([]);
@@ -161,11 +185,10 @@ export default function ImportPage() {
 
   return (
     <div>
-      <PageHead lead="Upload Excel/CSV using the standard lead columns. Preview, then import with dedupe." />
 
       <div className="grid gap-[18px] lg:grid-cols-2">
-        <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#ccd3ba] bg-background p-[34px] text-center transition-colors hover:border-[#94ab68]">
-          <div className="mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-[#e7eed8] text-[#42512f]"><Upload className="h-6 w-6" /></div>
+        <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#bbd3bc] bg-background p-[34px] text-center transition-colors hover:border-[#a6c74d]">
+          <div className="mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-[#d8eed9] text-[#266929]"><Upload className="h-6 w-6" /></div>
           <div className="font-semibold">Drop your file here or <span className="text-primary">browse</span></div>
           <div className="mt-1 text-[12.5px] text-muted-foreground">CSV or Excel (.xlsx/.xls) up to 25MB</div>
           <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) loadFile(f); }} />
@@ -190,7 +213,7 @@ export default function ImportPage() {
               <div key={m.label} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-[12.5px]">
                 <span className="font-medium">{m.label}</span>
                 {m.header ? (
-                  <span className="inline-flex items-center gap-1.5 text-muted-foreground"><Check className="h-3.5 w-3.5 text-[#3f7a32]" />{m.header}</span>
+                  <span className="inline-flex items-center gap-1.5 text-muted-foreground"><Check className="h-3.5 w-3.5 text-[#317d34]" />{m.header}</span>
                 ) : (
                   <span className="text-muted-foreground/60">not in file</span>
                 )}
@@ -230,7 +253,7 @@ export default function ImportPage() {
       )}
 
       {importMut.isSuccess && (
-        <div className="mt-4 rounded-md bg-[#e8f2e4] px-4 py-3 text-sm text-[#3f7a32]">
+        <div className="mt-4 rounded-md bg-[#e4f2e4] px-4 py-3 text-sm text-[#317d34]">
           Created {importMut.data.imported} · updated {importMut.data.updated} (existing) · {importMut.data.errors.length} errors
           {importMut.data.errors.length > 0 && <ul className="mt-1 list-inside list-disc text-xs">{importMut.data.errors.slice(0, 5).map((e) => <li key={e.row}>Row {e.row}: {e.reason}</li>)}</ul>}
         </div>

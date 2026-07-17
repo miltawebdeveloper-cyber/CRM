@@ -30,7 +30,7 @@ export default function AssignmentsPage() {
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const columns = useMemo<ColumnDef<Caller>[]>(() => [
-    { key: 'check', header: '', required: true, headerClassName: 'w-10', render: (c) => <input type="checkbox" checked={selectedRef.current.has(c.id)} readOnly className="pointer-events-none accent-[#42512f]" /> },
+    { key: 'check', header: '', required: true, headerClassName: 'w-10', render: (c) => <input type="checkbox" checked={selectedRef.current.has(c.id)} readOnly className="pointer-events-none accent-[#266929]" /> },
     { key: 'caller', header: 'Caller', required: true, render: (c) => <div className="flex items-center gap-[10px]"><Avatar name={c.name} /><span className="font-semibold">{c.name}</span></div> },
     { key: 'email', header: 'Email', cellClassName: 'text-muted-foreground', render: (c) => c.email },
     { key: 'leads', header: 'Assigned Leads', headerClassName: 'text-right', cellClassName: 'text-right font-mono tabular-nums', render: (c) => c.leadCount },
@@ -38,7 +38,7 @@ export default function AssignmentsPage() {
 
   return (
     <div>
-      <PageHead lead="Distribute leads to callers — manually or auto-balanced by equal count, state, or timezone.">
+      <PageHead>
         <div className="flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium">
           <Shuffle className="h-3.5 w-3.5 text-muted-foreground" />
           <select value={strategy} onChange={(e) => setStrategy(e.target.value as Strategy)} className="border-none bg-transparent font-medium outline-none">
@@ -54,12 +54,12 @@ export default function AssignmentsPage() {
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
         <KpiCard icon={Users} iconBg="#fbf3e2" iconColor="#c98a18" value={data?.unassigned ?? 0} label="Unassigned Leads" />
-        <KpiCard icon={Shuffle} iconBg="#e7eed8" iconColor="#42512f" value={totalAssigned.toLocaleString()} label="Assigned Leads" />
-        <KpiCard icon={Users} iconBg="#e8f2e4" iconColor="#3f7a32" value={data?.callers.length ?? 0} label="Active Callers" />
+        <KpiCard icon={Shuffle} iconBg="#d8eed9" iconColor="#266929" value={totalAssigned.toLocaleString()} label="Assigned Leads" />
+        <KpiCard icon={Users} iconBg="#e4f2e4" iconColor="#317d34" value={data?.callers.length ?? 0} label="Active Callers" />
       </div>
 
       {auto.isSuccess && (
-        <div className="mb-4 rounded-md bg-[#e8f2e4] px-4 py-2.5 text-sm text-[#3f7a32]">
+        <div className="mb-4 rounded-md bg-[#e4f2e4] px-4 py-2.5 text-sm text-[#317d34]">
           Assigned {auto.data.assigned} leads across {Object.keys(auto.data.perCaller).length} caller(s).
         </div>
       )}
