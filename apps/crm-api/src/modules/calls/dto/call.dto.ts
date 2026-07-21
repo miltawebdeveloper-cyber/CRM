@@ -68,6 +68,36 @@ export class CallStatsQueryDto {
   @IsOptional()
   @IsUUID()
   userId?: string;
+
+  // ── Lead-side filters ──
+  // Applied server-side so the summary tiles and the detail rows describe the
+  // SAME set of calls, and so filtering spans the whole range rather than only
+  // the page of rows the table happens to have loaded.
+
+  @ApiPropertyOptional({ description: "Lead timezone (EST/CST/MST/PST)" })
+  @IsOptional()
+  @IsString()
+  timezone?: string;
+
+  @ApiPropertyOptional({ description: 'Lead state' })
+  @IsOptional()
+  @IsString()
+  state?: string;
+
+  @ApiPropertyOptional({ description: 'Lead city' })
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @ApiPropertyOptional({ description: "assigned | unassigned | or a LeadStatus value" })
+  @IsOptional()
+  @IsString()
+  leadStatus?: string;
+
+  @ApiPropertyOptional({ description: "Outcome slug logged on the call (falls back to the lead's legacy call status)" })
+  @IsOptional()
+  @IsString()
+  outcome?: string;
 }
 
 /**

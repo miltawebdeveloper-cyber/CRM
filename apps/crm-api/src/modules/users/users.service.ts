@@ -23,6 +23,21 @@ const SAFE_SELECT = {
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * A caller ID (OpenPhone number) identifies exactly one employee to the customer,
+   * so it must be unique. Rejects a number already assigned to another user with a
+   * clear message, before the DB's unique constraint would raise a raw error.
+   */
+  private async assertNumberAvailable(openphoneNumber: string, exceptUserId?: string) {
+    const clash = await this.prisma.user.findFirst({
+      where: { openphoneNumber, ...(exceptUserId ? { id: { not: exceptUserId } } : {}) },
+      select: { name: true },
+    });
+    if (clash) {
+      throw new ConflictException(`Caller ID ${openphoneNumber} is already assigned to ${clash.name}. Each user needs a unique number.`);
+    }
+  }
+
   // LGN-012 — admin user list, filterable by role/status
   async findAll(query: ListUsersQueryDto) {
     return this.prisma.user.findMany({
@@ -43,6 +58,9 @@ export class UsersService {
     const exists = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (exists) throw new ConflictException('Email already in use');
 
+    const number = dto.openphoneNumber?.trim();
+    if (number) await this.assertNumberAvailable(number);
+
     const passwordHash = await bcrypt.hash(dto.password, 12); // SEC-005
     return this.prisma.user.create({
       data: {
@@ -50,7 +68,7 @@ export class UsersService {
         email: dto.email,
         role: dto.role,
         passwordHash,
-        ...(dto.openphoneNumber?.trim() ? { openphoneNumber: dto.openphoneNumber.trim() } : {}),
+        ...(number ? { openphoneNumber: number } : {}),
         ...(dto.role === 'employee' ? { employee: { create: {} } } : {}),
       },
       select: SAFE_SELECT,
@@ -60,6 +78,10 @@ export class UsersService {
   // LGN-010 — edit user (name/email/role/password)
   async update(id: string, dto: UpdateUserDto) {
     await this.findOne(id);
+    // A non-empty number must be free (not held by another user) before assigning.
+    if (dto.openphoneNumber !== undefined && dto.openphoneNumber.trim()) {
+      await this.assertNumberAvailable(dto.openphoneNumber.trim(), id);
+    }
     const data: Prisma.UserUpdateInput = {
       name: dto.name,
       email: dto.email,

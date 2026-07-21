@@ -1,8 +1,10 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { CommDirection, LeadStatus, OutcomeCategory, Prisma, Role } from '@crm/database';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { CommDirection, LeadStatus, OutcomeCategory, Prisma, Role, Timezone } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OutcomesService } from '../outcomes/outcomes.service';
+import { CommunicationsService } from '../communications/communications.service';
 import { CallPivotDim, CallPivotQueryDto, CallStatsQueryDto, SetCallTargetDto, StartCallDto, EndCallDto, CreateNoteDto, UpdateFollowupDto } from './dto/call.dto';
 import { closureFields } from '../leads/lead-closure';
 
@@ -20,6 +22,24 @@ const dayEnd = (s: string) => { const [y, m, d] = s.split('-').map(Number); retu
 /** Provider call statuses that mean the call never connected. */
 const MISSED_STATUSES = ['missed', 'no-answer', 'no_answer', 'rejected', 'declined'];
 const FAILED_STATUSES = ['failed', 'busy', 'canceled', 'cancelled'];
+
+/**
+ * Status stamped on a call the agent started but never dispositioned — they shut
+ * the tab, the browser died, or the dial never happened. Distinct from any
+ * provider status so these are identifiable in the log rather than looking like
+ * a normal completed call.
+ */
+const ABANDONED_STATUS = 'abandoned';
+
+/**
+ * How long a call may sit with no end time before it's treated as abandoned.
+ * Generous: it must comfortably exceed the longest real call, because closing a
+ * live call would truncate it.
+ */
+const ABANDONED_AFTER_MS = Number(process.env.ABANDONED_CALL_AFTER_MS ?? 4 * 60 * 60 * 1000);
+
+/** Most calls one sweep will close, so a first run on a large backlog is bounded. */
+const ABANDONED_BATCH = 500;
 
 /**
  * Most calls the pivot will read in one request. The pivot aggregates in memory
@@ -63,23 +83,70 @@ interface PivotCall {
 
 @Injectable()
 export class CallsService {
+  private readonly logger = new Logger(CallsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly outcomesService: OutcomesService,
+    private readonly comms: CommunicationsService,
   ) {}
 
-  // CAL-008 — start call: create record, mark lead in progress
-  async start(dto: StartCallDto, callerId: string) {
-    const lead = await this.prisma.lead.findFirst({ where: { id: dto.leadId, deletedAt: null } });
-    if (!lead) throw new NotFoundException('Lead not found');
-    const call = await this.prisma.call.create({
-      data: { leadId: dto.leadId, callerId, startTime: new Date() },
+  /**
+   * Close calls that were started and never ended.
+   *
+   * Starting a call writes the row immediately, but only the wrap-up ends it — so
+   * shutting the tab mid-call leaves a row open forever. Nothing else ever closed
+   * these, and an open call is not inert: it pinned the lead at the top of the
+   * caller's queue as "in progress", and marked the rep permanently On Call.
+   *
+   * `endTime` is set to the call's own `startTime` rather than "now", so a call
+   * abandoned days ago doesn't materialise as a multi-day conversation. Duration
+   * is 0 because it was never dispositioned — we genuinely don't know what
+   * happened, and inventing a length would corrupt talk-time and averages.
+   */
+  @Cron(CronExpression.EVERY_10_MINUTES)
+  async closeAbandonedCalls(): Promise<number> {
+    if (process.env.ABANDONED_CALL_CRON === 'off') return 0;
+    const cutoff = new Date(Date.now() - ABANDONED_AFTER_MS);
+    const stale = await this.prisma.call.findMany({
+      where: { endTime: null, startTime: { lt: cutoff } },
+      select: { id: true, startTime: true },
+      take: ABANDONED_BATCH,
     });
-    if (lead.status === 'new') {
-      await this.prisma.lead.update({ where: { id: lead.id }, data: { status: 'in_progress' } });
-    }
-    return call;
+    if (stale.length === 0) return 0;
+
+    await this.prisma.$transaction(
+      stale.map((c) =>
+        this.prisma.call.update({
+          where: { id: c.id },
+          data: { endTime: c.startTime, durationSecs: 0, status: ABANDONED_STATUS },
+        }),
+      ),
+    );
+    this.logger.log(`Closed ${stale.length} abandoned call(s) older than ${Math.round(ABANDONED_AFTER_MS / 3600_000)}h`);
+    return stale.length;
+  }
+
+  /**
+   * CAL-008 — start call: create the record, mark the lead in progress.
+   *
+   * Delegates to CommunicationsService so there is exactly ONE way an outbound
+   * call gets created. This used to write a bare row of its own, which skipped
+   * the caller-identity check and left `direction`, `status` and `fromNumber`
+   * unset — quietly bypassing the rule that a customer must always see the
+   * identity of the employee actually calling, and leaving the call invisible to
+   * the inbound/outbound split.
+   */
+  async start(dto: StartCallDto, callerId: string) {
+    const { callId } = await this.comms.startCall(dto.leadId, callerId);
+    // Working a brand-new lead moves it into progress. Conditional in the WHERE
+    // so it only touches a lead still sitting at `new`.
+    await this.prisma.lead.updateMany({
+      where: { id: dto.leadId, status: LeadStatus.new },
+      data: { status: LeadStatus.in_progress },
+    });
+    return this.prisma.call.findUniqueOrThrow({ where: { id: callId } });
   }
 
   // CAL-009/010 — end call: compute duration, store outcome, update lead status
@@ -173,16 +240,31 @@ export class CallsService {
     });
   }
 
-  // CAL-015 — call + note history for a lead
-  history(leadId: string) {
-    return this.prisma.call.findMany({
+  // CAL-015 — call + note history for a lead.
+  // PERM: recordings / transcripts / AI summaries are admin + team-leader only,
+  // the same rule the timeline and the Recordings tab enforce. Fields are listed
+  // explicitly rather than via `include`, so a sensitive column added to Call in
+  // future can't leak here by default.
+  async history(leadId: string, current: { role: Role }) {
+    const canViewRecordings = current.role === Role.admin || current.role === Role.team_leader;
+    const calls = await this.prisma.call.findMany({
       where: { leadId },
       orderBy: { startTime: 'desc' },
-      include: {
+      select: {
+        id: true, leadId: true, callerId: true, startTime: true, endTime: true,
+        durationSecs: true, outcome: true, direction: true, status: true,
+        fromNumber: true, createdAt: true,
+        recordingUrl: true, transcript: true, aiSummary: true,
         caller: { select: { id: true, name: true } },
         notes: { orderBy: { createdAt: 'desc' } },
       },
     });
+    return calls.map((c) => ({
+      ...c,
+      recordingUrl: canViewRecordings ? c.recordingUrl : null,
+      transcript: canViewRecordings ? c.transcript : null,
+      aiSummary: canViewRecordings ? c.aiSummary : null,
+    }));
   }
 
   // CAL-001..005 — caller dashboard KPIs
@@ -394,9 +476,35 @@ export class CallsService {
    * Employees are pinned to their own calls; managers see everyone and may
    * narrow to one caller.
    */
-  private callsMadeWhere(query: CallStatsQueryDto, current: { id: string; role: Role }): Prisma.CallWhereInput {
+  private async callsMadeWhere(query: CallStatsQueryDto, current: { id: string; role: Role }): Promise<Prisma.CallWhereInput> {
     const isManager = current.role === Role.admin || current.role === Role.team_leader;
     const callerId = isManager ? query.userId : current.id;
+
+    // Geography / lead-status filters resolve against the call's lead.
+    const lead: Prisma.LeadWhereInput = {};
+    if (query.timezone) lead.timezone = query.timezone as Timezone;
+    if (query.state) lead.state = query.state;
+    if (query.city) lead.city = query.city;
+    if (query.leadStatus === 'assigned') lead.assignedToId = { not: null };
+    else if (query.leadStatus === 'unassigned') lead.assignedToId = null;
+    else if (query.leadStatus) lead.status = query.leadStatus as LeadStatus;
+
+    // Outcome match. Calls store the outcome SLUG, but leads imported before the
+    // outcome list existed carry the display NAME in their legacy callStatus, and
+    // the old client-side filter matched either — so keep both, or historical
+    // rows would silently vanish from the log when filtered.
+    let outcomeWhere: Prisma.CallWhereInput = {};
+    if (query.outcome) {
+      const oc = await this.prisma.outcome.findUnique({ where: { slug: query.outcome }, select: { name: true } });
+      const legacy = [query.outcome, ...(oc?.name ? [oc.name] : [])];
+      outcomeWhere = {
+        OR: [
+          { outcome: query.outcome },
+          ...legacy.map((v) => ({ outcome: null, lead: { callStatus: { equals: v, mode: 'insensitive' as const } } })),
+        ],
+      };
+    }
+
     return {
       ...(callerId ? { callerId } : {}),
       // Filter on when the call happened, not when the row was written.
@@ -408,6 +516,8 @@ export class CallsService {
             },
           }
         : {}),
+      ...(Object.keys(lead).length ? { lead } : {}),
+      ...outcomeWhere,
     };
   }
 
@@ -460,12 +570,15 @@ export class CallsService {
    * report zero for manually dialled work.
    */
   async callsMadeStats(query: CallStatsQueryDto, current: { id: string; role: Role }) {
-    const where = this.callsMadeWhere(query, current);
+    const where = await this.callsMadeWhere(query, current);
     const [total, outgoing, incoming, connected, missed, failed, duration, byOutcome, outcomes] = await Promise.all([
       this.prisma.call.count({ where }),
       this.prisma.call.count({ where: { ...where, direction: CommDirection.outbound } }),
       this.prisma.call.count({ where: { ...where, direction: CommDirection.inbound } }),
-      this.prisma.call.count({ where: { ...where, endTime: { not: null } } }),
+      // Abandoned calls carry an end time so they stop reading as "in progress",
+      // but they were never dispositioned — counting them as connected would
+      // inflate the connect rate with calls nobody confirmed even happened.
+      this.prisma.call.count({ where: { ...where, endTime: { not: null }, NOT: { status: ABANDONED_STATUS } } }),
       this.prisma.call.count({ where: { ...where, status: { in: MISSED_STATUSES } } }),
       this.prisma.call.count({ where: { ...where, status: { in: FAILED_STATUSES } } }),
       this.prisma.call.aggregate({ where, _sum: { durationSecs: true }, _avg: { durationSecs: true } }),
@@ -603,9 +716,10 @@ export class CallsService {
    * stats use, so the two tabs can't disagree about what "connected" means.
    */
   async callsMadePivot(query: CallPivotQueryDto, current: { id: string; role: Role }) {
+    const pivotWhere = await this.callsMadeWhere(query, current);
     const [calls, outcomes] = await Promise.all([
       this.prisma.call.findMany({
-        where: this.callsMadeWhere(query, current),
+        where: pivotWhere,
         orderBy: { startTime: 'desc' },
         take: PIVOT_MAX,
         select: {
@@ -641,7 +755,8 @@ export class CallsService {
       const id = `${r.key}\u0000${k.key}`;
       const cell = cells.get(id) ?? { calls: 0, connected: 0, secs: 0 };
       cell.calls += 1;
-      if (c.endTime) cell.connected += 1;
+      // Same "connected" definition the stats use, so the two tabs can't disagree.
+      if (c.endTime && c.status !== ABANDONED_STATUS) cell.connected += 1;
       cell.secs += c.durationSecs ?? 0;
       cells.set(id, cell);
     }
@@ -725,10 +840,55 @@ export class CallsService {
     });
   }
 
-  /** Calls Made — the detail rows behind the stats, same filter and scope. */
+  /**
+   * The values the Calls Made filters can offer, for the date + employee scope.
+   *
+   * Deliberately ignores the geography/outcome filters themselves: deriving the
+   * options from already-filtered rows would collapse the State menu to the one
+   * state you just picked, leaving no way to switch away from it. Scanning is
+   * capped like the pivot, so a wide-open range can't read the whole call table.
+   */
+  async callsMadeFilterOptions(query: CallStatsQueryDto, current: { id: string; role: Role }) {
+    const where = await this.callsMadeWhere({ from: query.from, to: query.to, userId: query.userId }, current);
+    const calls = await this.prisma.call.findMany({
+      where,
+      select: { lead: { select: { timezone: true, state: true, city: true, callStatus: true } } },
+      take: PIVOT_MAX,
+    });
+
+    // Whole triples, so the web side can cascade timezone → state → city without
+    // another request and without offering combinations that have no calls.
+    const geo = new Map<string, { timezone: string; state: string; city: string }>();
+    const callStatuses = new Set<string>();
+    for (const { lead } of calls) {
+      if (!lead) continue;
+      geo.set(`${lead.timezone} ${lead.state} ${lead.city}`, {
+        timezone: lead.timezone,
+        state: lead.state,
+        city: lead.city,
+      });
+      if (lead.callStatus) callStatuses.add(lead.callStatus);
+    }
+
+    return {
+      geo: [...geo.values()].sort((a, b) => a.state.localeCompare(b.state) || a.city.localeCompare(b.city)),
+      /** Legacy imported statuses still present in the data, so they stay filterable. */
+      callStatuses: [...callStatuses].sort((a, b) => a.localeCompare(b)),
+    };
+  }
+
+  /**
+   * Calls Made — the detail rows behind the stats, same filter and scope.
+   *
+   * PERM: `recordingUrl` is a signature-authorized provider link — whoever holds
+   * it can fetch the audio with no CRM session — so it is redacted for anyone
+   * below team leader, matching the Recordings tab and the audio proxy. Without
+   * this, an employee could read (and export) recordings they may not play.
+   */
   async callsMadeRecords(query: CallStatsQueryDto, current: { id: string; role: Role }) {
-    return this.prisma.call.findMany({
-      where: this.callsMadeWhere(query, current),
+    const canViewRecordings = current.role === Role.admin || current.role === Role.team_leader;
+    const calls = await this.prisma.call.findMany({
+      where: await this.callsMadeWhere(query, current),
       orderBy: { startTime: 'desc' },
       take: 500,
       select: {
@@ -749,6 +909,14 @@ export class CallsService {
         caller: { select: { id: true, name: true, email: true } },
       },
     });
+    return calls.map((c) => ({
+      ...c,
+      // Whether a recording EXISTS is safe for anyone who can see the call, and is
+      // what the export reports. The signed provider URL stays manager-only —
+      // employees play their own recordings through the permission-checked proxy.
+      hasRecording: !!c.recordingUrl,
+      recordingUrl: canViewRecordings ? c.recordingUrl : null,
+    }));
   }
 
   // CAL-006 — caller's assigned lead queue.

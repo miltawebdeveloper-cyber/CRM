@@ -76,6 +76,13 @@ export class CallsController {
     return this.calls.callsMadeRecords(query, { id: user.id, role: user.role });
   }
 
+  // Values the Calls Made filter menus offer, for the date + employee scope only
+  // (so choosing a state doesn't erase the other states from the menu).
+  @Get('made/filters')
+  callsMadeFilters(@Query() query: CallStatsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.calls.callsMadeFilterOptions(query, { id: user.id, role: user.role });
+  }
+
   // The selected rep's lead book — assigned / completed / balance. Not date-
   // filtered: it counts leads held now, not calls made in a range.
   @Get('made/leads')
@@ -104,10 +111,11 @@ export class CallsController {
     return this.calls.setCallTarget(userId, dto);
   }
 
-  // CAL-015 — call + note history for a lead
+  // CAL-015 — call + note history for a lead. Recordings/transcripts/AI summaries
+  // are redacted in the service for anyone below team leader.
   @Get()
-  history(@Query('leadId') leadId: string) {
-    return this.calls.history(leadId);
+  history(@Query('leadId') leadId: string, @CurrentUser() user: AuthUser) {
+    return this.calls.history(leadId, { role: user.role });
   }
 
   @Post('start')

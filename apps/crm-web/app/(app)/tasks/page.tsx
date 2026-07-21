@@ -5,8 +5,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, ChevronRight, X, Filter } from 'lucide-react';
 import { tasksApi, type Task, type TaskStatus } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
-import { DateRangePicker, FilterSelect } from '@/components/filter-controls';
-import { inDateBounds, type DateRange } from '@/lib/date-filters';
+import { DateFilter, FilterSelect } from '@/components/filter-controls';
+import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 
 const COLS: { key: TaskStatus; name: string; color: string }[] = [
   { key: 'todo', name: 'To Do', color: '#2c5d8f' },
@@ -22,7 +22,7 @@ export default function TasksPage() {
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
   const [status, setStatus] = useState('');
-  const [dateRange, setDateRange] = useState<DateRange>({ from: '', to: '' });
+  const [dateRange, setDateRange] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
   const { data: tasks = [] } = useQuery({ queryKey: ['tasks'], queryFn: tasksApi.list });
 
   const create = useMutation({ mutationFn: (t: string) => tasksApi.create(t), onSuccess: () => { qc.invalidateQueries({ queryKey: ['tasks'] }); setTitle(''); setAdding(false); } });
@@ -44,7 +44,7 @@ export default function TasksPage() {
             ...COLS.map((c) => ({ label: c.name, value: c.key })),
           ]}
         />
-        <DateRangePicker value={dateRange} onChange={setDateRange} />
+        <DateFilter value={dateRange} onChange={setDateRange} />
         <button onClick={() => setAdding((v) => !v)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> New task</button>
       </PageHead>
 

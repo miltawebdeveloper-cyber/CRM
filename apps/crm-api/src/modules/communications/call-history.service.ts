@@ -35,27 +35,34 @@ export class CallHistoryService {
     private readonly openphone: OpenPhoneService,
   ) {}
 
-  /** PERM: recordings/transcripts stay admin + team-leader only (as elsewhere). */
-  private assertCanViewRecordings(role: Role) {
-    if (role !== Role.admin && role !== Role.team_leader) {
-      throw new ForbiddenException('Recordings are restricted to admins and team leaders');
-    }
+  private isManager(role: Role) {
+    return role === Role.admin || role === Role.team_leader;
+  }
+
+  /**
+   * PERM: managers see every recording; everyone else sees only calls they made.
+   *
+   * Employees need their own recordings to review their work, but a rep must not
+   * be able to listen to a colleague's calls — so this scopes rather than blocks,
+   * the same rule Calls Made and the SMS list already apply.
+   */
+  private recordingScope(user: { id: string; role: Role }): Prisma.CallWhereInput {
+    return this.isManager(user.role) ? {} : { callerId: user.id };
   }
 
   /**
    * Recordings list for the tab. Only calls that actually have a recording are
    * returned — "display the recording only if it is available for that call".
    */
-  async listRecordings(q: HistoryQuery, role: Role) {
-    this.assertCanViewRecordings(role);
-
-    const where: Prisma.CallWhereInput = { recordings: { some: {} } };
+  async listRecordings(q: HistoryQuery, user: { id: string; role: Role }) {
+    const where: Prisma.CallWhereInput = { recordings: { some: {} }, ...this.recordingScope(user) };
     if (q.leadId) where.leadId = q.leadId;
     if (q.direction) where.direction = q.direction as CommDirection;
     const from = parseFrom(q.from);
     const to = parseTo(q.to);
     if (from || to) where.startTime = { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) };
-    // Search across the customer's name and number, and the agent who called.
+    // Search across the customer's name and number, the agent who called, and the
+    // AI summary + transcript text (so a keyword only spoken on the call matches).
     const search = q.search?.trim();
     if (search) {
       where.OR = [
@@ -63,6 +70,8 @@ export class CallHistoryService {
         { lead: { contactName: { contains: search, mode: 'insensitive' } } },
         { lead: { phone: { contains: search } } },
         { caller: { name: { contains: search, mode: 'insensitive' } } },
+        { insight: { summaryText: { contains: search, mode: 'insensitive' } } },
+        { insight: { transcriptText: { contains: search, mode: 'insensitive' } } },
       ];
     }
 
@@ -72,6 +81,9 @@ export class CallHistoryService {
         lead: { select: { id: true, businessName: true, contactName: true, phone: true } },
         caller: { select: { name: true } },
         recordings: { orderBy: [{ startTime: 'asc' }, { createdAt: 'asc' }] },
+        // Only the status — the full summary/transcript JSON is fetched on demand
+        // when the manager opens a recording, keeping the list query light.
+        insight: { select: { status: true } },
       },
       orderBy: { startTime: 'desc' },
       take: Math.min(q.take ?? 200, 500),
@@ -89,12 +101,18 @@ export class CallHistoryService {
       // Prefer the call's own duration; fall back to the segments' total.
       durationSecs: c.durationSecs ?? c.recordings.reduce((a, r) => a + (r.durationSecs ?? 0), 0),
       by: c.caller?.name ?? null,
+      // Caller identity the customer saw. Null on legacy outbound calls placed
+      // before the line was recorded — the tab flags those so a manager can verify.
+      from: c.fromNumber,
       recordings: c.recordings.map((r) => ({
         id: r.id,
         durationSecs: r.durationSecs,
         mimeType: r.mimeType,
         status: r.status,
       })),
+      // AI Summary + Transcript status. 'ready' means both are available; the full
+      // content is loaded when the manager opens the recording's insight.
+      insight: c.insight ? { status: c.insight.status } : null,
     }));
   }
 
@@ -102,11 +120,19 @@ export class CallHistoryService {
    * SMS history. Employees are scoped to leads assigned to them, matching how
    * every other cross-lead list in the app treats callers.
    */
-  async listSms(q: HistoryQuery, user: { id: string; role: Role }) {
+  /**
+   * WHERE shared by the SMS list and its status facet counts, so the menu can
+   * never describe a different set of messages than the list.
+   *
+   * `includeStatus: false` deliberately drops the status filter for the facets:
+   * counting statuses within the status you already picked would collapse the
+   * menu to that one option, leaving no way to switch away from it.
+   */
+  private smsWhere(q: HistoryQuery, user: { id: string; role: Role }, includeStatus = true): Prisma.MessageWhereInput {
     const where: Prisma.MessageWhereInput = {};
     if (q.leadId) where.leadId = q.leadId;
     if (q.direction) where.direction = q.direction as CommDirection;
-    if (q.status) where.status = q.status;
+    if (includeStatus && q.status) where.status = q.status;
     if (user.role === Role.employee) where.lead = { assignedToId: user.id };
 
     const from = parseFrom(q.from);
@@ -123,10 +149,18 @@ export class CallHistoryService {
         { lead: { phone: { contains: search } } },
       ];
     }
+    return where;
+  }
+
+  async listSms(q: HistoryQuery, user: { id: string; role: Role }) {
+    const where = this.smsWhere(q, user);
 
     const messages = await this.prisma.message.findMany({
       where,
-      include: { lead: { select: { id: true, businessName: true, contactName: true, phone: true } } },
+      include: {
+        lead: { select: { id: true, businessName: true, contactName: true, phone: true } },
+        sender: { select: { name: true, openphoneNumber: true } },
+      },
       orderBy: { createdAt: 'desc' },
       take: Math.min(q.take ?? 300, 1000),
     });
@@ -143,12 +177,23 @@ export class CallHistoryService {
       status: m.status,
       conversationId: m.conversationId,
       at: m.createdAt,
+      // Who sent it, and whether it went out from that agent's own assigned line.
+      // Only meaningful for outbound sends with a known sender + assigned number.
+      by: m.sender?.name ?? null,
+      senderMismatch:
+        m.direction === CommDirection.outbound &&
+        !!m.sender?.openphoneNumber &&
+        m.fromNumber !== m.sender.openphoneNumber,
     }));
   }
 
-  /** Distinct statuses present in the data — drives the SMS status filter. */
-  async smsStatuses(user: { id: string; role: Role }) {
-    const where: Prisma.MessageWhereInput = user.role === Role.employee ? { lead: { assignedToId: user.id } } : {};
+  /**
+   * Statuses present in the CURRENT view — drives the SMS status filter.
+   * Faceted on the same search/direction/date scope as the list, so the counts
+   * match what's on screen rather than the whole workspace.
+   */
+  async smsStatuses(q: HistoryQuery, user: { id: string; role: Role }) {
+    const where = this.smsWhere(q, user, false);
     const rows = await this.prisma.message.groupBy({ by: ['status'], where, _count: { _all: true } });
     return rows
       .filter((r) => r.status)
@@ -161,15 +206,44 @@ export class CallHistoryService {
    * provider URL: it keeps the manager-only rule enforceable server-side and
    * avoids leaking a provider link that may outlive the user's session.
    */
-  async recordingAudio(recordingId: string, role: Role): Promise<{ body: Buffer; mimeType: string; filename: string }> {
-    this.assertCanViewRecordings(role);
-
+  async recordingAudio(recordingId: string, user: { id: string; role: Role }): Promise<{ body: Buffer; mimeType: string; filename: string }> {
     const rec = await this.prisma.callRecording.findUnique({
       where: { id: recordingId },
       include: { call: { include: { lead: { select: { businessName: true, phone: true } } } } },
     });
     if (!rec) throw new NotFoundException('Recording not found');
+    // Ownership is checked here, on every play and download — the list query's
+    // scope can't protect a URL somebody guessed or kept from an earlier session.
+    if (!this.isManager(user.role) && rec.call.callerId !== user.id) {
+      throw new ForbiddenException('That recording belongs to another caller');
+    }
+    return this.loadAudio(rec);
+  }
 
+  /**
+   * Fetch a recording's audio bytes for server-side use (transcription), with no
+   * permission check — callers are internal (CallInsightsService), not the browser.
+   * Returns null instead of throwing so a failed fetch just skips transcription.
+   */
+  async recordingAudioInternal(recordingId: string): Promise<{ body: Buffer; mimeType: string; filename: string } | null> {
+    const rec = await this.prisma.callRecording.findUnique({
+      where: { id: recordingId },
+      include: { call: { include: { lead: { select: { businessName: true, phone: true } } } } },
+    });
+    if (!rec) return null;
+    try {
+      return await this.loadAudio(rec);
+    } catch (err) {
+      this.logger.warn(`Recording audio unavailable for transcription (${recordingId}): ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  /** Resolve a recording row to its audio bytes (sandbox tone, or the signed
+   *  provider URL with a one-time refresh if the stored URL has expired). */
+  private async loadAudio(
+    rec: Prisma.CallRecordingGetPayload<{ include: { call: { include: { lead: { select: { businessName: true; phone: true } } } } } }>,
+  ): Promise<{ body: Buffer; mimeType: string; filename: string }> {
     const stamp = (rec.startTime ?? rec.call.startTime).toISOString().slice(0, 19).replace(/[:T]/g, '-');
     const safeName = (rec.call.lead.businessName || 'recording').replace(/[^\w.-]+/g, '_').slice(0, 40);
 
@@ -187,14 +261,14 @@ export class CallHistoryService {
       const fresh = await this.openphone.getCallRecordings(rec.call.quoCallId);
       const match = (fresh.data ?? []).find((r) => r.id === rec.quoRecordingId) ?? (fresh.data ?? [])[0];
       if (match?.url && match.url !== rec.url) {
-        this.logger.log(`Refreshed expired recording URL for ${recordingId}`);
+        this.logger.log(`Refreshed expired recording URL for ${rec.id}`);
         await this.prisma.callRecording.update({ where: { id: rec.id }, data: { url: match.url } });
         res = await this.fetchAudio(match.url);
       }
     }
 
     if (!res.ok) {
-      this.logger.warn(`Recording fetch failed (${res.status}) for ${recordingId}`);
+      this.logger.warn(`Recording fetch failed (${res.status}) for ${rec.id}`);
       throw new NotFoundException(`Recording is unavailable from the provider (HTTP ${res.status})`);
     }
     const mimeType = rec.mimeType || res.headers.get('content-type') || 'audio/mpeg';

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   OpenPhoneNumber, OpenPhoneMessagePayload, OpenPhoneResult, OpenPhoneContactPayload, OpenPhoneContact,
   OpenPhoneHistoryQuery, OpenPhonePage, OpenPhoneCall, OpenPhoneMessage, OpenPhoneRecording, OpenPhoneConversation,
+  OpenPhoneTranscript,
 } from './openphone.types';
 
 /**
@@ -195,6 +196,21 @@ export class OpenPhoneClient {
     return { ...res, data: res.data?.data ?? [] };
   }
 
+  /**
+   * The AI transcript for a call — chronological dialogue turns.
+   * `userId` on a turn marks the workspace user (the employee); the customer's
+   * turns carry only their `identifier` (phone number).
+   */
+  async getCallTranscript(callId: string): Promise<OpenPhoneResult<OpenPhoneTranscript>> {
+    if (this.isSandbox) return this.sandboxTranscript(callId);
+    const res = await this.request<{ data?: OpenPhoneTranscript }>(`/call-transcripts/${encodeURIComponent(callId)}`, {
+      method: 'GET',
+    });
+    if (!res.success) return res as OpenPhoneResult<OpenPhoneTranscript>;
+    const t = res.data?.data;
+    return { ...res, data: { dialogue: t?.dialogue ?? [], status: t?.status ?? null, duration: t?.duration ?? null, language: t?.language ?? null, callId } };
+  }
+
   // ── Sandbox history ──
   // Deterministic per participant, so repeated syncs converge on the same rows
   // instead of inventing new calls each time.
@@ -268,6 +284,59 @@ export class OpenPhoneClient {
         status: 'completed', type: 'audio/wav',
       }],
       durationMs: 20,
+    };
+  }
+
+  /**
+   * A deterministic stand-in transcript so AI Summary + Transcript are
+   * demonstrable without a live Quo transcript. Seeded by callId, so the same
+   * call always produces the same conversation. Employee turns carry a `userId`;
+   * the customer's turns carry only an `identifier`, mirroring the real payload.
+   */
+  private sandboxTranscript(callId: string): OpenPhoneResult<OpenPhoneTranscript> {
+    const rnd = seeded(`transcript:${callId}`);
+    // A realistic Milta Financial Services bookkeeping discovery call. Turns
+    // alternate employee/customer; a seeded length keeps calls varied but stable.
+    const script: Array<{ who: 'employee' | 'customer'; text: string }> = [
+      { who: 'employee', text: 'Hi, thanks for taking my call — this is Priya from Milta Financial Services. Is now still a good time to talk about your bookkeeping?' },
+      { who: 'customer', text: 'Yeah, I have a few minutes. We are a small landscaping business and our books are honestly a bit of a mess right now.' },
+      { who: 'employee', text: 'Totally understand, that is very common this time of year. Can I ask — are you doing the bookkeeping yourself at the moment, or do you have someone?' },
+      { who: 'customer', text: 'I do it myself in spreadsheets. We are about fifteen employees now and it is getting away from me, especially payroll and sales tax.' },
+      { who: 'employee', text: 'Got it. So the big pain points are payroll and sales tax filing. Are you on QuickBooks at all, or purely spreadsheets today?' },
+      { who: 'customer', text: 'Purely spreadsheets. I looked at QuickBooks but never set it up properly. I also need last year cleaned up before taxes are due.' },
+      { who: 'employee', text: 'Okay, so two things: a cleanup of last year, and then ongoing monthly bookkeeping with payroll and sales tax handled. We do both. What is your rough monthly transaction volume?' },
+      { who: 'customer', text: 'Maybe two hundred transactions a month, plus the payroll runs every two weeks. What would something like that cost?' },
+      { who: 'employee', text: 'For that volume, ongoing monthly runs around four hundred a month, and the one-time cleanup depends on the state of the records — I would scope that after a quick review. Would it help if I emailed you a written quote and a short onboarding checklist?' },
+      { who: 'customer', text: 'Yes, please send the pricing to my email. I would want to start after tax season though, not right now.' },
+      { who: 'employee', text: 'That is completely fine. I will send the quote today and pencil you in for a follow-up in early May to get you onboarded. Does a call the first week of May work?' },
+      { who: 'customer', text: 'First week of May works. Send the details over and I will review with my partner.' },
+      { who: 'employee', text: 'Perfect. I will email the quote and checklist this afternoon and follow up the first week of May. Thanks so much for your time!' },
+    ];
+    // 8–13 turns, seeded — always ends on an employee wrap-up for a natural close.
+    let len = 8 + Math.floor(rnd() * (script.length - 8 + 1));
+    if (len % 2 === 0) len = Math.min(script.length, len + 1); // odd -> ends employee
+    const turns = script.slice(0, len);
+
+    let t = 2; // first word ~2s in
+    const dialogue = turns.map((turn) => {
+      const words = turn.text.split(' ').length;
+      const dur = Math.max(3, Math.round(words / 2.5)); // ~150 wpm
+      const start = t;
+      t += dur + 1; // a beat between speakers
+      return {
+        identifier: turn.who === 'employee' ? '+13055550100' : '+15615550142',
+        userId: turn.who === 'employee' ? 'op_user_sandbox' : null,
+        content: turn.text,
+        start,
+        end: start + dur,
+      };
+    });
+
+    return {
+      success: true,
+      statusCode: 200,
+      data: { callId, status: 'completed', duration: t, dialogue, language: 'en' },
+      durationMs: 25,
     };
   }
 

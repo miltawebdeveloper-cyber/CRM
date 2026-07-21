@@ -3,10 +3,27 @@ import * as crypto from 'crypto';
 import { CommDirection, Timezone, LeadStatus, Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OpenPhoneService } from '../openphone/openphone.service';
+import { CallInsightsService } from './call-insights.service';
 
 type Json = Record<string, unknown>;
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
 const digits = (v: string) => v.replace(/\D/g, '');
+
+/**
+ * Normalise a phone number to E.164 for the OpenPhone API, which rejects `from`/`to`
+ * that aren't E.164 ("Expected string to match '^\+[1-9]…'"). A `PN…` phone-number id
+ * is left as-is (OpenPhone accepts that form too). US-centric, matching the workspace lines.
+ */
+const toE164 = (raw: string): string => {
+  const t = (raw ?? '').trim();
+  if (/^PN/.test(t)) return t; // already an OpenPhone phone-number id
+  const d = t.replace(/\D/g, '');
+  if (!d) return t;
+  if (t.startsWith('+')) return `+${d}`;
+  if (d.length === 10) return `+1${d}`;
+  if (d.length === 11 && d.startsWith('1')) return `+${d}`;
+  return `+${d}`;
+};
 
 @Injectable()
 export class CommunicationsService {
@@ -16,6 +33,7 @@ export class CommunicationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly openphone: OpenPhoneService,
+    private readonly insights: CallInsightsService,
   ) {}
 
   // ── Webhook signature (HMAC-SHA256 of the raw body) ──
@@ -80,6 +98,30 @@ export class CommunicationsService {
     return { ignored: type };
   }
 
+  /**
+   * The caller identity an outbound communication MUST go out as: the logged-in
+   * user's own admin-assigned OpenPhone line, plus their display name.
+   *
+   * Hard-fails when the user has no assigned number rather than falling back to a
+   * shared workspace line — that silent fallback is exactly what makes a customer
+   * see another employee's caller ID. The number is unique per user (DB constraint),
+   * so a resolved identity always maps 1:1 to the employee placing the call.
+   */
+  private async resolveCallerIdentity(callerId: string): Promise<{ name: string; fromNumber: string }> {
+    const caller = await this.prisma.user.findUnique({
+      where: { id: callerId },
+      select: { name: true, openphoneNumber: true },
+    });
+    if (!caller) throw new NotFoundException('Caller not found');
+    const fromNumber = caller.openphoneNumber?.trim();
+    if (!fromNumber) {
+      throw new BadRequestException(
+        'No caller ID is assigned to your account. Ask an admin to assign your OpenPhone number (Admin → Users) before placing calls, so the customer sees you as the caller.',
+      );
+    }
+    return { name: caller.name, fromNumber };
+  }
+
   private async resolveCallerId(assignedToId: string | null): Promise<string> {
     if (assignedToId) return assignedToId;
     if (!this.fallbackAdminId) {
@@ -127,8 +169,20 @@ export class CommunicationsService {
     return lead;
   }
 
-  private dir(v: unknown): CommDirection {
-    return v === 'incoming' || v === 'inbound' ? CommDirection.inbound : CommDirection.outbound;
+  /**
+   * Direction of a webhook event.
+   *
+   * The payload's own field wins (case/variant tolerant). When the provider omits
+   * it — or sends a value we don't recognise — fall back to the EVENT NAME rather
+   * than defaulting to outbound: a `message.received` filed as outbound would
+   * resolve the "customer" from our OWN workspace number, minting a junk lead and
+   * hiding the message from the real conversation.
+   */
+  private dir(v: unknown, type = ''): CommDirection {
+    const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
+    if (s === 'incoming' || s === 'inbound') return CommDirection.inbound;
+    if (s === 'outgoing' || s === 'outbound') return CommDirection.outbound;
+    return /\.received$/.test(type) ? CommDirection.inbound : CommDirection.outbound;
   }
 
   private async touchLead(leadId: string) {
@@ -136,22 +190,70 @@ export class CommunicationsService {
   }
 
   /**
+   * Pull the recording out of a call.* payload.
+   *
+   * OpenPhone doesn't use one shape: `call.recording.completed` delivers segments
+   * in a `media` array, while other events (and older/other providers) use a flat
+   * `recordingUrl` or a nested `recording` object. Matching only the latter two
+   * silently dropped every webhook-delivered recording, so accept all of them.
+   */
+  private recordingFrom(o: Json): { id?: string; url?: string; durationSecs?: number | null; mimeType?: string } {
+    const num = (v: unknown) => (typeof v === 'number' ? v : undefined);
+    const media = (Array.isArray(o.media) ? o.media : Array.isArray(o.recordings) ? o.recordings : []) as Json[];
+    const seg = media.find((m) => m && str(m.url));
+    const rec = (o.recording as Json) ?? undefined;
+
+    const url = str(o.recordingUrl) ?? (rec ? str(rec.url) : undefined) ?? (seg ? str(seg.url) : undefined);
+    if (!url) return {};
+    return {
+      id: (rec ? str(rec.id) : undefined) ?? (seg ? str(seg.id) : undefined),
+      url,
+      durationSecs: num(rec?.duration) ?? num(seg?.duration) ?? null,
+      mimeType: (rec ? str(rec.type) : undefined) ?? (seg ? str(seg.type) : undefined),
+    };
+  }
+
+  /**
    * Mirror a webhook-delivered recording into call_recordings so it shows up in
    * the Calling Panel's Recordings tab, which reads segments rather than the
-   * single Call.recordingUrl column. Keyed on the URL so repeated call.* events
-   * for the same recording don't stack up duplicate rows.
+   * single Call.recordingUrl column.
+   *
+   * Deduped on the provider's recording id when it sends one — recording URLs are
+   * signed and can change between deliveries, so keying on the URL alone would
+   * stack up a duplicate row every time the same recording is re-delivered.
    */
-  private async linkRecording(callId: string, url: string, durationSecs?: number | null) {
-    const exists = await this.prisma.callRecording.findFirst({ where: { callId, url }, select: { id: true } });
+  private async linkRecording(
+    callId: string,
+    rec: { id?: string; url?: string; durationSecs?: number | null; mimeType?: string },
+    fallbackDuration?: number | null,
+  ) {
+    if (!rec.url) return;
+    const durationSecs = rec.durationSecs ?? fallbackDuration ?? null;
+    if (rec.id) {
+      await this.prisma.callRecording.upsert({
+        where: { quoRecordingId: rec.id },
+        create: {
+          callId, quoRecordingId: rec.id, url: rec.url, durationSecs,
+          status: 'completed', startTime: new Date(), mimeType: rec.mimeType ?? null,
+        },
+        update: { url: rec.url, durationSecs, ...(rec.mimeType ? { mimeType: rec.mimeType } : {}) },
+      });
+      // A webhook-delivered recording — generate its AI summary + transcript in
+      // the background, mirroring the pull-sync path.
+      this.insights.enqueue(callId);
+      return;
+    }
+    const exists = await this.prisma.callRecording.findFirst({ where: { callId, url: rec.url }, select: { id: true } });
     if (exists) return;
     await this.prisma.callRecording.create({
-      data: { callId, url, durationSecs: durationSecs ?? null, status: 'completed', startTime: new Date() },
+      data: { callId, url: rec.url, durationSecs, status: 'completed', startTime: new Date(), mimeType: rec.mimeType ?? null },
     });
+    this.insights.enqueue(callId);
   }
 
   // ── Messages (SMS) ──
   private async handleMessage(type: string, o: Json) {
-    const direction = this.dir(o.direction);
+    const direction = this.dir(o.direction, type);
     const from = str(o.from) ?? '';
     const to = Array.isArray(o.to) ? str(o.to[0]) ?? '' : str(o.to) ?? '';
     const external = direction === CommDirection.inbound ? from : to;
@@ -160,13 +262,20 @@ export class CommunicationsService {
     const lead = await this.findOrCreateLeadByPhone(external);
     const quoMessageId = str(o.id);
     const status = str(o.status) ?? (type === 'message.received' ? 'received' : 'sent');
-    const body = str(o.body) ?? str(o.text) ?? '';
+    // OpenPhone sends the text as `text`; `body` is our own column name.
+    const body = str(o.text) ?? str(o.body) ?? '';
 
     const existing = quoMessageId
       ? await this.prisma.message.findFirst({ where: { quoMessageId } })
       : null;
     if (existing) {
-      await this.prisma.message.update({ where: { id: existing.id }, data: { status } });
+      // Also re-assert direction/lead: a message first stored from an event that
+      // omitted `direction` may have been filed outbound against the wrong lead,
+      // so a later event for the same id repairs it instead of leaving it broken.
+      await this.prisma.message.update({
+        where: { id: existing.id },
+        data: { status, direction, leadId: lead.id, ...(body ? { body } : {}) },
+      });
     } else {
       await this.prisma.message.create({
         data: { leadId: lead.id, direction, body, fromNumber: from, toNumber: to, status, quoMessageId, conversationId: str(o.conversationId) },
@@ -181,13 +290,28 @@ export class CommunicationsService {
     const quoCallId = str(o.id);
     const existing = quoCallId ? await this.prisma.call.findFirst({ where: { quoCallId } }) : null;
 
-    const recordingUrl = str(o.recordingUrl) ?? str((o.recording as Json)?.url);
+    const rec = this.recordingFrom(o);
     const transcript = str(o.transcript) ?? str((o.transcript as Json)?.text);
     const aiSummary = str(o.summary) ?? str((o.aiSummary as Json)?.text) ?? str(o.aiSummary);
+
+    // Sub-events (recording / transcript / summary) arrive AFTER the call, and
+    // their type ALSO contains "completed". Treating them as the call's own
+    // completion re-stamps endTime with the webhook's arrival time and inflates
+    // the logged duration — they enrich a call, they never end one.
+    const isSubEvent = /^call\.(recording|transcript|summary|voicemail)\b/.test(type);
+
+    // A recording event that carries no URL we recognise means the provider used
+    // yet another payload shape. Say so — a silent drop here is what made missing
+    // recordings so hard to spot — and name the keys that actually arrived.
+    if (/^call\.recording\b/.test(type) && !rec.url) {
+      this.logger.warn(`${type} carried no recognisable recording URL; payload keys: ${Object.keys(o).join(', ')}`);
+    }
+
     // Normalize the live phase from the event type when the provider omits an
     // explicit status — drives the in-CRM widget's Ringing/Connected/Hold states.
-    const statusFromType =
-      type.includes('ringing') ? 'ringing'
+    const statusFromType = isSubEvent
+      ? ''
+      : type.includes('ringing') ? 'ringing'
       : type.includes('unhold') ? 'in-progress'
       : type.includes('hold') ? 'on_hold'
       : type.includes('answered') || type.includes('in-progress') || type.includes('in_progress') ? 'in-progress'
@@ -200,30 +324,37 @@ export class CommunicationsService {
       : typeof o.durationSec === 'number' ? (o.durationSec as number)
       : typeof o.durationSecs === 'number' ? (o.durationSecs as number)
       : undefined;
-    const isFinal = type.includes('completed') || type.includes('ended') || durationSecs != null;
+    const isFinal = !isSubEvent && (type.includes('completed') || type.includes('ended') || durationSecs != null);
 
     // Known call (e.g. one placed via the Quo queue) — enrich it in place. No
     // phone lookup needed; the call already knows its lead. This is the main
     // path for call.completed / recording / transcript / summary events.
     if (existing) {
+      // Backfill the caller identity if the record doesn't have one yet (e.g. a call
+      // first seen via webhook): for an outbound call `from` is the line it went out
+      // on. Never overwrite an identity we already stamped at dial time.
+      const fromNumber =
+        existing.fromNumber == null && existing.direction === CommDirection.outbound ? str(o.from) : undefined;
       await this.prisma.call.update({
         where: { id: existing.id },
         data: {
           ...(status ? { status } : {}),
           ...(durationSecs != null ? { durationSecs } : {}),
-          recordingUrl: recordingUrl ?? undefined,
+          ...(fromNumber ? { fromNumber } : {}),
+          recordingUrl: rec.url ?? undefined,
           transcript: transcript ?? undefined,
           aiSummary: aiSummary ?? undefined,
-          ...(isFinal ? { endTime: new Date() } : {}),
+          // Never overwrite a real end time with the webhook's arrival time.
+          ...(isFinal && !existing.endTime ? { endTime: new Date() } : {}),
         },
       });
-      if (recordingUrl) await this.linkRecording(existing.id, recordingUrl, durationSecs);
+      await this.linkRecording(existing.id, rec, durationSecs);
       await this.touchLead(existing.leadId);
       return { ok: true, callId: existing.id };
     }
 
     // New / inbound call from the provider — needs a phone to resolve the lead.
-    const direction = this.dir(o.direction);
+    const direction = this.dir(o.direction, type);
     const from = str(o.from) ?? '';
     const to = Array.isArray(o.to) ? str(o.to[0]) ?? '' : str(o.to) ?? '';
     const external = direction === CommDirection.inbound ? from : to;
@@ -237,15 +368,21 @@ export class CommunicationsService {
         ? await this.resolveInboundOwner(lead.id, lead.assignedToId)
         : await this.resolveCallerId(lead.assignedToId);
     const startTime = o.createdAt ? new Date(o.createdAt as string) : new Date();
+    // For an outbound call the provider's `from` is the line it went out on — that's
+    // the caller identity. Inbound `from` is the customer, so it isn't our identity.
+    const fromNumber = direction === CommDirection.outbound ? str(o.from) : undefined;
     const created = await this.prisma.call.create({
       data: {
-        leadId: lead.id, callerId, direction, status, durationSecs,
-        recordingUrl: recordingUrl ?? undefined, transcript: transcript ?? undefined, aiSummary: aiSummary ?? undefined,
+        leadId: lead.id, callerId, direction, status, durationSecs, fromNumber,
+        recordingUrl: rec.url ?? undefined, transcript: transcript ?? undefined, aiSummary: aiSummary ?? undefined,
         quoCallId, conversationId: str(o.conversationId),
-        startTime, endTime: durationSecs != null ? new Date() : null,
+        startTime,
+        // Derive the end from when the call actually started plus its duration,
+        // rather than "now" — a late-arriving event must not stretch the call.
+        endTime: durationSecs != null ? new Date(startTime.getTime() + durationSecs * 1000) : null,
       },
     });
-    if (recordingUrl) await this.linkRecording(created.id, recordingUrl, durationSecs);
+    await this.linkRecording(created.id, rec, durationSecs);
     await this.touchLead(lead.id);
 
     // Workflow: missed inbound call → follow-up task for the owner.
@@ -275,21 +412,18 @@ export class CommunicationsService {
     if (!lead) throw new NotFoundException('Lead not found');
     if (!body?.trim()) throw new BadRequestException('Message body is required');
 
-    // Resolve a "from" number, in order of precedence:
-    //  1. explicit override, 2. the caller's admin-assigned OpenPhone number,
-    //  3. the first workspace number.
+    // Resolve the "from" number: an explicit override wins (manual/admin sends);
+    // otherwise the caller's own assigned line. No silent fallback to a shared
+    // workspace number — the recipient must always see the sender's own identity,
+    // the same rule outbound calls follow.
     let fromNumber = from;
     if (!fromNumber && callerId) {
-      const caller = await this.prisma.user.findUnique({ where: { id: callerId }, select: { openphoneNumber: true } });
-      fromNumber = caller?.openphoneNumber ?? undefined;
-    }
-    if (!fromNumber) {
-      const status = await this.openphone.status();
-      fromNumber = status.phoneNumbers[0]?.number;
+      fromNumber = (await this.resolveCallerIdentity(callerId)).fromNumber;
     }
     if (!fromNumber) throw new BadRequestException('No OpenPhone number available to send from');
 
-    const result = await this.openphone.sendSms({ from: fromNumber, to: [lead.phone], content: body });
+    // OpenPhone requires E.164 for both ends; leads/agent lines may be stored in display form.
+    const result = await this.openphone.sendSms({ from: toE164(fromNumber), to: [toE164(lead.phone)], content: body });
     const data = result.data as { id?: string; status?: string } | undefined;
     const message = await this.prisma.message.create({
       data: {
@@ -300,6 +434,9 @@ export class CommunicationsService {
         toNumber: lead.phone,
         status: result.success ? data?.status ?? 'queued' : 'failed',
         quoMessageId: data?.id,
+        // Attribute the send to the CRM user, so history shows who sent it (and from
+        // which line) — the SMS counterpart of a call's caller identity.
+        senderId: callerId ?? undefined,
       },
     });
     await this.touchLead(lead.id);
@@ -318,8 +455,10 @@ export class CommunicationsService {
     const lead = await this.prisma.lead.findFirst({ where: { id: leadId, deletedAt: null } });
     if (!lead) throw new NotFoundException('Lead not found');
 
-    // The caller's admin-assigned OpenPhone number is the line they dial from.
-    const caller = await this.prisma.user.findUnique({ where: { id: callerId }, select: { openphoneNumber: true } });
+    // Validate the caller before dialing: they must have their own assigned OpenPhone
+    // line. This both blocks the shared-line fallback (no cross-employee caller ID)
+    // and gives us the identity to stamp on the call and surface to the agent.
+    const { name, fromNumber } = await this.resolveCallerIdentity(callerId);
     const call = await this.prisma.call.create({
       data: {
         leadId: lead.id,
@@ -327,6 +466,7 @@ export class CommunicationsService {
         direction: CommDirection.outbound,
         status: 'initiated',
         startTime: new Date(),
+        fromNumber,
       },
     });
     await this.prisma.activity.create({
@@ -335,13 +475,13 @@ export class CommunicationsService {
         userId: callerId,
         action: 'call_started',
         newValue: 'initiated',
-        remarks: caller?.openphoneNumber
-          ? `Outbound call to ${lead.phone} from ${caller.openphoneNumber} (via OpenPhone dialer)`
-          : `Outbound call to ${lead.phone} (via OpenPhone dialer)`,
+        remarks: `Outbound call to ${lead.phone} as ${name} (${fromNumber}) via OpenPhone dialer`,
       },
     });
     await this.touchLead(lead.id);
-    return { callId: call.id, tel: `tel:${lead.phone}`, phone: lead.phone };
+    // `from`/`callerName` let the dialer confirm the identity the customer will see,
+    // so the agent dials from the right line (OpenPhone has no dial API to force it).
+    return { callId: call.id, tel: `tel:${lead.phone}`, phone: lead.phone, from: fromNumber, callerName: name };
   }
 
   // ── Unified conversation timeline for a lead ──
@@ -362,6 +502,9 @@ export class CommunicationsService {
         transcript: canViewRecordings ? c.transcript : null,
         aiSummary: canViewRecordings ? c.aiSummary : null,
         by: c.caller?.name ?? null,
+        // Caller identity the customer saw — kept on the call itself, so history is
+        // consistent even if the caller's assigned number later changes.
+        from: c.fromNumber,
       })),
       ...messages.map((m) => ({ kind: 'message' as const, id: m.id, at: m.createdAt, direction: m.direction, body: m.body, status: m.status })),
       ...notes.map((n) => ({ kind: 'note' as const, id: n.id, at: n.createdAt, body: n.noteText, by: n.createdBy?.name ?? null })),
@@ -375,6 +518,9 @@ export class CommunicationsService {
   async startCallByPhone(phone: string, callerId: string) {
     const trimmed = phone?.trim();
     if (!trimmed || digits(trimmed).length < 3) throw new BadRequestException('A valid phone number is required');
+    // Validate the caller's identity before resolving the lead, so a rejected call
+    // (no assigned caller ID) never leaves a stray "Unknown caller" lead behind.
+    await this.resolveCallerIdentity(callerId);
     const lead = await this.findOrCreateLeadByPhone(trimmed);
     const result = await this.startCall(lead.id, callerId);
     return {
@@ -440,27 +586,109 @@ export class CommunicationsService {
       recordingUrl: canViewRecordings ? call.recordingUrl : null,
       lead: call.lead,
       by: call.caller?.name ?? null,
+      // The line this call is going out on — the caller identity the customer sees.
+      from: call.fromNumber,
     };
   }
 
+  /**
+   * Record how the agent answered the incoming-call popup.
+   *
+   * IMPORTANT — what "decline" can and cannot do: OpenPhone/Quo exposes no
+   * call-control API (its only write operations are sending a message and
+   * creating a contact), so the CRM cannot reject a ringing call on the carrier.
+   * Declining here records the agent's decision and closes the popup; the call
+   * itself keeps ringing in OpenPhone until it is rejected there or times out
+   * into voicemail, at which point the provider's own `call.*` webhook writes the
+   * real final status. That provider status deliberately wins on the record — the
+   * activity trail is what preserves "the agent saw this and declined it", which
+   * is the part that distinguishes a declined call from one nobody noticed.
+   */
+  async respondToCall(callId: string, userId: string, role: string, action: 'attend' | 'decline') {
+    const call = await this.prisma.call.findUnique({ where: { id: callId } });
+    if (!call) throw new NotFoundException('Call not found');
+    if (role !== 'admin' && role !== 'team_leader' && call.callerId !== userId) {
+      throw new ForbiddenException('Not your call');
+    }
+
+    await this.prisma.activity.create({
+      data: {
+        leadId: call.leadId,
+        userId,
+        action: action === 'attend' ? 'call_attended' : 'call_declined',
+        newValue: action,
+        remarks:
+          action === 'attend'
+            ? 'Opened OpenPhone from the CRM incoming-call popup to answer.'
+            : 'Declined from the CRM incoming-call popup. OpenPhone has no reject API, so the call was not hung up on the carrier — it rings out unless also declined in OpenPhone.',
+      },
+    });
+
+    // Mark a still-ringing call as declined so the log separates "declined" from
+    // "nobody was looking". A later provider webhook may overwrite this with the
+    // carrier's own outcome, which is the more authoritative answer.
+    if (action === 'decline' && !call.endTime) {
+      await this.prisma.call.update({ where: { id: call.id }, data: { status: 'declined' } });
+    }
+    return { ok: true, action, rejectedOnCarrier: false as const };
+  }
+
   // ── Incoming-call popup: most recent inbound call in the last 60s ──
+  // Callback routing: a returning customer is routed to the employee who previously
+  // handled them, not merely whoever the lead is assigned to. handleCall already
+  // stamps an inbound call's `callerId` via resolveInboundOwner (the last agent to
+  // call the customer, falling back to the assignee), so scoping the popup by
+  // `callerId` sends the callback to the right person. Managers see every callback.
   async latestIncoming(userId: string, role: string) {
     const since = new Date(Date.now() - 60_000);
-    const where: { direction: CommDirection; startTime: { gte: Date }; lead?: { assignedToId: string } } = {
+    const where: Prisma.CallWhereInput = {
       direction: CommDirection.inbound,
       startTime: { gte: since },
     };
-    if (role === 'employee') where.lead = { assignedToId: userId }; // callers only see their own
+    if (role === 'employee') where.callerId = userId;
     const call = await this.prisma.call.findFirst({
       where,
-      include: { lead: { select: { id: true, businessName: true, phone: true, city: true, state: true, status: true } } },
+      include: {
+        lead: { select: { id: true, businessName: true, contactName: true, phone: true, city: true, state: true, status: true, callStatus: true, callbackAt: true, callbackCompletedAt: true } },
+        caller: { select: { id: true, name: true } },
+      },
       orderBy: { startTime: 'desc' },
     });
     if (!call) return null;
     // "Connected" = Quo reports the call as live/answered (drives the popup's
     // auto-open). Conservative allowlist so ringing/initiated don't trigger it.
     const connected = ['in-progress', 'in_progress', 'answered', 'connected', 'ongoing', 'active'].includes((call.status ?? '').toLowerCase());
-    return { callId: call.id, at: call.startTime, status: call.status, connected, lead: call.lead };
+    // Recognition context: the last logged outcome (resolved to its display name)
+    // and whether this customer had a callback pending — so the handler answers
+    // knowing who's calling back and why.
+    let lastOutcome: string | null = null;
+    if (call.lead.callStatus) {
+      const oc = await this.prisma.outcome.findUnique({ where: { slug: call.lead.callStatus }, select: { name: true } });
+      lastOutcome = oc?.name ?? call.lead.callStatus;
+    }
+    const pendingCallback = !!call.lead.callbackAt && !call.lead.callbackCompletedAt;
+    return {
+      callId: call.id,
+      at: call.startTime,
+      status: call.status,
+      connected,
+      // Who handled this customer before — their own name for the handler, or the
+      // owner's name when a manager sees the callback.
+      handledBy: call.caller?.name ?? null,
+      handledById: call.callerId,
+      lastOutcome,
+      pendingCallback,
+      lead: {
+        id: call.lead.id,
+        businessName: call.lead.businessName,
+        // Contact person at the company — the "customer name" shown on the popup.
+        contactName: call.lead.contactName,
+        phone: call.lead.phone,
+        city: call.lead.city,
+        state: call.lead.state,
+        status: call.lead.status,
+      },
+    };
   }
 
   // ── Missed calls (dashboard "Missed Calls" widget) ──

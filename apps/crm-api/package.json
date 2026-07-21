@@ -11,6 +11,7 @@
     "test": "jest --passWithNoTests"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.72.0",
     "@crm/database": "*",
     "@nestjs/common": "^11.1.27",
     "@nestjs/config": "^4.0.4",

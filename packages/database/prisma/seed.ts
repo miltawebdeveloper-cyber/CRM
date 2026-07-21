@@ -60,6 +60,12 @@ function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
+// Unique caller identity per user — the number the customer sees. Every seeded
+// user gets a distinct OpenPhone line so outbound calling works out of the box and
+// no two employees ever share a caller ID. Real deployments assign these in Admin →
+// Users; the seed just guarantees a valid 1:1 mapping for the demo.
+const callerNumber = (slot: number) => `+1305555${String(slot).padStart(4, '0')}`;
+
 async function main() {
   console.log('Seeding…');
   const passwordHash = await bcrypt.hash(PASSWORD, 12);
@@ -67,19 +73,20 @@ async function main() {
   // ── Users ──────────────────────────────────────────────
   const admin = await prisma.user.upsert({
     where: { email: 'admin@crm.local' },
-    update: {},
-    create: { name: 'Admin', email: 'admin@crm.local', passwordHash, role: Role.admin },
+    update: { openphoneNumber: callerNumber(0) },
+    create: { name: 'Admin', email: 'admin@crm.local', passwordHash, role: Role.admin, openphoneNumber: callerNumber(0) },
   });
 
   for (let i = 1; i <= 3; i++) {
     await prisma.user.upsert({
       where: { email: `leader${i}@crm.local` },
-      update: {},
+      update: { openphoneNumber: callerNumber(i) },
       create: {
         name: `Team Leader ${i}`,
         email: `leader${i}@crm.local`,
         passwordHash,
         role: Role.team_leader,
+        openphoneNumber: callerNumber(i),
       },
     });
   }
@@ -89,12 +96,13 @@ async function main() {
   for (let i = 1; i <= 10; i++) {
     const caller = await prisma.user.upsert({
       where: { email: `caller${i}@crm.local` },
-      update: {},
+      update: { openphoneNumber: callerNumber(10 + i) },
       create: {
         name: `Caller ${i}`,
         email: `caller${i}@crm.local`,
         passwordHash,
         role: Role.employee,
+        openphoneNumber: callerNumber(10 + i),
         employee: {
           create: { shiftTimezone: timezones[i % timezones.length], performanceScore: 0 },
         },

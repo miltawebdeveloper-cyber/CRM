@@ -6,11 +6,12 @@ import { useQuery } from '@tanstack/react-query';
 import { Calendar, Plus, Clock, RefreshCw, CheckCircle2, AlertTriangle, Phone, Filter, Pencil, CircleCheckBig, Users } from 'lucide-react';
 import { callsApi, assignmentsApi, type Followup } from '@/lib/crm';
 import { openQuoDialer } from '@/lib/dialer';
+import { useCanCall } from '@/lib/use-can-call';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { DateRangePicker, FilterSelect, SearchInput } from '@/components/filter-controls';
+import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
-import { inDateBounds, type DateRange } from '@/lib/date-filters';
+import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 
 const TIMEFRAME_OPTS = [
   { label: 'All Follow-Ups', value: '' },
@@ -45,8 +46,10 @@ export default function FollowupsPage() {
     [summary],
   );
   const [timeframe, setTimeframe] = useState('');
-  const [created, setCreated] = useState<DateRange>({ from: '', to: '' });
+  const [created, setCreated] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
+  // Refuse to dial before the API would reject the call (no assigned caller ID).
+  const { guard } = useCanCall();
 
   const now = new Date();
   const dueToday = allFus.filter((f) => new Date(f.nextFollowupDate).toDateString() === now.toDateString()).length;
@@ -99,7 +102,7 @@ export default function FollowupsPage() {
       required: true,
       render: (f) => (
         <div className="flex items-center gap-2">
-          <button onClick={() => { if (f.lead) { openQuoDialer(f.lead.phone); router.push(`/calling?leadId=${f.lead.id}&autocall=1`); } else { router.push('/calling'); } }} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-50 transition-opacity hover:bg-primary hover:text-primary-foreground group-hover:opacity-100" title="Call lead">
+          <button onClick={() => { if (!f.lead) return router.push('/calling'); if (!guard()) return; openQuoDialer(f.lead.phone); router.push(`/calling?leadId=${f.lead.id}&autocall=1`); }} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-50 transition-opacity hover:bg-primary hover:text-primary-foreground group-hover:opacity-100" title="Call lead">
             <Phone className="h-[15px] w-[15px]" />
           </button>
           <button onClick={() => void mutateFollowup(f.kind, f.id, 'edit')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-60 transition-opacity hover:bg-muted hover:opacity-100" title="Edit follow-up">
@@ -111,7 +114,7 @@ export default function FollowupsPage() {
         </div>
       ),
     },
-  ], [router]);
+  ], [router, guard]);
 
   return (
     <div>
@@ -141,7 +144,7 @@ export default function FollowupsPage() {
             <SearchInput value={q} onChange={setQ} placeholder="Search company, phone, note…" className="min-w-[220px]" />
             <FilterSelect icon={Users} value={userId} onChange={setUserId} options={userOpts} />
             <FilterSelect icon={Filter} value={timeframe} onChange={setTimeframe} options={TIMEFRAME_OPTS} />
-            <DateRangePicker value={created} onChange={setCreated} />
+            <DateFilter value={created} onChange={setCreated} />
           </>
         }
       />

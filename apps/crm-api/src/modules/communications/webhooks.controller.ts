@@ -1,4 +1,5 @@
-import { Controller, Post, Req, Headers, ForbiddenException, HttpCode, Logger } from '@nestjs/common';
+import { Controller, Post, Req, Headers, Param, ForbiddenException, HttpCode, Logger } from '@nestjs/common';
+import * as crypto from 'crypto';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags } from '@nestjs/swagger';
@@ -28,6 +29,60 @@ export class WebhooksController {
     const type = (req.body as { type?: string })?.type ?? 'unknown';
     this.logger.log(`Webhook delivery received: type=${type}, signed=${sig ? 'yes' : 'no'}`);
     if (!this.comms.verifySignature(raw, sig)) throw new ForbiddenException('Invalid webhook signature');
+    return this.comms.handleEvent((req.body as Record<string, unknown>) ?? {});
+  }
+}
+
+/**
+ * Quo delivers to `POST /hook/<token>` — a bare path proxied straight through to
+ * this API, so it sits outside the `/api` prefix (see main.ts `exclude`).
+ *
+ * The token in the URL is the credential. This endpoint is public and it WRITES:
+ * a forged payload can create leads, calls and follow-up tasks. So it fails
+ * closed — an unset token is a misconfiguration, not a reason to accept
+ * everything — and the comparison is timing-safe, since a leaky compare on a
+ * secret in a URL is exactly how such a token gets guessed.
+ */
+@ApiTags('webhooks')
+@Controller('hook')
+export class QuoHookController {
+  private readonly logger = new Logger(QuoHookController.name);
+
+  constructor(private readonly comms: CommunicationsService) {}
+
+  private tokenOk(provided: string): boolean {
+    const expected = process.env.QUO_WEBHOOK_PATH_TOKEN ?? '';
+    if (!expected) {
+      this.logger.error('Rejected /hook delivery: QUO_WEBHOOK_PATH_TOKEN is not set. Set it to the token in your Quo webhook URL.');
+      return false;
+    }
+    const a = Buffer.from(provided);
+    const b = Buffer.from(expected);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  }
+
+  @Public()
+  @Post(':token')
+  @HttpCode(200)
+  async quoHook(
+    @Param('token') token: string,
+    @Req() req: RawBodyRequest<Request>,
+    @Headers() headers: Record<string, string>,
+  ) {
+    const type = (req.body as { type?: string })?.type ?? 'unknown';
+    this.logger.log(`Hook delivery received: type=${type}`);
+    if (!this.tokenOk(token)) throw new ForbiddenException('Invalid webhook token');
+
+    // Signature is verified too when a signing secret is configured; the path
+    // token alone proves the URL, not that Quo sent this particular body.
+    const raw = req.rawBody ?? Buffer.from(JSON.stringify(req.body ?? {}));
+    const sig =
+      headers['x-quo-signature'] ||
+      headers['openphone-signature'] ||
+      headers['x-openphone-signature'] ||
+      headers['x-webhook-signature'];
+    if (!this.comms.verifySignature(raw, sig)) throw new ForbiddenException('Invalid webhook signature');
+
     return this.comms.handleEvent((req.body as Record<string, unknown>) ?? {});
   }
 }

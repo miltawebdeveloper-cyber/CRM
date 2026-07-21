@@ -49,6 +49,19 @@ export class HistoryQueryDto {
   leadId?: string;
 }
 
+/**
+ * How the agent answered the incoming-call popup.
+ *
+ * `decline` records the agent's decision — it does NOT reject the call on the
+ * carrier, because OpenPhone exposes no call-control API (its only writes are
+ * messages and contacts). See CommunicationsService.respondToCall.
+ */
+export class CallResponseDto {
+  @ApiProperty({ enum: ['attend', 'decline'] })
+  @IsIn(['attend', 'decline'])
+  action: 'attend' | 'decline';
+}
+
 export class CallByPhoneDto {
   @ApiProperty({ description: 'Number to dial (E.164 or local digits) — from the dial pad' })
   @IsString()

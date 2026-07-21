@@ -14,6 +14,12 @@ export interface CallLead {
   state?: string;
 }
 
+/** The caller identity the customer sees — the agent's own name + assigned line. */
+interface CallIdentity {
+  callerName?: string;
+  from?: string;
+}
+
 interface CallContextValue {
   /** Initiate a call to a known lead. Opens the docked call widget. */
   placeCall: (lead: CallLead) => void;
@@ -43,7 +49,7 @@ const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '
 
 export function CallProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
-  const [active, setActive] = useState<{ callId: string; lead: CallLead } | null>(null);
+  const [active, setActive] = useState<{ callId: string; lead: CallLead; identity?: CallIdentity } | null>(null);
   const [ending, setEnding] = useState(false);
   const [finalDuration, setFinalDuration] = useState(0);
   const [outcome, setOutcome] = useState<string | null>(null);
@@ -58,7 +64,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const place = useMutation({
     mutationFn: (lead: CallLead) => communicationsApi.startCall(lead.id),
     onSuccess: (res, lead) => {
-      setActive({ callId: res.callId, lead });
+      setActive({ callId: res.callId, lead, identity: { callerName: res.callerName, from: res.from } });
       setEnding(false);
       // Cockpit model: Quo/OpenPhone has no dial API, so hand the number to the
       // agent's OpenPhone dialer via a tel: link — the widget stays in the CRM
@@ -76,7 +82,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const placeByNumber = useMutation({
     mutationFn: (phone: string) => communicationsApi.startCallByPhone(phone),
     onSuccess: (res) => {
-      setActive({ callId: res.callId, lead: res.lead });
+      setActive({ callId: res.callId, lead: res.lead, identity: { callerName: res.callerName, from: res.from } });
       setEnding(false);
       // The QUO dial pad is opened at the click site (DialPad) so the browser
       // doesn't block a tel: handoff fired from this async callback.
@@ -135,6 +141,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       {active && (
         <CallWidget
           lead={active.lead}
+          identity={active.identity}
           phase={phase}
           durationSecs={ending ? finalDuration : 0}
           ending={ending}
@@ -159,6 +166,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
 function CallWidget(props: {
   lead: CallLead;
+  identity?: CallIdentity;
   phase: CallPhase;
   durationSecs: number;
   ending: boolean;
@@ -194,6 +202,13 @@ function CallWidget(props: {
         <div className="font-mono text-[12.5px] text-muted-foreground">{props.lead.phone}</div>
         {(props.lead.city || props.lead.state) && (
           <div className="mt-0.5 text-[12.5px] text-muted-foreground">{[props.lead.city, props.lead.state].filter(Boolean).join(', ')}</div>
+        )}
+        {props.identity?.from && (
+          // The identity the customer sees — so the agent dials from the right line.
+          <div className="mt-2 flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-[11.5px] text-muted-foreground">
+            <Phone className="h-3 w-3" />
+            <span>Calling as <span className="font-semibold text-foreground">{props.identity.callerName}</span> · <span className="font-mono">{props.identity.from}</span></span>
+          </div>
         )}
 
         {!props.ending ? (

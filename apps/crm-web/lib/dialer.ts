@@ -17,3 +17,19 @@ export function openQuoDialer(phone?: string | null) {
   a.click();
   a.remove();
 }
+
+/**
+ * The QUO/OpenPhone app where inbound calls are actually answered. Configurable
+ * (e.g. a self-hosted or region-specific host) via NEXT_PUBLIC_OPENPHONE_APP_URL;
+ * defaults to the OpenPhone web app.
+ */
+export const OPENPHONE_APP_URL = process.env.NEXT_PUBLIC_OPENPHONE_APP_URL || 'https://my.openphone.com';
+
+/**
+ * Redirect the agent to the calling platform to answer an incoming callback. The
+ * CRM only notifies + redirects; the voice call is handled entirely in OpenPhone.
+ */
+export function openOpenPhoneApp() {
+  if (typeof window === 'undefined') return;
+  window.open(OPENPHONE_APP_URL, '_blank', 'noopener,noreferrer');
+}

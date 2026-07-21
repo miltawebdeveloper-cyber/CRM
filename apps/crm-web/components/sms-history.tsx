@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
-import { Search, RefreshCw, MessageSquare, Check, CheckCheck, Clock, AlertTriangle } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Search, RefreshCw, MessageSquare, Check, CheckCheck, Clock, AlertTriangle, Send, Loader2 } from 'lucide-react';
 import { communicationsApi, type SmsMessage } from '@/lib/crm';
 
 const LIVE_MS = 15_000;
@@ -29,11 +29,13 @@ interface Thread {
 }
 
 export function SmsHistory({ leadId }: { leadId?: string }) {
+  const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [direction, setDirection] = useState<'' | 'inbound' | 'outbound'>('');
   const [status, setStatus] = useState('');
   const [query, setQuery] = useState('');
   const [openThread, setOpenThread] = useState<string | null>(null);
+  const [reply, setReply] = useState('');
 
   useEffect(() => {
     const t = setTimeout(() => setQuery(search), 300);
@@ -45,7 +47,12 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
     queryFn: () => communicationsApi.sms({ search: query, direction: direction || undefined, status: status || undefined, leadId }),
     refetchInterval: LIVE_MS, // new SMS appear without a manual refresh
   });
-  const { data: statuses = [] } = useQuery({ queryKey: ['sms-statuses'], queryFn: communicationsApi.smsStatuses });
+  // Faceted on the same scope as the list (minus status itself), so the counts in
+  // the menu describe what's actually on screen.
+  const { data: statuses = [] } = useQuery({
+    queryKey: ['sms-statuses', query, direction, leadId],
+    queryFn: () => communicationsApi.smsStatuses({ search: query, direction: direction || undefined, leadId }),
+  });
 
   // Group the flat list into per-lead conversations, newest thread first.
   const threads = useMemo<Thread[]>(() => {
@@ -74,6 +81,32 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
 
   // Keep a thread open across refetches; default to the most recent one.
   const active = threads.find((t) => t.key === openThread) ?? threads[0];
+
+  /**
+   * Reply in-thread. The tab used to be read-only, so answering a customer meant
+   * leaving for their lead page. Sending goes through the same endpoint as the
+   * lead page, so the reply carries the agent's own caller identity and is
+   * attributed to them.
+   */
+  const send = useMutation({
+    // sendSms raises provider-side rejections itself, so a failed send lands on
+    // the error toast rather than reporting a message that never went out.
+    mutationFn: ({ lead, body }: { lead: string; body: string }) => communicationsApi.sendSms(lead, body),
+    meta: { successMessage: 'Message sent' },
+    onSuccess: () => {
+      setReply('');
+      qc.invalidateQueries({ queryKey: ['sms'] });
+      qc.invalidateQueries({ queryKey: ['sms-statuses'] });
+    },
+  });
+
+  const canSend = !!active?.leadId && !!reply.trim() && !send.isPending;
+  const submitReply = () => { if (canSend && active?.leadId) send.mutate({ lead: active.leadId, body: reply.trim() }); };
+
+  // Chat panes read bottom-up: jump to the newest message when the thread changes
+  // or one arrives, so a reply doesn't land out of sight below the fold.
+  const endRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { endRef.current?.scrollIntoView({ block: 'nearest' }); }, [active?.key, active?.messages.length]);
 
   return (
     <div className="rounded-2xl border bg-card shadow-sm">
@@ -144,7 +177,9 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
               return (
                 <button
                   key={t.key}
-                  onClick={() => setOpenThread(t.key)}
+                  // Drop the draft when switching — a half-typed reply must never
+                  // follow you into a different customer's conversation.
+                  onClick={() => { setOpenThread(t.key); setReply(''); }}
                   className={`mb-1.5 w-full rounded-[10px] border p-2.5 text-left transition-colors ${active?.key === t.key ? 'border-[#2b732f] bg-muted shadow-[inset_3px_0_0_#266929]' : 'hover:bg-muted/50'}`}
                 >
                   <div className="flex items-baseline justify-between gap-2">
@@ -176,7 +211,21 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
                   )}
                   <div className="truncate font-mono text-[11.5px] text-muted-foreground">{active.phone}</div>
                 </div>
-                <span className="shrink-0 text-[11.5px] text-muted-foreground">{active.messages.length} messages</span>
+                {/* Consistency check: a customer should always hear from the SAME line.
+                    If outbound messages went out from more than one number, flag it. */}
+                {(() => {
+                  const froms = [...new Set(active.messages.filter((m) => m.direction === 'outbound').map((m) => m.from))];
+                  return froms.length > 1 ? (
+                    <span
+                      title={`Sent from: ${froms.join(', ')}`}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#fbe4e1] px-2 py-[3px] text-[10.5px] font-semibold text-[#9e2b21]"
+                    >
+                      <AlertTriangle className="h-3 w-3" /> Sent from {froms.length} numbers
+                    </span>
+                  ) : (
+                    <span className="shrink-0 text-[11.5px] text-muted-foreground">{active.messages.length} messages</span>
+                  );
+                })()}
               </div>
 
               <div className="flex-1 space-y-2.5 overflow-y-auto p-[18px]">
@@ -188,20 +237,70 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
                       <div className={`max-w-[85%] rounded-[14px] px-3 py-2 text-[13px] ${out ? 'rounded-br-[4px] bg-[#2b732f] text-white' : 'rounded-bl-[4px] bg-muted'}`}>
                         {m.body}
                       </div>
-                      <div className="mt-1 flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10.5px] text-muted-foreground">
                         {/* Sender → recipient, so it's always clear which way it went. */}
                         <span className="font-mono">{m.from}</span>
                         <span>→</span>
                         <span className="font-mono">{m.to}</span>
+                        {out && m.by && <><span>·</span><span>by {m.by}</span></>}
                         <span>·</span>
                         <span>{new Date(m.at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                         <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-px font-semibold ${st.cls}`}>
                           <st.Icon className="h-2.5 w-2.5" /> {st.label}
                         </span>
+                        {/* Went out from a line that isn't this sender's own caller ID. */}
+                        {m.senderMismatch && (
+                          <span
+                            title={`Sent from ${m.from}, which is not ${m.by ?? 'the sender'}'s assigned caller ID`}
+                            className="inline-flex items-center gap-1 rounded-full bg-[#fbe4e1] px-1.5 py-px font-semibold text-[#9e2b21]"
+                          >
+                            <AlertTriangle className="h-2.5 w-2.5" /> Wrong line
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
                 })}
+                <div ref={endRef} />
+              </div>
+
+              {/* Reply composer. Enter sends, Shift+Enter adds a line — the usual
+                  chat contract, so replying never needs a trip to the lead page. */}
+              <div className="border-t p-3">
+                {active.leadId ? (
+                  <>
+                    <div className="flex items-end gap-2">
+                      <textarea
+                        value={reply}
+                        onChange={(e) => setReply(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitReply(); }
+                        }}
+                        rows={1}
+                        placeholder={`Reply to ${active.name}…`}
+                        className="max-h-28 min-h-[38px] flex-1 resize-y rounded-lg border bg-background px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                      <button
+                        onClick={submitReply}
+                        disabled={!canSend}
+                        aria-label="Send message"
+                        className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-lg bg-[#2b732f] text-white disabled:opacity-50"
+                      >
+                        {send.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    {/* Long messages bill as multiple segments — say so before sending. */}
+                    {reply.length > 160 && (
+                      <div className="mt-1 text-[10.5px] text-muted-foreground">
+                        {reply.length} characters · sends as {Math.ceil(reply.length / 153)} SMS segments
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-[11.5px] text-muted-foreground">
+                    This conversation isn’t linked to a lead, so it can’t be replied to from here.
+                  </p>
+                )}
               </div>
             </div>
           )}

@@ -100,6 +100,28 @@ export interface OpenPhoneMessage {
   userId?: string;
 }
 
+/**
+ * One spoken turn from GET /v1/call-transcripts/{callId}.
+ * `userId` is present when the speaker is a workspace user (the employee);
+ * `identifier` is the speaker's phone number. We use this to attribute turns.
+ */
+export interface OpenPhoneTranscriptDialogue {
+  identifier?: string | null;
+  userId?: string | null;
+  content?: string | null;
+  start?: number | null; // seconds from call start
+  end?: number | null;
+}
+
+/** A call transcript from GET /v1/call-transcripts/{callId}. */
+export interface OpenPhoneTranscript {
+  callId?: string;
+  status?: string | null; // absent | in_progress | completed | failed
+  duration?: number | null;
+  dialogue: OpenPhoneTranscriptDialogue[];
+  language?: string | null;
+}
+
 /** A recording segment from GET /v1/call-recordings/{callId}. */
 export interface OpenPhoneRecording {
   id: string;

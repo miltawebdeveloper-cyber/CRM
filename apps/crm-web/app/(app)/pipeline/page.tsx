@@ -9,9 +9,9 @@ import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { Segmented } from '@/components/segmented';
 import { StatusPill } from '@/components/status-pill';
-import { DateRangePicker, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
+import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
-import { inDateBounds, type DateRange } from '@/lib/date-filters';
+import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 
 type View = 'board' | 'list';
 const VIEWS = [{ label: 'Board', value: 'board' as View }, { label: 'List', value: 'list' as View }];
@@ -31,7 +31,7 @@ export default function PipelinePage() {
   const [tz, setTz] = useState('');
   const [state, setState] = useState('');
   const [city, setCity] = useState('');
-  const [created, setCreated] = useState<DateRange>({ from: '', to: '' });
+  const [created, setCreated] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
   const qc = useQueryClient();
   const { data: allLeads = [] } = useQuery({ queryKey: ['leads'], queryFn: () => leadsApi.list() });
@@ -82,7 +82,7 @@ export default function PipelinePage() {
         <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={tzOpts} />
         <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
-        <DateRangePicker value={created} onChange={setCreated} />
+        <DateFilter value={created} onChange={setCreated} />
         <Segmented options={VIEWS} value={view} onChange={setView} />
       </PageHead>
 

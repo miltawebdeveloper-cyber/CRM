@@ -51,4 +51,9 @@ export class OpenPhoneService {
   getCallRecordings(callId: string) {
     return this.client.getCallRecordings(callId);
   }
+
+  /** AI transcript (dialogue turns) for a call — used to build the call summary. */
+  getCallTranscript(callId: string) {
+    return this.client.getCallTranscript(callId);
+  }
 }

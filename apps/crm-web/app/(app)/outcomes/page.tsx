@@ -9,8 +9,8 @@ import { callsApi, outcomesApi, type OutcomeRecord } from '@/lib/crm';
 import { PageHead } from '@/components/page-head';
 import { OutcomePill } from '@/components/outcome-pill';
 import { DataTable, type ColumnDef } from '@/components/data-table';
-import { DateRangePicker, FilterSelect, SearchInput } from '@/components/filter-controls';
-import { inDateBounds, type DateRange } from '@/lib/date-filters';
+import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
+import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 
 export default function OutcomesPage() {
   const { data: rows = [], isLoading } = useQuery({ queryKey: ['outcomes'], queryFn: () => callsApi.outcomes(), retry: false });
@@ -26,7 +26,7 @@ export default function OutcomesPage() {
   );
   const [outcome, setOutcome] = useState('');
   const [userId, setUserId] = useState('');
-  const [range, setRange] = useState<DateRange>({ from: '', to: '' });
+  const [range, setRange] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
 
   // Distinct callers present in the data → User filter (req 6).
@@ -88,7 +88,7 @@ export default function OutcomesPage() {
           <SearchInput value={q} onChange={setQ} placeholder="Search lead, caller, phone…" className="min-w-[220px]" />
           {isManager && <FilterSelect icon={User} value={userId} onChange={setUserId} options={userOpts} />}
           <FilterSelect icon={Filter} value={outcome} onChange={setOutcome} options={OUTCOME_OPTS} />
-          <DateRangePicker value={range} onChange={setRange} />
+          <DateFilter value={range} onChange={setRange} />
         </div>
       </PageHead>
 

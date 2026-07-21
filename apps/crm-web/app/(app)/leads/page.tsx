@@ -11,6 +11,7 @@ import { metricsApi } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
 import { openQuoDialer } from '@/lib/dialer';
+import { useCanCall } from '@/lib/use-can-call';
 import { StatusPill } from '@/components/status-pill';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
@@ -110,6 +111,9 @@ export default function LeadsPage() {
   });
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   const canManage = me?.role === 'admin' || me?.role === 'team_leader';
+  // Refuse to dial before the API would reject the call (no assigned caller ID),
+  // since the tel: handoff fires first and can't be taken back.
+  const { guard } = useCanCall();
   // Employees (any non-manager role) get a self-scoped view: they see only their
   // own leads, and their KPI cards are derived from that book.
   const isEmployee = !!me && !canManage;
@@ -302,13 +306,13 @@ export default function LeadsPage() {
             </button>
           )}
           <div className="flex gap-1.5 opacity-50 transition-opacity group-hover:opacity-100">
-            <button onClick={() => { openQuoDialer(l.phone); router.push(`/calling?leadId=${l.id}&autocall=1`); }} title="Call" aria-label={`Call ${l.businessName}`} className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#1d491f] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Phone className="h-[15px] w-[15px]" /></button>
+            <button onClick={() => { if (!guard()) return; openQuoDialer(l.phone); router.push(`/calling?leadId=${l.id}&autocall=1`); }} title="Call" aria-label={`Call ${l.businessName}`} className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#1d491f] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Phone className="h-[15px] w-[15px]" /></button>
             <button onClick={() => router.push(`/leads/${l.id}`)} title="View" aria-label={`View ${l.businessName}`} className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#1d491f] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Eye className="h-[15px] w-[15px]" /></button>
           </div>
         </div>
       ),
     },
-  ], [router, canManage]);
+  ], [router, canManage, guard]);
 
   // Shared column prefs for Column Customization (visibility/order) — unchanged.
   const prefs = useColumnPrefs('leads', columns);

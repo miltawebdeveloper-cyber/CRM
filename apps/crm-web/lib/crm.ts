@@ -173,6 +173,24 @@ export interface CallsMadeQuery {
   to?: string;
   /** Managers only — narrow to one caller. Ignored for employees. */
   userId?: string;
+  // ── Lead-side filters, applied server-side ──
+  // These go to the API (not applied in the browser) so the summary tiles and the
+  // table describe the same calls, and so filtering covers the whole range rather
+  // than only the page of rows the table has loaded.
+  timezone?: string;
+  state?: string;
+  city?: string;
+  /** 'assigned' | 'unassigned' | a lead status value. */
+  leadStatus?: string;
+  /** Outcome slug (falls back to the lead's legacy call status). */
+  outcome?: string;
+}
+
+/** Values the Calls Made filter menus offer, for the current date + employee scope. */
+export interface CallsMadeFilterOptions {
+  geo: { timezone: string; state: string; city: string }[];
+  /** Legacy imported call statuses still present in the data. */
+  callStatuses: string[];
 }
 
 /** Per-status row of the report — every configured status, zeroes included. */
@@ -232,7 +250,10 @@ export interface CallRecord {
   direction: 'inbound' | 'outbound' | null;
   status: string | null;
   outcome: string | null;
+  /** Signed provider link — managers only; null for everyone else. */
   recordingUrl: string | null;
+  /** Whether a recording exists. Safe for any viewer, and what the export reports. */
+  hasRecording: boolean;
   lead: {
     id: string; leadId: string; businessName: string; contactName: string | null; phone: string; status: string;
     timezone: string; state: string; city: string; callStatus: string | null; assignedToId: string | null;
@@ -288,6 +309,8 @@ export const callsApi = {
     (await api.get('/calls/made/stats', { params })).data,
   madeRecords: async (params?: CallsMadeQuery): Promise<CallRecord[]> =>
     (await api.get('/calls/made/records', { params })).data,
+  madeFilters: async (params?: CallsMadeQuery): Promise<CallsMadeFilterOptions> =>
+    (await api.get('/calls/made/filters', { params })).data,
   madePivot: async (params: CallPivotQuery): Promise<CallPivot> =>
     (await api.get('/calls/made/pivot', { params })).data,
   leadBook: async (userId?: string): Promise<LeadBook> =>
@@ -458,6 +481,8 @@ export interface TimelineItem {
   aiSummary?: string | null;
   body?: string;
   by?: string | null;
+  /** Caller identity (OpenPhone line) the call went out on. */
+  from?: string | null;
 }
 export interface StartCallResult {
   callId: string;
@@ -466,6 +491,10 @@ export interface StartCallResult {
   error?: string | null;
   /** tel: link handed to the agent's OpenPhone dialer to place the call. */
   tel?: string;
+  /** Caller identity the customer sees: the caller's own assigned OpenPhone line… */
+  from?: string;
+  /** …and their display name — shown on the widget so the agent dials as themselves. */
+  callerName?: string;
 }
 export interface MissedCall {
   id: string;
@@ -489,12 +518,25 @@ export interface CallState {
   recordingUrl: string | null;
   lead: { id: string; businessName: string; phone: string; city: string; state: string };
   by: string | null;
+  /** Caller identity (OpenPhone line) the call is going out on. */
+  from?: string | null;
 }
 export const communicationsApi = {
   timeline: async (leadId: string): Promise<TimelineItem[]> =>
     (await api.get(`/communications/lead/${leadId}`)).data,
-  sendSms: async (leadId: string, body: string): Promise<{ success: boolean; error: string | null }> =>
-    (await api.post(`/communications/lead/${leadId}/sms`, { body })).data,
+  /**
+   * Send an SMS to a lead.
+   *
+   * The endpoint answers 200 with `{ success: false, error }` when the PROVIDER
+   * rejects the message — the HTTP call succeeded, the send didn't. Callers were
+   * reading that as success and reporting "Message sent" for messages that never
+   * left, so the failure is raised here, once, rather than at each call site.
+   */
+  sendSms: async (leadId: string, body: string): Promise<{ success: boolean; error: string | null }> => {
+    const res = (await api.post(`/communications/lead/${leadId}/sms`, { body })).data;
+    if (!res?.success) throw new Error(res?.error || 'The message could not be sent.');
+    return res;
+  },
   startCall: async (leadId: string): Promise<StartCallResult> =>
     (await api.post(`/communications/lead/${leadId}/call`, {})).data,
   startCallByPhone: async (phone: string): Promise<StartCallResult & { lead: CallState['lead'] }> =>
@@ -503,6 +545,13 @@ export const communicationsApi = {
     (await api.get(`/communications/call/${callId}/state`)).data,
   latestIncoming: async (): Promise<IncomingCall | null> =>
     (await api.get('/communications/incoming/latest')).data,
+  /**
+   * Record the response to an incoming-call popup. `decline` logs the decision
+   * only — OpenPhone has no call-control API, so the call is not hung up on the
+   * carrier (`rejectedOnCarrier` is always false).
+   */
+  respondToCall: async (callId: string, action: 'attend' | 'decline'): Promise<{ ok: boolean; action: string; rejectedOnCarrier: boolean }> =>
+    (await api.post(`/communications/call/${callId}/respond`, { action })).data,
   missedCalls: async (): Promise<MissedCall[]> => (await api.get('/communications/missed')).data,
   analytics: async (period = 'week'): Promise<CommAnalytics> =>
     (await api.get('/communications/analytics', { params: { period } })).data,
@@ -512,8 +561,9 @@ export const communicationsApi = {
     (await api.get('/communications/recordings', { params: clean(filters) })).data,
   sms: async (filters: HistoryFilters = {}): Promise<SmsMessage[]> =>
     (await api.get('/communications/sms', { params: clean(filters) })).data,
-  smsStatuses: async (): Promise<{ status: string; count: number }[]> =>
-    (await api.get('/communications/sms/statuses')).data,
+  /** Status facets for the CURRENT filters — pass the same filters as `sms`. */
+  smsStatuses: async (filters: HistoryFilters = {}): Promise<{ status: string; count: number }[]> =>
+    (await api.get('/communications/sms/statuses', { params: clean(filters) })).data,
 
   /**
    * Recording audio as a blob URL. Fetched through axios (not a bare <audio src>)
@@ -527,6 +577,19 @@ export const communicationsApi = {
     });
     return URL.createObjectURL(res.data as Blob);
   },
+
+  /** Full AI Summary + Transcript for a recorded call (manager or the call's owner). */
+  callInsight: async (callId: string): Promise<CallInsight> =>
+    (await api.get(`/communications/calls/${callId}/insight`)).data,
+  /** Re-run AI summary + transcript generation for one call. */
+  regenerateInsight: async (callId: string): Promise<{ callId: string; status: string }> =>
+    (await api.post(`/communications/calls/${callId}/insight/regenerate`, {})).data,
+  /** Queue insight generation for every recorded call missing one (admin only). */
+  backfillInsights: async (): Promise<{ queued: number }> =>
+    (await api.post('/communications/insights/backfill', {})).data,
+  /** Progress of the insight generation queue. */
+  insightsStatus: async (): Promise<InsightsStatus> =>
+    (await api.get('/communications/insights/status')).data,
 
   syncLead: async (leadId: string): Promise<LeadSyncResult> =>
     (await api.post(`/communications/sync/lead/${leadId}`, {})).data,
@@ -566,7 +629,55 @@ export interface RecordedCall {
   status: string | null;
   durationSecs: number | null;
   by: string | null;
+  /** Caller identity the call went out on. Null on legacy outbound calls placed
+   *  before the line was recorded — the UI flags those. */
+  from: string | null;
   recordings: RecordingSegment[];
+  /** AI insight status for this call. `ready` means summary + transcript exist. */
+  insight: { status: InsightStatus } | null;
+}
+
+/** Lifecycle of a call's AI insight. */
+export type InsightStatus = 'none' | 'pending' | 'processing' | 'ready' | 'failed' | 'unavailable';
+
+/** One turn of the rendered conversation transcript. */
+export interface TranscriptTurn {
+  speaker: 'employee' | 'customer';
+  speakerName: string;
+  text: string;
+  startSecs: number | null;
+  endSecs: number | null;
+}
+
+/** The nine structured sections of an AI call summary. */
+export interface CallSummary {
+  purpose: string;
+  keyPoints: string[];
+  customerRequirements: string[];
+  questionsAsked: string[];
+  employeeResponses: string[];
+  decisions: string[];
+  followUps: string[];
+  outcome: string;
+  nextSteps: string[];
+}
+
+/** Full AI insight for a call — returned when a recording's insight is opened. */
+export interface CallInsight {
+  callId: string;
+  status: InsightStatus;
+  summary: CallSummary | null;
+  transcript: TranscriptTurn[] | null;
+  model: string | null;
+  source: string | null;
+  generatedAt: string | null;
+  error: string | null;
+}
+
+export interface InsightsStatus {
+  running: boolean;
+  queued: number;
+  lastRun: { processed: number; failed: number; finishedAt: string } | null;
 }
 
 export interface SmsMessage {
@@ -581,6 +692,10 @@ export interface SmsMessage {
   status: string | null;
   conversationId: string | null;
   at: string;
+  /** CRM user who sent it (outbound only; null for inbound/legacy/synced). */
+  by?: string | null;
+  /** True when an outbound message went out from a line that isn't the sender's own caller ID. */
+  senderMismatch?: boolean;
 }
 
 export interface LeadSyncResult {
@@ -613,7 +728,14 @@ export interface IncomingCall {
   status: string | null;
   /** True once Quo reports the call as live/answered — drives popup auto-open. */
   connected: boolean;
-  lead: { id: string; businessName: string; phone: string; city: string; state: string; status: string };
+  /** Employee who previously handled this customer (the callback is routed to them). */
+  handledBy: string | null;
+  handledById: string;
+  /** Last logged outcome name for this customer, for recognition on callback. */
+  lastOutcome: string | null;
+  /** True when this customer had a callback pending (called back before it was due). */
+  pendingCallback: boolean;
+  lead: { id: string; businessName: string; contactName: string | null; phone: string; city: string; state: string; status: string };
 }
 export interface CommAnalytics {
   period: string;

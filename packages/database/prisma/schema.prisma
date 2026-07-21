@@ -142,8 +142,10 @@ model User {
   lastLoginAt        DateTime?    @map("last_login_at")
 
   // OpenPhone/Quo number this caller sends SMS and dials from (E.164, e.g. +15551234567).
-  // Admin-assigned; falls back to the first workspace number when unset.
-  openphoneNumber String? @map("openphone_number")
+  // Admin-assigned and UNIQUE: it is the caller identity the customer sees, so no two
+  // users may share one. Nullable (many users may be unassigned) — but an unassigned
+  // user is blocked from placing outbound calls, never silently handed a shared line.
+  openphoneNumber String? @unique @map("openphone_number")
   shiftStart         String?      @map("shift_start") // "HH:mm" local start time (default 09:00)
   noLoginHandledOn   DateTime?    @map("no_login_handled_on") @db.Date // dedupe stamp for the no-login cron
 
@@ -160,6 +162,7 @@ model User {
   assignmentsMade   Assignment[]        @relation("AssignmentAssignedBy")
   assignmentsTaken  Assignment[]        @relation("AssignmentCaller")
   calls             Call[]
+  sentMessages      Message[]           @relation("MessageSender")
   notes             Note[]
   productivityLogs  ProductivityLog[]
   notifications     Notification[]
@@ -529,6 +532,10 @@ model Call {
   endTime      DateTime?    @map("end_time")
   durationSecs Int?         @map("duration_secs")
   recordingUrl String?      @map("recording_url")
+  // Caller identity used for THIS call (the caller's assigned OpenPhone line at dial
+  // time). Stamped on every outbound call so call logs, recordings and activity stay
+  // tied to the employee who called, even if their assigned number changes later.
+  fromNumber   String?      @map("from_number")
   outcome      String? // Outcome.slug — configurable list (see model Outcome)
   providerSid  String?      @map("provider_sid") // Twilio call SID
   createdAt    DateTime     @default(now()) @map("created_at")
@@ -544,12 +551,45 @@ model Call {
   notes           Note[]
   coachingReport  VoiceCoachingReport?
   recordings      CallRecording[]
+  insight         CallInsight?
 
   @@index([leadId])
   @@index([callerId])
   @@index([startTime])
   @@index([quoCallId])
   @@map("calls")
+}
+
+/// AI-generated insight for a recorded call: a structured summary + a
+/// speaker-labelled transcript. One row per call (1:1), kept separate from the
+/// audio in call_recordings so the original recording is never altered.
+/// Generated automatically after a recording syncs from Quo; falls back to a
+/// deterministic heuristic when no LLM key is configured (sandbox/dev).
+model CallInsight {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  callId         String    @unique @map("call_id") @db.Uuid
+  call           Call      @relation(fields: [callId], references: [id], onDelete: Cascade)
+  /// pending | processing | ready | failed | unavailable
+  status         String    @default("pending")
+  /// 9 structured sections: purpose, keyPoints[], customerRequirements[],
+  /// questionsAsked[], employeeResponses[], decisions[], followUps[], outcome, nextSteps[]
+  summary        Json?
+  /// Chronological turns: [{ speaker: 'employee'|'customer', speakerName, text, startSecs, endSecs }]
+  transcript     Json?
+  /// Flattened text mirrors, so recordings search can match summary/transcript keywords.
+  summaryText    String?   @map("summary_text")
+  transcriptText String?   @map("transcript_text")
+  /// LLM model id used (e.g. claude-opus-4-8), or 'heuristic' for the sandbox fallback.
+  model          String?
+  /// Where the transcript came from: 'quo' | 'generated' | 'sandbox'.
+  source         String?
+  error          String?
+  generatedAt    DateTime? @map("generated_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("call_insights")
 }
 
 /// Call recording segment synced from Quo (GET /v1/call-recordings/{callId}).
@@ -591,9 +631,16 @@ model Message {
   conversationId String?       @map("conversation_id")
   createdAt      DateTime      @default(now()) @map("created_at")
 
+  // CRM user who sent this message (outbound sends only). Null for inbound and for
+  // provider-synced messages that don't map to a user. `fromNumber` is the line it
+  // went out on, so sender + line together flag "sent from the wrong caller ID".
+  senderId       String?       @map("sender_id") @db.Uuid
+  sender         User?         @relation("MessageSender", fields: [senderId], references: [id])
+
   @@index([leadId])
   @@index([conversationId])
   @@index([quoMessageId])
+  @@index([senderId])
   @@map("messages")
 }
 

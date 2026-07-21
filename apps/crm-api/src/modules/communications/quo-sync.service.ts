@@ -4,8 +4,26 @@ import { CommDirection } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OpenPhoneService } from '../openphone/openphone.service';
 import { OpenPhoneCall, OpenPhoneMessage, OpenPhoneNumber } from '../openphone/openphone.types';
+import { CallInsightsService } from './call-insights.service';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Normalise a phone number to E.164 (e.g. +18133030213). Quo/OpenPhone rejects
+ * any `participant` that isn't E.164 ("Expected string to match '^\+[1-9]…'"),
+ * so a lead stored in display form — "(813) 303-0213" — must be converted before
+ * it's used to query call/message history. US-centric, matching the workspace's
+ * own +1 lines; an already-E.164 value passes through unchanged.
+ */
+const toE164 = (raw: string): string => {
+  const trimmed = (raw ?? '').trim();
+  const d = trimmed.replace(/\D/g, '');
+  if (!d) return '';
+  if (trimmed.startsWith('+')) return `+${d}`;
+  if (d.length === 10) return `+1${d}`;
+  if (d.length === 11 && d.startsWith('1')) return `+${d}`;
+  return `+${d}`;
+};
 
 export interface LeadSyncResult {
   leadId: string;
@@ -50,6 +68,7 @@ export class QuoSyncService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly openphone: OpenPhoneService,
+    private readonly insights: CallInsightsService,
   ) {}
 
   // ── Provider rate limit ──
@@ -91,8 +110,10 @@ export class QuoSyncService {
     return this.fallbackUserId;
   }
 
+  /** Case/variant tolerant — the REST API returns "incoming"/"outgoing". */
   private dir(v: unknown): CommDirection {
-    return v === 'incoming' || v === 'inbound' ? CommDirection.inbound : CommDirection.outbound;
+    const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
+    return s === 'incoming' || s === 'inbound' ? CommDirection.inbound : CommDirection.outbound;
   }
 
   /**
@@ -154,6 +175,10 @@ export class QuoSyncService {
     if (!lead) throw new NotFoundException('Lead not found');
     if (!lead.phone) return { leadId, calls: 0, recordings: 0, messages: 0, error: 'Lead has no phone number' };
 
+    // Quo requires the participant in E.164; leads may be stored in display form.
+    const participant = toE164(lead.phone);
+    if (!participant) return { leadId, calls: 0, recordings: 0, messages: 0, error: `Lead phone "${lead.phone}" is not a valid number` };
+
     const numbers = await this.workspaceNumbers();
     if (numbers.length === 0) return { leadId, calls: 0, recordings: 0, messages: 0, error: 'No Quo phone numbers available' };
 
@@ -164,11 +189,11 @@ export class QuoSyncService {
     let messages = 0;
 
     for (const number of numbers) {
-      calls += await this.syncCallsFor(lead.id, lead.phone, number, callerId).then((r) => {
+      calls += await this.syncCallsFor(lead.id, participant, number, callerId).then((r) => {
         recordings += r.recordings;
         return r.calls;
       });
-      messages += await this.syncMessagesFor(lead.id, lead.phone, number);
+      messages += await this.syncMessagesFor(lead.id, participant, number);
     }
 
     if (calls || messages) {
@@ -294,6 +319,9 @@ export class QuoSyncService {
         select: { url: true },
       });
       if (firstSeg) await this.prisma.call.update({ where: { id: callId }, data: { recordingUrl: firstSeg.url } });
+      // A recording just landed — generate its AI summary + transcript in the
+      // background (never blocks the sync). No-ops if the queue already has it.
+      this.insights.enqueue(callId);
     }
     return saved;
   }
@@ -423,8 +451,11 @@ export class QuoSyncService {
           const r = await this.syncCallsFor(lead.id, participant, number, callerId);
           totals.calls += r.calls;
           totals.recordings += r.recordings;
-          totals.messages += await this.syncMessagesFor(lead.id, participant, number);
-          if (r.calls || totals.messages) {
+          // This conversation's own message count — testing the running total
+          // would touch every later lead once any conversation had a message.
+          const msgs = await this.syncMessagesFor(lead.id, participant, number);
+          totals.messages += msgs;
+          if (r.calls || msgs) {
             await this.prisma.lead.update({ where: { id: lead.id }, data: { lastCommunicationAt: new Date() } });
           }
         } catch (err) {

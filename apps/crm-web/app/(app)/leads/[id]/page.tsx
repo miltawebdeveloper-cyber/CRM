@@ -9,6 +9,7 @@ import { Phone, MessageSquare, Info, Pencil } from 'lucide-react';
 import { leadsApi, type UpdateLeadInput } from '@/lib/leads';
 import { communicationsApi } from '@/lib/crm';
 import { openQuoDialer } from '@/lib/dialer';
+import { useCanCall } from '@/lib/use-can-call';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
 import { ZoomTimeline } from '@/components/zoom-timeline';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
@@ -34,6 +35,8 @@ export default function LeadDetailPage() {
 
   // Current user — the Activity Log is restricted to Admin & Team Lead.
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
+  // Refuse to dial before the API would reject the call (no assigned caller ID).
+  const { guard } = useCanCall();
   const canSeeActivity = me?.role === 'admin' || me?.role === 'team_leader';
   const canEdit = canSeeActivity; // managers may edit lead fields
   const [showActivity, setShowActivity] = useState(false);
@@ -144,9 +147,12 @@ export default function LeadDetailPage() {
         <div className="ml-auto flex items-center gap-2">
           <button
             onClick={() => {
-              // Open the QUO dial pad inside the click gesture (browsers block a
-              // tel: handoff fired from an effect), then go to the panel to log +
-              // monitor (autocall logs only, without re-opening the dialer).
+              // Check first: the tel: handoff can't be taken back, so a rep with no
+              // caller ID would really dial the customer on a call the CRM refuses
+              // to log. Then open the QUO dial pad inside the click gesture
+              // (browsers block a tel: handoff fired from an effect), and go to the
+              // panel to log + monitor (autocall logs only, no second dialer open).
+              if (!guard()) return;
               openQuoDialer(lead.phone);
               router.push(`/calling?leadId=${lead.id}&autocall=1`);
             }}
@@ -428,6 +434,7 @@ export default function LeadDetailPage() {
                       {t.status ? <span className="ml-2 font-normal text-muted-foreground">· {t.status}</span> : ''}
                       {typeof t.durationSecs === 'number' ? <span className="ml-2 font-normal text-muted-foreground">· {t.durationSecs}s</span> : ''}
                       {t.by ? <span className="ml-2 font-normal text-muted-foreground">· {t.by}</span> : ''}
+                      {t.kind === 'call' && !inbound && t.from ? <span className="ml-2 font-normal text-muted-foreground">· from <span className="font-mono">{t.from}</span></span> : ''}
                     </span>
                     <span className="shrink-0 text-[11.5px] text-muted-foreground">{new Date(t.at).toLocaleString()}</span>
                   </div>

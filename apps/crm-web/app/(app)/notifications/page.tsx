@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Bell, Filter } from 'lucide-react';
 import { notificationsApi } from '@/lib/crm';
-import { DateRangePicker, FilterSelect, SearchInput } from '@/components/filter-controls';
-import { inDateBounds, type DateRange } from '@/lib/date-filters';
+import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
+import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 
 const READ_OPTS = [
   { label: 'All', value: '' },
@@ -16,7 +16,7 @@ const READ_OPTS = [
 export default function NotificationsPage() {
   const qc = useQueryClient();
   const [readState, setReadState] = useState('');
-  const [dateRange, setDateRange] = useState<DateRange>({ from: '', to: '' });
+  const [dateRange, setDateRange] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
   const { data: allItems = [], isLoading } = useQuery({
     queryKey: ['notifications'],
@@ -47,7 +47,7 @@ export default function NotificationsPage() {
         <div className="flex flex-wrap items-center gap-2.5">
           <SearchInput value={q} onChange={setQ} placeholder="Search notifications…" className="min-w-[220px]" />
           <FilterSelect icon={Filter} value={readState} onChange={setReadState} options={READ_OPTS} />
-          <DateRangePicker value={dateRange} onChange={setDateRange} />
+          <DateFilter value={dateRange} onChange={setDateRange} />
           {unread > 0 && (
             <button
               onClick={() => markAll.mutate()}

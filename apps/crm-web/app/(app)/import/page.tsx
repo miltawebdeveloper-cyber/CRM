@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Upload, Check, AlertTriangle } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -88,35 +88,46 @@ function normalize(key: keyof LeadRow, raw: string): string | undefined {
 // "Company-Name" and "companyname" all map to the same column.
 const normHeader = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-interface ParseResult {
-  rows: LeadRow[];
-  /** Per canonical column: the file header it matched (or null = not in file). */
-  matched: { label: string; header: string | null }[];
-  /** File headers that didn't map to any known column (ignored on import). */
-  unrecognized: string[];
+/** The uploaded file, kept raw so the mapping can be changed without re-reading it. */
+interface ParsedFile {
+  /** Header labels exactly as they appear in the file. */
+  headers: string[];
+  /** Data rows, still as raw strings. */
+  cells: string[][];
 }
 
-function parseCsv(text: string): ParseResult {
+/** CRM field key → index into `headers`. NOT_MAPPED means "don't import this field". */
+export const NOT_MAPPED = -1;
+type Mapping = Record<string, number>;
+
+function parseFile(text: string): ParsedFile {
   const lines = text.trim().split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 2) return { rows: [], matched: [], unrecognized: [] };
-  const original = splitCsvLine(lines[0]);
-  const headers = original.map(normHeader);
-  const colIdx = COLUMNS.map((col) => {
+  if (lines.length < 2) return { headers: [], cells: [] };
+  return { headers: splitCsvLine(lines[0]), cells: lines.slice(1).map(splitCsvLine) };
+}
+
+/**
+ * Best-guess mapping from the file's headers, matched by NAME (not position) so
+ * any column order works. It's only a starting point — every field can be
+ * re-pointed by hand afterwards, which is what makes an arbitrary sheet importable.
+ */
+function autoMap(headers: string[]): Mapping {
+  const norm = headers.map(normHeader);
+  const mapping: Mapping = {};
+  for (const col of COLUMNS) {
     const aliases = col.aliases.map(normHeader);
-    return headers.findIndex((h) => h !== '' && aliases.includes(h));
-  });
+    mapping[col.key] = norm.findIndex((h) => h !== '' && aliases.includes(h));
+  }
+  return mapping;
+}
 
-  const matched = COLUMNS.map((col, ci) => ({ label: col.label, header: colIdx[ci] >= 0 ? original[colIdx[ci]] : null }));
-  const usedIdx = new Set(colIdx.filter((i) => i >= 0));
-  const unrecognized = original.filter((h, i) => h.trim() !== '' && !usedIdx.has(i));
-
-  const rows = lines.slice(1).map((line) => {
-    const cells = splitCsvLine(line);
+function buildRows(file: ParsedFile, mapping: Mapping): LeadRow[] {
+  return file.cells.map((cells) => {
     const row: Record<string, string | undefined> = {};
-    COLUMNS.forEach((col, ci) => {
-      const i = colIdx[ci];
+    for (const col of COLUMNS) {
+      const i = mapping[col.key] ?? NOT_MAPPED;
       row[col.key] = i >= 0 ? normalize(col.key, cells[i] ?? '') : undefined;
-    });
+    }
     return {
       leadId: row.leadId,
       leadGenerationId: row.leadGenerationId,
@@ -148,7 +159,6 @@ function parseCsv(text: string): ParseResult {
       lostReason: row.lostReason,
     };
   });
-  return { rows, matched, unrecognized };
 }
 
 const SAMPLE = `${COLUMNS.map((c) => c.label).join(',')}
@@ -156,20 +166,31 @@ L-99001,GEN-8802,2026-07-01,Google Ads,Acme Tax LLC,John Carter,Jane Doe,+130555
 L-99002,GEN-8803,2026-07-02,Referral,Bay Books Inc,Mia Wong,Alex Smith,+14155559876,,mia@baybooks.com,https://baybooks.com,,USA,California,San Francisco,PST,Bookkeeping,50-200,1995,"456 Market St",caller2@crm.local,In Progress,2026-06-05,2026-07-02,2026-07-20,5,2026-07-12,`;
 
 export default function ImportPage() {
-  const [rows, setRows] = useState<LeadRow[]>([]);
-  const [matched, setMatched] = useState<{ label: string; header: string | null }[]>([]);
-  const [unrecognized, setUnrecognized] = useState<string[]>([]);
+  const [file, setFile] = useState<ParsedFile>({ headers: [], cells: [] });
+  const [mapping, setMapping] = useState<Mapping>({});
   const [raw, setRaw] = useState('');
+
+  // Rows are derived from the mapping, so re-pointing a field updates the preview
+  // (and what gets imported) immediately — no need to re-upload the file.
+  const rows = useMemo(() => (file.headers.length ? buildRows(file, mapping) : []), [file, mapping]);
   const importMut = useMutation({ mutationFn: () => importApi.bulk(rows) });
+
+  // File columns nobody is reading yet — surfaced so it's obvious what's going
+  // unused, and which of them you might want to point a field at.
+  const unmapped = useMemo(() => {
+    const used = new Set(Object.values(mapping).filter((i) => i >= 0));
+    return file.headers.filter((h, i) => h.trim() !== '' && !used.has(i));
+  }, [file, mapping]);
 
   function load(text: string) {
     setRaw(text);
-    const res = parseCsv(text);
-    setRows(res.rows);
-    setMatched(res.matched);
-    setUnrecognized(res.unrecognized);
+    const parsed = parseFile(text);
+    setFile(parsed);
+    setMapping(autoMap(parsed.headers));
     importMut.reset();
   }
+
+  const setField = (key: string, idx: number) => setMapping((m) => ({ ...m, [key]: idx }));
 
   // Accept CSV or Excel (.xlsx/.xls) — Excel sheets are converted to CSV and
   // run through the same quote-aware parser + column-alias mapping.
@@ -205,25 +226,57 @@ export default function ImportPage() {
         </div>
       </div>
 
-      {rows.length > 0 && (
+      {file.headers.length > 0 && (
         <div className="mt-[18px] rounded-2xl border bg-card p-[18px] shadow-sm">
-          <h3 className="mb-3 font-display text-[15px] font-semibold">Detected column mapping</h3>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {matched.map((m) => (
-              <div key={m.label} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-[12.5px]">
-                <span className="font-medium">{m.label}</span>
-                {m.header ? (
-                  <span className="inline-flex items-center gap-1.5 text-muted-foreground"><Check className="h-3.5 w-3.5 text-[#317d34]" />{m.header}</span>
-                ) : (
-                  <span className="text-muted-foreground/60">not in file</span>
-                )}
-              </div>
-            ))}
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-display text-[15px] font-semibold">Column mapping</h3>
+            <button
+              onClick={() => setMapping(autoMap(file.headers))}
+              className="rounded-md border bg-card px-2.5 py-1.5 text-[12px] font-semibold hover:bg-muted"
+            >
+              Reset to auto-detected
+            </button>
           </div>
-          {unrecognized.length > 0 && (
+          {/* Every field is optional: nothing here is marked Required, and leaving
+              a field (including any date) unmapped simply skips it on import. */}
+          <p className="mb-3 text-[12px] text-muted-foreground">
+            Matched by column name, so your file&apos;s column order doesn&apos;t matter. Change any
+            row to point a CRM field at a different column. All fields are optional — leave anything
+            you don&apos;t have set to <span className="font-medium">Don&apos;t import</span>.
+          </p>
+
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {COLUMNS.map((col) => {
+              const idx = mapping[col.key] ?? NOT_MAPPED;
+              return (
+                <label key={col.key} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-[12.5px]">
+                  <span className="shrink-0 font-medium">{col.label}</span>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    {idx >= 0 && <Check className="h-3.5 w-3.5 shrink-0 text-[#317d34]" />}
+                    <select
+                      value={idx}
+                      onChange={(e) => setField(col.key, Number(e.target.value))}
+                      aria-label={`Source column for ${col.label}`}
+                      className={`min-w-0 max-w-[170px] cursor-pointer truncate rounded border bg-background px-1.5 py-1 text-[12px] outline-none ${idx < 0 ? 'text-muted-foreground/70' : ''}`}
+                    >
+                      <option value={NOT_MAPPED}>Don&apos;t import</option>
+                      {file.headers.map((h, i) => (
+                        <option key={`${h}-${i}`} value={i}>{h.trim() || `Column ${i + 1}`}</option>
+                      ))}
+                    </select>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+
+          {unmapped.length > 0 && (
             <div className="mt-3 flex items-start gap-2 rounded-md bg-[#fbf3e2] px-3 py-2 text-[12.5px] text-[#8a6a12]">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>Ignored unrecognized column{unrecognized.length > 1 ? 's' : ''}: {unrecognized.join(', ')}</span>
+              <span>
+                Not imported — no CRM field is pointed at {unmapped.length > 1 ? 'these columns' : 'this column'}:{' '}
+                {unmapped.join(', ')}. Pick {unmapped.length > 1 ? 'them' : 'it'} above if you want {unmapped.length > 1 ? 'them' : 'it'} imported.
+              </span>
             </div>
           )}
         </div>

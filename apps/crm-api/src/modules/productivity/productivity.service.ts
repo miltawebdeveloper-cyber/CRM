@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { OutcomeCategory } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 
 function startOfToday() {
@@ -6,6 +7,13 @@ function startOfToday() {
   d.setHours(0, 0, 0, 0);
   return d;
 }
+
+/**
+ * How long a call with no end time can still be treated as live. Nothing closes
+ * an abandoned call, so without a bound one stale row marks a rep "On Call"
+ * indefinitely. A real call comfortably fits inside this.
+ */
+const STALE_CALL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 export type Period = 'day' | 'week' | 'month';
 function since(period: Period): Date {
@@ -17,6 +25,27 @@ function since(period: Period): Date {
 @Injectable()
 export class ProductivityService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Which outcome slugs count as a won deal / a scheduled callback, read from the
+   * configurable Outcome list.
+   *
+   * These used to be the literals 'closed_deal' and 'callback', neither of which
+   * is a configured slug (they are `closed_won` / `closed_lost` and `call_back`),
+   * so both metrics reported a permanent zero. Deriving them from the outcome's
+   * category and its schedulesCallback flag means renaming or adding an outcome
+   * can't silently zero the dashboard again.
+   */
+  private async outcomeGroups() {
+    const [won, callbacks] = await Promise.all([
+      this.prisma.outcome.findMany({ where: { category: OutcomeCategory.closed_positive }, select: { slug: true } }),
+      this.prisma.outcome.findMany({ where: { schedulesCallback: true }, select: { slug: true } }),
+    ]);
+    return {
+      won: won.map((o) => o.slug),
+      callbacks: callbacks.map((o) => o.slug),
+    };
+  }
 
   /** PRD-005 — per-caller productivity table, scoped to a period. */
   async perCaller(period: Period = 'day') {
@@ -69,7 +98,7 @@ export class ProductivityService {
   /** CAL-023 — end-of-day call summary per caller. */
   async dailySummary() {
     const today = startOfToday();
-    const [callers, calls] = await Promise.all([
+    const [callers, calls, groups] = await Promise.all([
       this.prisma.user.findMany({
         where: { role: 'employee', isActive: true },
         select: { id: true, name: true },
@@ -79,7 +108,10 @@ export class ProductivityService {
         where: { endTime: { gte: today } },
         select: { callerId: true, outcome: true },
       }),
+      this.outcomeGroups(),
     ]);
+    const won = new Set(groups.won);
+    const callback = new Set(groups.callbacks);
     return callers.map((c) => {
       const mine = calls.filter((x) => x.callerId === c.id);
       const connected = mine.filter((x) => x.outcome && !['no_answer', 'busy'].includes(x.outcome)).length;
@@ -88,8 +120,8 @@ export class ProductivityService {
         name: c.name,
         callsMade: mine.length,
         connected,
-        callbacks: mine.filter((x) => x.outcome === 'callback').length,
-        deals: mine.filter((x) => x.outcome === 'closed_deal').length,
+        callbacks: mine.filter((x) => x.outcome && callback.has(x.outcome)).length,
+        deals: mine.filter((x) => x.outcome && won.has(x.outcome)).length,
       };
     });
   }
@@ -97,19 +129,27 @@ export class ProductivityService {
   /** MGR-001..005 — live team status + KPIs. */
   async teamLive() {
     const today = startOfToday();
+    const groups = await this.outcomeGroups();
     const [callers, openCalls, callsToday, closedToday, best] = await Promise.all([
       this.prisma.user.findMany({
         where: { role: 'employee', isActive: true },
         select: { id: true, name: true },
         orderBy: { name: 'asc' },
       }),
-      this.prisma.call.findMany({ where: { endTime: null }, select: { callerId: true } }),
+      // "On Call" must mean a call happening NOW. Nothing ever closes a call that
+      // was abandoned (agent shut the tab mid-call), so an unbounded endTime:null
+      // query left that rep showing as On Call forever. Only calls started within
+      // the last few hours can plausibly still be live.
+      this.prisma.call.findMany({
+        where: { endTime: null, startTime: { gte: new Date(Date.now() - STALE_CALL_MS) } },
+        select: { callerId: true },
+      }),
       this.prisma.call.aggregate({
         where: { endTime: { gte: today } },
         _count: { _all: true },
         _sum: { durationSecs: true },
       }),
-      this.prisma.call.count({ where: { endTime: { gte: today }, outcome: 'closed_deal' } }),
+      this.prisma.call.count({ where: { endTime: { gte: today }, outcome: { in: groups.won } } }),
       this.prisma.call.groupBy({
         by: ['callerId'],
         where: { endTime: { gte: today } },

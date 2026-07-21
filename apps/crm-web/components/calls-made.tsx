@@ -18,34 +18,7 @@ const LEAD_STATUS_OPTS = [
   { label: 'Contacted', value: 'contacted' },
 ] as const;
 
-const CALL_STATUS_OPTS = [
-  { label: 'All Call Statuses', value: '' },
-  { label: 'Answering Machine', value: 'Answering Machine' },
-  { label: 'Call Back', value: 'Call Back' },
-  { label: 'Disconnected Calls', value: 'Disconnected Calls' },
-  { label: 'Email', value: 'Email' },
-  { label: 'Dm-Not Interested', value: 'Dm-Not Interested' },
-  { label: 'Not Interested', value: 'Not Interested' },
-  { label: 'Not Available', value: 'Not Available' },
-  { label: 'No Answer', value: 'No Answer' },
-  { label: 'Opposite Call Back', value: 'Opposite Call Back' },
-  { label: 'Voice Mail', value: 'Voice Mail' },
-  { label: 'Wrong Number', value: 'Wrong Number' },
-  { label: 'Meeting Scheduled', value: 'Meeting Scheduled' },
-  { label: 'Zoom', value: 'Zoom' },
-  { label: 'Follow-up Required', value: 'Follow-up Required' },
-  { label: 'Negotiation', value: 'Negotiation' },
-  { label: 'Closed-Won', value: 'Closed-Won' },
-  { label: 'Closed-Lost', value: 'Closed-Lost' },
-  { label: 'Follow-up 1', value: 'Follow-up 1' },
-  { label: 'Follow-up 2', value: 'Follow-up 2' },
-  { label: 'Follow-up 3', value: 'Follow-up 3' },
-  { label: 'Follow-up 4', value: 'Follow-up 4' },
-  { label: 'Follow-up 5', value: 'Follow-up 5' },
-  { label: 'Dormant', value: 'Dormant' },
-  { label: 'Do Not Disturb', value: 'Do Not Disturb' },
-  { label: 'Do Not Contact', value: 'Do Not Contact' },
-] as const;
+const TIMEZONES = ['EST', 'CST', 'MST', 'PST'];
 
 /**
  * Calls Made — the call log: what was dialled in the selected range, summarised,
@@ -57,7 +30,7 @@ const CALL_STATUS_OPTS = [
  */
 export function CallsMade({ isManager }: { isManager: boolean }) {
   const filters = useCallFilters(isManager);
-  const { params, dateFilter, setDateFilter, userId, setUserId, userOpts } = filters;
+  const { params: scope, dateFilter, setDateFilter, userId, setUserId, userOpts } = filters;
 
   const [tz, setTz] = useState('');
   const [state, setState] = useState('');
@@ -65,10 +38,32 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
   const [leadStatus, setLeadStatus] = useState('');
   const [callStatus, setCallStatus] = useState('');
 
+  // Every filter goes to the API. Applying the geography/status ones in the
+  // browser used to mean the tiles (server-side) and the table (client-side)
+  // described different sets of calls, and that filtering only ever saw the
+  // capped page of rows already loaded — so a filtered total was simply wrong.
+  const params = useMemo(
+    () => ({
+      ...scope,
+      ...(tz ? { timezone: tz } : {}),
+      ...(state ? { state } : {}),
+      ...(city ? { city } : {}),
+      ...(leadStatus ? { leadStatus } : {}),
+      ...(callStatus ? { outcome: callStatus } : {}),
+    }),
+    [scope, tz, state, city, leadStatus, callStatus],
+  );
+
   // Both queries key off the same params, so the summary and rows always agree.
   const { data: stats } = useQuery({ queryKey: ['calls-made', 'stats', params], queryFn: () => callsApi.madeStats(params) });
   const { data: records = [], isLoading } = useQuery({ queryKey: ['calls-made', 'records', params], queryFn: () => callsApi.madeRecords(params) });
   const { data: outcomes = [] } = useQuery({ queryKey: ['outcomes-config'], queryFn: outcomesApi.list });
+  // Menu options follow the date/employee scope only — not the geography filters
+  // themselves, or picking a state would erase every other state from the menu.
+  const { data: filterOpts } = useQuery({
+    queryKey: ['calls-made', 'filters', scope],
+    queryFn: () => callsApi.madeFilters(scope),
+  });
 
   const outcomeOf = (slug: string | null) => outcomes.find((o) => o.slug === slug);
 
@@ -119,37 +114,35 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
 
   const prefs = useColumnPrefs('calls-made', columns);
 
+  // Cascading geography menus, built from the whole scope rather than the loaded
+  // page, so every state/city that actually has calls is offered.
+  const geo = useMemo(() => filterOpts?.geo ?? [], [filterOpts]);
   const stateOpts = useMemo(
-    () => optionsFrom(
-      records.filter((c) => !tz || c.lead?.timezone === tz).map((c) => c.lead?.state),
-      'All States',
-    ),
-    [records, tz],
+    () => optionsFrom(geo.filter((g) => !tz || g.timezone === tz).map((g) => g.state), 'All States'),
+    [geo, tz],
   );
   const cityOpts = useMemo(
     () => optionsFrom(
-      records.filter((c) => (!tz || c.lead?.timezone === tz) && (!state || c.lead?.state === state)).map((c) => c.lead?.city),
+      geo.filter((g) => (!tz || g.timezone === tz) && (!state || g.state === state)).map((g) => g.city),
       'All Cities',
     ),
-    [records, tz, state],
+    [geo, tz, state],
   );
 
-  const filteredRecords = useMemo(() => records.filter((c) => {
-    const l = c.lead;
-    if (tz && l?.timezone !== tz) return false;
-    if (state && l?.state !== state) return false;
-    if (city && l?.city !== city) return false;
-    if (leadStatus === 'assigned' && !l?.assignedToId) return false;
-    if (leadStatus === 'unassigned' && l?.assignedToId) return false;
-    if (leadStatus === 'contacted' && l?.status !== 'contacted') return false;
-    if (callStatus) {
-      const o = outcomeOf(c.outcome);
-      const val = (c.outcome ?? l?.callStatus ?? '').toLowerCase();
-      const match = callStatus.toLowerCase();
-      if (val !== match && (o?.name ?? '').toLowerCase() !== match) return false;
-    }
-    return true;
-  }), [records, tz, state, city, leadStatus, callStatus, outcomes]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Driven by the configured outcome list (Admin → Outcomes) instead of a frozen
+  // copy of it, plus any legacy imported statuses still present in the data, so
+  // renaming or adding an outcome can't silently break this filter.
+  const callStatusOpts = useMemo(() => {
+    const fromOutcomes = outcomes.map((o) => ({ label: o.name, value: o.slug }));
+    const known = new Set(outcomes.map((o) => o.name.toLowerCase()));
+    const legacy = (filterOpts?.callStatuses ?? [])
+      .filter((s) => !known.has(s.toLowerCase()))
+      .map((s) => ({ label: s, value: s }));
+    return [{ label: 'All Call Statuses', value: '' }, ...fromOutcomes, ...legacy];
+  }, [outcomes, filterOpts]);
+
+  // The API already applied every filter — the table shows exactly what it returned.
+  const filteredRecords = records;
 
   // Name the file after what's in it — the range and the rep are the whole
   // reason someone pulled this export.
@@ -162,10 +155,15 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
   // Export mirrors what's on screen: the same rows the filters produced, in the
   // same order, with the outcome/status resolved to the names people recognise
   // rather than the slugs stored on the call.
+  // Deliberately reports only WHETHER a recording exists, never its URL: provider
+  // recording links are signature-authorized (anyone holding one can fetch the
+  // audio without a CRM session) and are rotated/refreshed server-side, so putting
+  // them in a spreadsheet both leaks access and goes stale. Play or download from
+  // the Recordings tab, which enforces the manager-only rule on every request.
   const EXPORT_HEADERS = [
     'Call Date', 'Call Time', 'Customer Name', 'Contact Person', 'Phone Number',
     'Assigned Employee', 'Direction', 'Call Status', 'Call Duration', 'Duration (secs)',
-    'Call Outcome', 'Funnel Bucket', 'Lead ID', 'Lead Status', 'Recording URL',
+    'Call Outcome', 'Funnel Bucket', 'Lead ID', 'Lead Status', 'Recording',
   ];
   const exportRows = () => filteredRecords.map((c) => {
     const o = outcomeOf(c.outcome);
@@ -185,7 +183,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
       o?.category ? CAT[o.category].label : '',
       c.lead?.leadId ?? '',
       c.lead?.status?.replace(/_/g, ' ') ?? '',
-      c.recordingUrl ?? '',
+      c.hasRecording ? 'Yes' : 'No',
     ];
   });
 
@@ -207,11 +205,11 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
       {/* Call Details filters — same geography/status/date bar as Lead Management. */}
       <div className="mb-[14px] flex flex-wrap items-center gap-2.5">
         {isManager && <FilterSelect icon={UserIcon} value={userId} onChange={setUserId} options={userOpts} />}
-        <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={[{ label: 'All Timezones', value: '' }, ...['EST', 'CST', 'MST', 'PST'].map((t) => ({ label: t, value: t }))]} />
+        <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={[{ label: 'All Timezones', value: '' }, ...TIMEZONES.map((t) => ({ label: t, value: t }))]} />
         <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         <FilterSelect icon={Tag} value={leadStatus} onChange={setLeadStatus} options={LEAD_STATUS_OPTS} />
-        <FilterSelect icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={CALL_STATUS_OPTS} />
+        <FilterSelect icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={callStatusOpts} />
         <DateFilter value={dateFilter} onChange={setDateFilter} />
       </div>
 
@@ -222,7 +220,11 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
         rows={filteredRecords}
         getRowKey={(c) => c.id}
         title="Call Details"
-        subtitle={`${filteredRecords.length} call${filteredRecords.length === 1 ? '' : 's'}${records.length === 500 ? ' (latest 500)' : ''}${filteredRecords.length < records.length ? ` · filtered from ${records.length}` : ''}`}
+        // The tiles count every matching call; the table can only carry 500. Say so
+        // against the real total rather than implying the page IS the result.
+        subtitle={`${filteredRecords.length.toLocaleString()} call${filteredRecords.length === 1 ? '' : 's'}${
+          stats && stats.total > filteredRecords.length ? ` shown · ${stats.total.toLocaleString()} match the filters` : ''
+        }`}
         loading={isLoading}
         emptyText="No calls match the selected filters."
         prefs={prefs}

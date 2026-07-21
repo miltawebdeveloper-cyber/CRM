@@ -6,10 +6,10 @@ import { Phone, Clock, NotebookPen, CheckCircle2, Download, Calendar } from 'luc
 import { activitiesApi, type Activity } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
 import { StatusPill } from '@/components/status-pill';
-import { DateRangePicker, FilterSelect, SearchInput } from '@/components/filter-controls';
+import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { downloadCsv } from '@/lib/export';
-import { inDateBounds, type DateRange } from '@/lib/date-filters';
+import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 
 const RANGE_OPTS = [
   { label: 'All Time', value: '' },
@@ -35,7 +35,7 @@ function inRange(iso: string, range: string): boolean {
 export default function ActivityPage() {
   const { data: allActivities = [] } = useQuery({ queryKey: ['activities'], queryFn: activitiesApi.list, retry: false });
   const [range, setRange] = useState('');
-  const [dateRange, setDateRange] = useState<DateRange>({ from: '', to: '' });
+  const [dateRange, setDateRange] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
 
   const term = q.trim().toLowerCase();
@@ -72,7 +72,7 @@ export default function ActivityPage() {
       <PageHead>
         <SearchInput value={q} onChange={setQ} placeholder="Search lead, user, outcome…" className="min-w-[220px]" />
         <FilterSelect icon={Calendar} value={range} onChange={setRange} options={RANGE_OPTS} />
-        <DateRangePicker value={dateRange} onChange={setDateRange} />
+        <DateFilter value={dateRange} onChange={setDateRange} />
         <button
           onClick={() => downloadCsv('activity-log', ['Time', 'Lead', 'By', 'Action', 'Outcome'], activities.map((a) => [new Date(a.createdAt).toLocaleString(), a.lead?.businessName ?? '', a.user?.name ?? '', a.action, a.newValue ?? '']))}
           disabled={activities.length === 0}

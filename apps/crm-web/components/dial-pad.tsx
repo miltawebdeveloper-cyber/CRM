@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Phone, Delete } from 'lucide-react';
 import { useCall } from '@/components/call-provider';
 import { openQuoDialer } from '@/lib/dialer';
+import { useCanCall } from '@/lib/use-can-call';
 
 const KEYS = [
   ['1', ''], ['2', 'ABC'], ['3', 'DEF'],
@@ -12,15 +13,29 @@ const KEYS = [
   ['*', ''], ['0', '+'], ['#', ''],
 ] as const;
 
-/** Numeric dial pad — punch in any number and call it via the in-CRM widget. */
-export function DialPad({ className = '' }: { className?: string }) {
+/**
+ * Numeric dial pad — punch in any number and call it via the in-CRM widget.
+ *
+ * `disabled` lets a host that runs its own call flow (the Calling Panel) block
+ * dialling while ITS call is live, so the two can't put the agent on two calls
+ * at once.
+ */
+export function DialPad({ className = '', disabled = false }: { className?: string; disabled?: boolean }) {
   const { placeCallNumber, active } = useCall();
+  const { guard } = useCanCall();
   const [num, setNum] = useState('');
 
+  const busy = active || disabled;
   const press = (k: string) => setNum((n) => (n.length < 20 ? n + k : n));
   const back = () => setNum((n) => n.slice(0, -1));
   // Open the QUO dial pad here in the click, then log/monitor via the widget.
-  const call = () => { if (num.trim() && !active) { openQuoDialer(num.trim()); placeCallNumber(num.trim()); } };
+  // `guard` runs FIRST: without a caller ID the API will refuse to log the call,
+  // and dialling anyway would put a real call through that the CRM never records.
+  const call = () => {
+    if (!num.trim() || busy || !guard()) return;
+    openQuoDialer(num.trim());
+    placeCallNumber(num.trim());
+  };
 
   return (
     <div className={`rounded-2xl border bg-card p-4 shadow-sm ${className}`}>
@@ -48,10 +63,11 @@ export function DialPad({ className = '' }: { className?: string }) {
       <div className="mt-3 flex items-center gap-2">
         <button
           onClick={call}
-          disabled={!num.trim() || active}
+          disabled={!num.trim() || busy}
+          title={disabled && !active ? 'Finish the call in the panel first' : undefined}
           className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[#317d34] py-3 text-[14px] font-semibold text-white hover:opacity-90 disabled:opacity-50"
         >
-          <Phone className="h-4 w-4" /> {active ? 'On call…' : 'Call'}
+          <Phone className="h-4 w-4" /> {busy ? 'On call…' : 'Call'}
         </button>
         <button
           onClick={back}

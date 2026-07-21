@@ -4,7 +4,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LoginDto, RefreshDto, VerifyMfaDto } from './dto/auth.dto';
 import { Public } from '../../common/decorators/public.decorator';
-import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -29,8 +29,8 @@ export class AuthController {
 
   @ApiBearerAuth()
   @Get('me')
-  me(@CurrentUser() user: AuthUser) {
-    return user;
+  me(@CurrentUser('id') userId: string) {
+    return this.auth.me(userId);
   }
 
   // LGN-007 — logout is stateless (client discards tokens). Endpoint kept for
