@@ -9,6 +9,7 @@ import { Sidebar } from '@/components/sidebar';
 import { Topbar } from '@/components/topbar';
 import { IncomingCallPopup } from '@/components/incoming-call';
 import { CallProvider } from '@/components/call-provider';
+import { PageTabsProvider } from '@/components/page-tabs';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -39,6 +40,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <CallProvider>
+      {/* Wraps the topbar and the page together, so a page can render its view
+          tabs into the slot the topbar exposes beside the title. */}
+      <PageTabsProvider>
       <div className="flex h-screen overflow-hidden bg-background">
         <Sidebar />
         <div className="flex flex-1 flex-col overflow-hidden">
@@ -58,6 +62,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
         <IncomingCallPopup />
       </div>
+      </PageTabsProvider>
     </CallProvider>
   );
 }

@@ -2,13 +2,14 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { Phone, MessageSquare, Info } from 'lucide-react';
-import { leadsApi } from '@/lib/leads';
+import { Phone, MessageSquare, Info, Pencil } from 'lucide-react';
+import { leadsApi, type UpdateLeadInput } from '@/lib/leads';
 import { communicationsApi } from '@/lib/crm';
-import { useCall } from '@/components/call-provider';
+import { openQuoDialer } from '@/lib/dialer';
+import { useCanCall } from '@/lib/use-can-call';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
 import { ZoomTimeline } from '@/components/zoom-timeline';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
@@ -22,6 +23,7 @@ const SMS_TEMPLATES: { label: string; text: (name: string) => string }[] = [
 
 export default function LeadDetailPage() {
   const qc = useQueryClient();
+  const router = useRouter();
   const { id } = useParams<{ id: string }>();
   const [smsOpen, setSmsOpen] = useState(false);
   const [smsBody, setSmsBody] = useState('');
@@ -33,8 +35,25 @@ export default function LeadDetailPage() {
 
   // Current user — the Activity Log is restricted to Admin & Team Lead.
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
+  // Refuse to dial before the API would reject the call (no assigned caller ID).
+  const { guard } = useCanCall();
   const canSeeActivity = me?.role === 'admin' || me?.role === 'team_leader';
+  const canEdit = canSeeActivity; // managers may edit lead fields
   const [showActivity, setShowActivity] = useState(false);
+
+  // ── Lead edit (managers only) ──
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<UpdateLeadInput>({});
+  const edit = useMutation({
+    mutationFn: () => leadsApi.update(id, form),
+    meta: { successMessage: 'Changes saved' },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['lead', id] });
+      qc.invalidateQueries({ queryKey: ['lead', id, 'activities'] });
+      qc.invalidateQueries({ queryKey: ['leads'] });
+      setEditing(false);
+    },
+  });
 
   const { data: timeline = [] } = useQuery({
     queryKey: ['lead', id, 'timeline'],
@@ -45,10 +64,9 @@ export default function LeadDetailPage() {
     qc.invalidateQueries({ queryKey: ['lead', id, 'timeline'] });
     qc.invalidateQueries({ queryKey: ['lead', id, 'activities'] });
   };
-  // In-CRM cockpit: opens the docked call widget with live status + wrap-up.
-  const { placeCall, active: callActive } = useCall();
   const sms = useMutation({
     mutationFn: () => communicationsApi.sendSms(id, smsBody),
+    meta: { successMessage: 'Message sent' },
     onSuccess: () => { setSmsBody(''); setSmsOpen(false); refreshTimeline(); },
   });
 
@@ -59,6 +77,7 @@ export default function LeadDetailPage() {
 
   const sync = useMutation({
     mutationFn: () => leadsApi.syncToQuo(id),
+    meta: { suppressErrorToast: true }, // Quo errors surface in the panel below
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['lead', id] });
       qc.invalidateQueries({ queryKey: ['lead', id, 'quo-logs'] });
@@ -77,6 +96,47 @@ export default function LeadDetailPage() {
     </div>
   );
 
+  // Seed the edit form from the current lead, then open the inline editor.
+  const startEdit = () => {
+    setForm({
+      businessName: lead.businessName,
+      phone: lead.phone,
+      email: lead.email ?? '',
+      state: lead.state,
+      city: lead.city,
+      timezone: lead.timezone,
+      status: lead.status,
+      contactName: lead.contactName ?? '',
+      industry: lead.industry ?? '',
+      title: lead.title ?? '',
+      leadCategory: lead.leadCategory ?? '',
+      comments: lead.comments ?? '',
+      nextFollowUpDate: lead.nextFollowUpDate ? lead.nextFollowUpDate.slice(0, 10) : '',
+      caller: lead.assignedTo?.name ?? '',
+      leadGenerationId: lead.leadGenerationId ?? '',
+      leadSource: lead.leadSource ?? '',
+      contactName2: lead.contactName2 ?? '',
+      altPhone: lead.altPhone ?? '',
+      website: lead.website ?? '',
+      socialMedia: lead.socialMedia ?? '',
+      country: lead.country ?? '',
+      companySize: lead.companySize ?? '',
+      foundedYear: lead.foundedYear ?? '',
+      address: lead.address ?? '',
+      callStatus: lead.callStatus ?? '',
+      firstContact: lead.firstContact ? lead.firstContact.slice(0, 10) : '',
+      lastContact: lead.lastContact ? lead.lastContact.slice(0, 10) : '',
+      followupCount: lead.followupCount ?? undefined,
+      meetingDate: lead.meetingDate ? lead.meetingDate.slice(0, 10) : '',
+      lostReason: lead.lostReason ?? '',
+    });
+    setEditing(true);
+  };
+  const set = (k: keyof UpdateLeadInput, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  const STATUS_VALUES = ['new', 'in_progress', 'contacted', 'interested', 'closed', 'rejected'] as const;
+  const editInput = 'w-full rounded-md border bg-background px-3 py-2 text-sm';
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-4">
@@ -86,11 +146,19 @@ export default function LeadDetailPage() {
         <h1 className="text-lg font-semibold">{lead.leadId}</h1>
         <div className="ml-auto flex items-center gap-2">
           <button
-            onClick={() => placeCall({ id: lead.id, businessName: lead.businessName, phone: lead.phone, city: lead.city, state: lead.state })}
-            disabled={callActive}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
+            onClick={() => {
+              // Check first: the tel: handoff can't be taken back, so a rep with no
+              // caller ID would really dial the customer on a call the CRM refuses
+              // to log. Then open the QUO dial pad inside the click gesture
+              // (browsers block a tel: handoff fired from an effect), and go to the
+              // panel to log + monitor (autocall logs only, no second dialer open).
+              if (!guard()) return;
+              openQuoDialer(lead.phone);
+              router.push(`/calling?leadId=${lead.id}&autocall=1`);
+            }}
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90"
           >
-            <Phone className="h-4 w-4" /> {callActive ? 'On call…' : 'Call'}
+            <Phone className="h-4 w-4" /> Call
           </button>
           <button
             onClick={() => setSmsOpen((v) => !v)}
@@ -98,6 +166,16 @@ export default function LeadDetailPage() {
           >
             <MessageSquare className="h-4 w-4" /> Send SMS
           </button>
+          {canEdit && !editing && (
+            <button
+              onClick={startEdit}
+              title="Edit lead"
+              aria-label="Edit lead"
+              className="inline-flex items-center gap-2 rounded-md border bg-card px-[12px] py-[9px] text-[13px] font-semibold hover:bg-muted"
+            >
+              <Pencil className="h-4 w-4" /> Edit
+            </button>
+          )}
           {canSeeActivity && (
             <button
               onClick={() => setShowActivity(true)}
@@ -140,16 +218,121 @@ export default function LeadDetailPage() {
         {/* Lead info */}
         <div className="rounded-lg border bg-card p-5 lg:col-span-1">
           <h2 className="mb-4 text-sm font-semibold">Lead Details</h2>
-          <dl className="grid grid-cols-2 gap-4">
-            {field('Lead ID', lead.leadId)}
-            {field('Status', <span className="capitalize">{lead.status.replace('_', ' ')}</span>)}
-            {field('Phone', lead.phone)}
-            {field('Email', lead.email)}
-            {field('City', lead.city)}
-            {field('State', lead.state)}
-            {field('Timezone', lead.timezone)}
-            {field('Created', new Date(lead.createdAt).toLocaleString())}
-          </dl>
+          {!editing ? (
+            <dl className="grid grid-cols-2 gap-4">
+              {field('Lead ID', lead.leadId)}
+              {field('Lead Generation ID', lead.leadGenerationId)}
+              {field('Created Date', lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : null)}
+              {field('Lead Source', lead.leadSource)}
+              {field('Company Name', lead.businessName)}
+              {field('Contact Person', lead.contactName)}
+              {field('Contact Person', lead.contactName2)}
+              {field('Phone', lead.phone)}
+              {field('Alt Phone', lead.altPhone)}
+              {field('Email', lead.email)}
+              {field('Website', lead.website)}
+              {field('Social Media', lead.socialMedia)}
+              {field('Country', lead.country)}
+              {field('State', lead.state)}
+              {field('City', lead.city)}
+              {field('Time Zone', lead.timezone)}
+              {field('Industry', lead.industry)}
+              {field('Company Size', lead.companySize)}
+              {field('Founded Year', lead.foundedYear)}
+              {field('Address', lead.address)}
+              {field('Assigned To', lead.assignedTo?.name)}
+              {field('Call Status', lead.callStatus)}
+              {field('First Contact', lead.firstContact ? new Date(lead.firstContact).toLocaleDateString() : null)}
+              {field('Last Contact', lead.lastContact ? new Date(lead.lastContact).toLocaleDateString() : null)}
+              {field('Next Follow-up', lead.nextFollowUpDate ? new Date(lead.nextFollowUpDate).toLocaleDateString() : null)}
+              {field('Follow-up Count', lead.followupCount != null ? String(lead.followupCount) : null)}
+              {field('Meeting Date', lead.meetingDate ? new Date(lead.meetingDate).toLocaleDateString() : null)}
+              {field('Lost Reason', lead.lostReason)}
+              {field('Status', <span className="capitalize">{lead.status.replace('_', ' ')}</span>)}
+            </dl>
+          ) : (
+            <form onSubmit={(e) => { e.preventDefault(); edit.mutate(); }} className="space-y-3">
+              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Lead Generation ID</span>
+                <input className={editInput} value={form.leadGenerationId ?? ''} onChange={(e) => set('leadGenerationId', e.target.value)} /></label>
+              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Lead Source</span>
+                <input className={editInput} value={form.leadSource ?? ''} onChange={(e) => set('leadSource', e.target.value)} /></label>
+              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Company Name</span>
+                <input className={editInput} value={form.businessName ?? ''} onChange={(e) => set('businessName', e.target.value)} required /></label>
+              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Status</span>
+                <select className={editInput} value={form.status ?? ''} onChange={(e) => set('status', e.target.value)}>
+                  {STATUS_VALUES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                </select></label>
+              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Contact Person (Primary)</span>
+                <input className={editInput} value={form.contactName ?? ''} onChange={(e) => set('contactName', e.target.value)} /></label>
+              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Contact Person (Secondary)</span>
+                <input className={editInput} value={form.contactName2 ?? ''} onChange={(e) => set('contactName2', e.target.value)} /></label>
+              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Phone</span>
+                <input className={editInput} value={form.phone ?? ''} onChange={(e) => set('phone', e.target.value)} required /></label>
+              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Alt Phone</span>
+                <input className={editInput} value={form.altPhone ?? ''} onChange={(e) => set('altPhone', e.target.value)} /></label>
+              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Email</span>
+                <input type="email" className={editInput} value={form.email ?? ''} onChange={(e) => set('email', e.target.value)} /></label>
+              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Website</span>
+                <input className={editInput} value={form.website ?? ''} onChange={(e) => set('website', e.target.value)} /></label>
+              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Social Media</span>
+                <input className={editInput} value={form.socialMedia ?? ''} onChange={(e) => set('socialMedia', e.target.value)} /></label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Country</span>
+                  <input className={editInput} value={form.country ?? ''} onChange={(e) => set('country', e.target.value)} /></label>
+                <label className="block space-y-1 text-xs"><span className="text-muted-foreground">State</span>
+                  <input className={editInput} value={form.state ?? ''} onChange={(e) => set('state', e.target.value)} required /></label>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block space-y-1 text-xs"><span className="text-muted-foreground">City</span>
+                  <input className={editInput} value={form.city ?? ''} onChange={(e) => set('city', e.target.value)} required /></label>
+                <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Timezone</span>
+                  <select className={editInput} value={form.timezone ?? 'EST'} onChange={(e) => set('timezone', e.target.value)}>
+                    {['EST', 'CST', 'MST', 'PST'].map((t) => <option key={t}>{t}</option>)}
+                  </select></label>
+              </div>
+              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Caller (name / email)</span>
+                <input className={editInput} value={form.caller ?? ''} onChange={(e) => set('caller', e.target.value)} placeholder="Reassign to a user…" /></label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Industry</span>
+                  <input className={editInput} value={form.industry ?? ''} onChange={(e) => set('industry', e.target.value)} /></label>
+                <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Company Size</span>
+                  <input className={editInput} value={form.companySize ?? ''} onChange={(e) => set('companySize', e.target.value)} /></label>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Founded Year</span>
+                  <input className={editInput} value={form.foundedYear ?? ''} onChange={(e) => set('foundedYear', e.target.value)} /></label>
+                <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Call Status</span>
+                  <input className={editInput} value={form.callStatus ?? ''} onChange={(e) => set('callStatus', e.target.value)} /></label>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block space-y-1 text-xs"><span className="text-muted-foreground">First Contact</span>
+                  <input type="date" className={editInput} value={form.firstContact ?? ''} onChange={(e) => set('firstContact', e.target.value)} /></label>
+                <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Last Contact</span>
+                  <input type="date" className={editInput} value={form.lastContact ?? ''} onChange={(e) => set('lastContact', e.target.value)} /></label>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Next Follow-up</span>
+                  <input type="date" className={editInput} value={form.nextFollowUpDate ?? ''} onChange={(e) => set('nextFollowUpDate', e.target.value)} /></label>
+                <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Follow-up Count</span>
+                  <input type="number" className={editInput} value={form.followupCount ?? ''} onChange={(e) => set('followupCount', e.target.value)} /></label>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Meeting Date</span>
+                  <input type="date" className={editInput} value={form.meetingDate ?? ''} onChange={(e) => set('meetingDate', e.target.value)} /></label>
+                <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Lost Reason</span>
+                  <input className={editInput} value={form.lostReason ?? ''} onChange={(e) => set('lostReason', e.target.value)} /></label>
+              </div>
+              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Address</span>
+                <input className={editInput} value={form.address ?? ''} onChange={(e) => set('address', e.target.value)} /></label>
+              <div className="flex items-center gap-2 pt-1">
+                <button type="submit" disabled={edit.isPending} className="rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground disabled:opacity-60">
+                  {edit.isPending ? 'Saving…' : 'Save changes'}
+                </button>
+                <button type="button" onClick={() => setEditing(false)} className="rounded-md border bg-card px-3 py-2 text-[13px] font-semibold hover:bg-muted">Cancel</button>
+                {edit.isError && <span className="text-[12px] text-[#9e2b21]">Failed to save</span>}
+              </div>
+            </form>
+          )}
         </div>
 
         {/* Quo integration panel */}
@@ -239,7 +422,7 @@ export default function LeadDetailPage() {
         <div className="space-y-2.5">
           {timeline.map((t) => {
             const inbound = t.direction === 'inbound';
-            const tone = t.kind === 'call' ? '#2c5d8f' : t.kind === 'message' ? '#42512f' : '#c98a18';
+            const tone = t.kind === 'call' ? '#2c5d8f' : t.kind === 'message' ? '#266929' : '#c98a18';
             const label = t.kind === 'call' ? `${inbound ? 'Inbound' : 'Outbound'} call` : t.kind === 'message' ? `${inbound ? 'Inbound' : 'Outbound'} SMS` : 'Note';
             return (
               <div key={`${t.kind}-${t.id}`} className="flex gap-3 rounded-md border px-3 py-2.5">
@@ -251,6 +434,7 @@ export default function LeadDetailPage() {
                       {t.status ? <span className="ml-2 font-normal text-muted-foreground">· {t.status}</span> : ''}
                       {typeof t.durationSecs === 'number' ? <span className="ml-2 font-normal text-muted-foreground">· {t.durationSecs}s</span> : ''}
                       {t.by ? <span className="ml-2 font-normal text-muted-foreground">· {t.by}</span> : ''}
+                      {t.kind === 'call' && !inbound && t.from ? <span className="ml-2 font-normal text-muted-foreground">· from <span className="font-mono">{t.from}</span></span> : ''}
                     </span>
                     <span className="shrink-0 text-[11.5px] text-muted-foreground">{new Date(t.at).toLocaleString()}</span>
                   </div>

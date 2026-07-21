@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsHexColor, IsInt, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsHexColor, IsInt, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { LeadStatus } from '@crm/database';
+import { LeadStatus, OutcomeCategory } from '@crm/database';
 
 export class CreateOutcomeDto {
   @ApiProperty()
@@ -34,6 +34,12 @@ export class CreateOutcomeDto {
   @IsOptional()
   @IsString()
   leadStatus?: LeadStatus | null;
+
+  @ApiPropertyOptional({ enum: OutcomeCategory, nullable: true, description: 'Calls Made funnel bucket; null leaves the status ungrouped' })
+  @IsOptional()
+  @IsEnum(OutcomeCategory)
+  category?: OutcomeCategory | null;
+
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -74,6 +80,12 @@ export class UpdateOutcomeDto {
   @IsOptional()
   @IsString()
   leadStatus?: LeadStatus | null;
+
+  @ApiPropertyOptional({ enum: OutcomeCategory, nullable: true, description: 'Calls Made funnel bucket; null leaves the status ungrouped' })
+  @IsOptional()
+  @IsEnum(OutcomeCategory)
+  category?: OutcomeCategory | null;
+
 
   @ApiPropertyOptional()
   @IsOptional()

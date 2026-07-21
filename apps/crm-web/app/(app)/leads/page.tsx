@@ -1,30 +1,92 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Layers, Percent, Info } from 'lucide-react';
+import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, X, Hourglass } from 'lucide-react';
 import { leadsApi, type CreateLeadInput, type Lead } from '@/lib/leads';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
+import { LeadAssignDialog } from '@/components/lead-assign-dialog';
 import { metricsApi } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
+import { openQuoDialer } from '@/lib/dialer';
+import { useCanCall } from '@/lib/use-can-call';
 import { StatusPill } from '@/components/status-pill';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { DateRangePicker, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
-import { DataTable, type ColumnDef } from '@/components/data-table';
+import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
+import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
 import { downloadCsv, downloadXlsx } from '@/lib/export';
-import { inDateBounds, type DateRange } from '@/lib/date-filters';
+import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
+import { usePersistedState } from '@/lib/use-persisted-state';
 
-const EMPTY: CreateLeadInput = { businessName: '', phone: '', email: '', state: '', city: '', timezone: 'EST' };
+const EMPTY: CreateLeadInput = {
+  businessName: '',
+  phone: '',
+  email: '',
+  state: '',
+  city: '',
+  timezone: 'EST',
+  leadId: '',
+  leadGenerationId: '',
+  leadSource: '',
+  contactName: '',
+  contactName2: '',
+  altPhone: '',
+  website: '',
+  socialMedia: '',
+  country: '',
+  industry: '',
+  companySize: '',
+  foundedYear: '',
+  address: '',
+  caller: '',
+  callStatus: '',
+  firstContact: '',
+  lastContact: '',
+  nextFollowUpDate: '',
+  followupCount: undefined,
+  meetingDate: '',
+  lostReason: '',
+};
 
+// No 'Closed' option — closed leads live in the Closed Leads module and are
+// filtered out of this list by the API.
 const STATUS_OPTS = [
-  { label: 'All Statuses', value: '' },
-  ...(['new', 'in_progress', 'contacted', 'interested', 'closed', 'rejected'] as const).map((s) => ({
-    label: s.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-    value: s,
-  })),
+  { label: 'All Lead Statuses', value: '' },
+  { label: 'Assigned',   value: 'assigned' },
+  { label: 'Unassigned', value: 'unassigned' },
+  { label: 'Contacted',  value: 'contacted' },
+];
+
+const CALL_STATUS_OPTS = [
+  { label: 'All Call Statuses',   value: '' },
+  { label: 'Answering Machine',   value: 'Answering Machine' },
+  { label: 'Call Back',           value: 'Call Back' },
+  { label: 'Disconnected Calls',  value: 'Disconnected Calls' },
+  { label: 'Email',               value: 'Email' },
+  { label: 'Dm-Not Interested',   value: 'Dm-Not Interested' },
+  { label: 'Not Interested',      value: 'Not Interested' },
+  { label: 'Not Available',       value: 'Not Available' },
+  { label: 'No Answer',           value: 'No Answer' },
+  { label: 'Opposite Call Back',  value: 'Opposite Call Back' },
+  { label: 'Voice Mail',          value: 'Voice Mail' },
+  { label: 'Wrong Number',        value: 'Wrong Number' },
+  { label: 'Meeting Scheduled',   value: 'Meeting Scheduled' },
+  { label: 'Zoom',                value: 'Zoom' },
+  { label: 'Follow-up Required',  value: 'Follow-up Required' },
+  { label: 'Negotiation',         value: 'Negotiation' },
+  { label: 'Closed-Won',          value: 'Closed-Won' },
+  { label: 'Closed-Lost',         value: 'Closed-Lost' },
+  { label: 'Follow-up 1',         value: 'Follow-up 1' },
+  { label: 'Follow-up 2',         value: 'Follow-up 2' },
+  { label: 'Follow-up 3',         value: 'Follow-up 3' },
+  { label: 'Follow-up 4',         value: 'Follow-up 4' },
+  { label: 'Follow-up 5',         value: 'Follow-up 5' },
+  { label: 'Dormant',             value: 'Dormant' },
+  { label: 'Do Not Disturb',      value: 'Do Not Disturb' },
+  { label: 'Do Not Contact',      value: 'Do Not Contact' },
 ];
 
 export default function LeadsPage() {
@@ -36,16 +98,105 @@ export default function LeadsPage() {
   const [state, setState] = useState('');
   const [city, setCity] = useState('');
   const [status, setStatus] = useState('');
-  const [created, setCreated] = useState<DateRange>({ from: '', to: '' });
+  const [callStatus, setCallStatus] = useState('');
+  // Persisted so the chosen date filter survives navigating within the module.
+  const [dateFilter, setDateFilter] = usePersistedState<DateFilterValue>('leads:date-filter', EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
 
-  const { data: allLeads = [], isLoading } = useQuery({ queryKey: ['leads'], queryFn: leadsApi.list });
+  // Lead Management shows only the logged-in user's assigned leads (all roles),
+  // and only active ones — a lead marked closed moves to /closed-leads.
+  const { data: allLeads = [], isLoading } = useQuery({
+    queryKey: ['leads', 'mine', 'active'],
+    queryFn: () => leadsApi.list({ mine: true, closed: false }),
+  });
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   const canManage = me?.role === 'admin' || me?.role === 'team_leader';
+  // Refuse to dial before the API would reject the call (no assigned caller ID),
+  // since the tel: handoff fires first and can't be taken back.
+  const { guard } = useCanCall();
+  // Employees (any non-manager role) get a self-scoped view: they see only their
+  // own leads, and their KPI cards are derived from that book.
+  const isEmployee = !!me && !canManage;
   const [activityLead, setActivityLead] = useState<Lead | null>(null); // Activity Log drawer (managers only)
+  const [assignLeads, setAssignLeads] = useState<Lead[] | null>(null);  // Employee-wise assign popup (managers only)
+  const clearTableSelection = useRef<(() => void) | null>(null);        // set from DataTable's bulkActions clear fn
 
-  const EXPORT_HEADERS = ['PHONE', 'COMPANY NAME', 'NAME', 'TIME ZONE', 'EMAIL', 'INDUSTRY', 'TITLE', 'STATE', 'CITY', 'VLC', 'Employee Code', 'CALLER', 'STATUS', 'COMMENTS', 'NEXT FOLLOW UP DATE', 'LEAD CATEGORY'];
-  const exportRows = () => leads.map((l) => [l.phone, l.leadId, l.contactName ?? '', l.timezone, l.email ?? '', l.industry ?? '', l.title ?? '', l.state, l.city, l.vlc ?? '', l.employeeCode ?? '', l.assignedTo?.name ?? '', l.status, l.comments ?? '', l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '', l.leadCategory ?? '']);
+  // Bulk-push every not-yet-synced lead to Quo/OpenPhone as a contact.
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  const syncAll = useMutation({
+    mutationFn: leadsApi.syncAllToQuo,
+    meta: { suppressErrorToast: true }, // shows its own inline result banner
+    onSuccess: (r) => {
+      setSyncMsg(
+        r.total === 0
+          ? 'All leads already synced.'
+          : `Synced ${r.synced} of ${r.total}${r.failed ? ` · ${r.failed} failed` : ''}${r.sandbox ? ' (sandbox)' : ''}.`,
+      );
+      qc.invalidateQueries({ queryKey: ['leads'] });
+    },
+    onError: () => setSyncMsg('Sync failed — check the API is running and OpenPhone is configured.'),
+  });
+
+  const EXPORT_HEADERS = [
+    'Lead ID',
+    'Lead Generation ID',
+    'Created Date',
+    'Lead Source',
+    'Company Name',
+    'Contact Person',
+    'Contact Person 2',
+    'Phone',
+    'Alt Phone',
+    'Email',
+    'Website',
+    'Social Media',
+    'Country',
+    'State',
+    'City',
+    'Time Zone',
+    'Industry',
+    'Company Size',
+    'Founded Year',
+    'Address',
+    'Assigned To',
+    'Call Status',
+    'First Contact',
+    'Last Contact',
+    'Next Follow-up',
+    'Follow-up Count',
+    'Meeting Date',
+    'Lost Reason'
+  ];
+  const exportRows = () => leads.map((l) => [
+    l.leadId,
+    l.leadGenerationId ?? '',
+    l.createdAt ? new Date(l.createdAt).toLocaleDateString() : '',
+    l.leadSource ?? '',
+    l.businessName,
+    l.contactName ?? '',
+    l.contactName2 ?? '',
+    l.phone,
+    l.altPhone ?? '',
+    l.email ?? '',
+    l.website ?? '',
+    l.socialMedia ?? '',
+    l.country ?? '',
+    l.state,
+    l.city,
+    l.timezone,
+    l.industry ?? '',
+    l.companySize ?? '',
+    l.foundedYear ?? '',
+    l.address ?? '',
+    l.assignedTo?.name ?? '',
+    l.callStatus ?? '',
+    l.firstContact ? new Date(l.firstContact).toLocaleDateString() : '',
+    l.lastContact ? new Date(l.lastContact).toLocaleDateString() : '',
+    l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '',
+    l.followupCount ?? '',
+    l.meetingDate ? new Date(l.meetingDate).toLocaleDateString() : '',
+    l.lostReason ?? ''
+  ]);
 
   // States cascade from the selected timezone; cities from timezone + state.
   const stateOpts = optionsFrom(
@@ -57,21 +208,30 @@ export default function LeadsPage() {
     'All Cities',
   );
 
-  const term = q.trim().toLowerCase();
-  const leads = allLeads.filter(
-    (l) =>
-      (!tz || l.timezone === tz) &&
-      (!state || l.state === state) &&
-      (!city || l.city === city) &&
-      (!status || l.status === status) &&
-      inDateBounds(l.createdAt, created) &&
-      (!term ||
-        l.leadId.toLowerCase().includes(term) ||
-        (l.contactName ?? '').toLowerCase().includes(term) ||
-        l.phone.toLowerCase().includes(term) ||
-        (l.email ?? '').toLowerCase().includes(term)),
-  );
-  const { data: s } = useQuery({ queryKey: ['metrics', 'summary'], queryFn: () => metricsApi.summary(), retry: false });
+  // KPI cards respect the same date filter as the table (backend scopes by createdAt).
+  const { data: s } = useQuery({
+    queryKey: ['metrics', 'summary', dateFilter.from, dateFilter.to],
+    queryFn: () => metricsApi.summary({ from: dateFilter.from || undefined, to: dateFilter.to || undefined }),
+    retry: false,
+  });
+
+  // Leads still outstanding — always the remainder of whichever ratio the
+  // Progress card shows, so the two cards can never disagree.
+  //   employee: Progress is contacted/total  → balance is the leads left to contact
+  //   manager:  Progress is total/planned    → balance is `balanceLeads` (planned − total)
+  // An employee's balance can't use `balanceLeads`: targets are set per
+  // territory, not per user, so `plannedLeads` is the whole territory's target
+  // and would dwarf one person's book.
+  const balanceLeads = isEmployee
+    ? Math.max((s?.totalLeads ?? 0) - (s?.contactedLeads ?? 0), 0)
+    : (s?.balanceLeads ?? 0);
+
+  // Soft-delete selected leads (Admin / TL). Runs sequentially, then refreshes.
+  const removeLeads = useMutation({
+    mutationFn: async (rows: Lead[]) => { for (const l of rows) await leadsApi.remove(l.id); },
+    meta: { successMessage: 'Lead(s) deleted' },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['leads'] }); qc.invalidateQueries({ queryKey: ['metrics', 'summary'] }); },
+  });
 
   const create = useMutation({
     // Drop empty optional strings so they persist as null rather than "".
@@ -81,67 +241,104 @@ export default function LeadsPage() {
       ) as CreateLeadInput;
       return leadsApi.create({ ...cleaned, businessName: form.businessName, phone: form.phone, state: form.state, city: form.city });
     },
+    meta: { successMessage: 'Lead created' },
     onSuccess: (lead) => {
       qc.invalidateQueries({ queryKey: ['leads'] });
       router.push(`/leads/${lead.id}`);
     },
   });
 
+  // Dismiss without submitting — also drops anything typed so the form starts
+  // clean next time it's opened.
+  const closeForm = () => { setForm(EMPTY); setShowForm(false); create.reset(); };
+
   const columns = useMemo<ColumnDef<Lead>[]>(() => [
     {
-      key: 'lead', header: 'Lead', required: true,
+      key: 'leadId', header: 'Lead ID', required: true, searchable: true,
+      searchValue: (l) => l.leadId,
       render: (l) => (
-          <div className="flex items-center gap-[10px]">
+        <div className="flex items-center gap-[10px]">
           <Avatar name={l.leadId} />
-          <div>
-            <div className="font-mono text-[11.5px] text-muted-foreground">{l.leadId}</div>
-            <div className="text-[12px] text-muted-foreground">{l.contactName ?? 'Lead record'}</div>
-          </div>
+          <span className="font-mono text-[11.5px] text-muted-foreground">{l.leadId}</span>
         </div>
       ),
     },
-    { key: 'phone', header: 'Phone', cellClassName: 'font-mono text-[12px] text-muted-foreground', render: (l) => l.phone },
-    { key: 'name', header: 'Name', render: (l) => l.contactName ?? '—' },
-    { key: 'tz', header: 'TZ', render: (l) => <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold">{l.timezone}</span> },
-    { key: 'email', header: 'Email', cellClassName: 'text-muted-foreground', render: (l) => l.email ?? '—' },
-    { key: 'industry', header: 'Industry', cellClassName: 'text-muted-foreground', render: (l) => l.industry ?? '—' },
-    { key: 'title', header: 'Title', cellClassName: 'text-muted-foreground', render: (l) => l.title ?? '—' },
-    { key: 'location', header: 'Location', render: (l) => `${l.city}, ${l.state}` },
-    { key: 'vlc', header: 'VLC', cellClassName: 'text-muted-foreground', render: (l) => l.vlc ?? '—' },
-    { key: 'empCode', header: 'Emp Code', cellClassName: 'font-mono text-[12px] text-muted-foreground', render: (l) => l.employeeCode ?? '—' },
-    { key: 'caller', header: 'Caller', render: (l) => l.assignedTo?.name ?? '—' },
-    { key: 'status', header: 'Status', render: (l) => <StatusPill status={l.status} /> },
-    { key: 'comments', header: 'Comments', cellClassName: 'max-w-[220px] truncate text-muted-foreground', render: (l) => <span title={l.comments ?? ''}>{l.comments ?? '—'}</span> },
-    { key: 'followup', header: 'Follow-up', cellClassName: 'text-muted-foreground', render: (l) => l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '—' },
-    { key: 'category', header: 'Category', render: (l) => l.leadCategory ?? '—' },
-    { key: 'quo', header: 'Quo', render: (l) => <QuoStatusBadge status={l.quoStatus} /> },
+    { key: 'leadGenerationId', header: 'Lead Generation ID', cellClassName: 'text-muted-foreground', render: (l) => l.leadGenerationId ?? '—', searchable: true, searchValue: (l) => l.leadGenerationId },
+    { key: 'createdDate', header: 'Created Date', cellClassName: 'text-muted-foreground', render: (l) => l.createdAt ? new Date(l.createdAt).toLocaleDateString() : '—' },
+    { key: 'leadSource', header: 'Lead Source', cellClassName: 'text-muted-foreground', render: (l) => l.leadSource ?? '—', searchable: true, searchValue: (l) => l.leadSource },
+    { key: 'businessName', header: 'Company Name', render: (l) => l.businessName, searchable: true, searchValue: (l) => l.businessName },
+    { key: 'contactName', header: 'Contact Person', render: (l) => l.contactName ?? '—', searchable: true, searchValue: (l) => l.contactName },
+    { key: 'contactName2', header: 'Contact Person 2', render: (l) => l.contactName2 ?? '—', searchable: true, searchValue: (l) => l.contactName2 },
+    { key: 'phone', header: 'Phone', cellClassName: 'font-mono text-[12px] text-muted-foreground', render: (l) => l.phone, searchable: true, searchValue: (l) => l.phone },
+    { key: 'altPhone', header: 'Alt Phone', cellClassName: 'font-mono text-[12px] text-muted-foreground', render: (l) => l.altPhone ?? '—', searchable: true, searchValue: (l) => l.altPhone },
+    { key: 'email', header: 'Email', cellClassName: 'text-muted-foreground', render: (l) => l.email ?? '—', searchable: true, searchValue: (l) => l.email },
+    { key: 'website', header: 'Website', cellClassName: 'text-muted-foreground', render: (l) => l.website ?? '—', searchable: true, searchValue: (l) => l.website },
+    { key: 'socialMedia', header: 'Social Media', cellClassName: 'text-muted-foreground', render: (l) => l.socialMedia ?? '—', searchable: true, searchValue: (l) => l.socialMedia },
+    { key: 'country', header: 'Country', cellClassName: 'text-muted-foreground', render: (l) => l.country ?? '—', searchable: true, searchValue: (l) => l.country },
+    { key: 'state', header: 'State', cellClassName: 'text-muted-foreground', render: (l) => l.state, searchable: true, searchValue: (l) => l.state },
+    { key: 'city', header: 'City', cellClassName: 'text-muted-foreground', render: (l) => l.city, searchable: true, searchValue: (l) => l.city },
+    { key: 'tz', header: 'Time Zone', render: (l) => <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold">{l.timezone}</span> },
+    { key: 'industry', header: 'Industry', cellClassName: 'text-muted-foreground', render: (l) => l.industry ?? '—', searchable: true, searchValue: (l) => l.industry },
+    { key: 'companySize', header: 'Company Size', cellClassName: 'text-muted-foreground', render: (l) => l.companySize ?? '—', searchable: true, searchValue: (l) => l.companySize },
+    { key: 'foundedYear', header: 'Founded Year', cellClassName: 'text-muted-foreground', render: (l) => l.foundedYear ?? '—', searchable: true, searchValue: (l) => l.foundedYear },
+    { key: 'address', header: 'Address', cellClassName: 'text-muted-foreground max-w-[200px] truncate', render: (l) => l.address ?? '—', searchable: true, searchValue: (l) => l.address },
+    { key: 'caller', header: 'Assigned To', render: (l) => l.assignedTo?.name ?? '—', searchable: true, trackable: true, searchValue: (l) => l.assignedTo?.name },
+    { key: 'callStatus', header: 'Call Status', cellClassName: 'text-muted-foreground', render: (l) => l.callStatus ?? '—', searchable: true, searchValue: (l) => l.callStatus },
+    { key: 'firstContact', header: 'First Contact', cellClassName: 'text-muted-foreground', render: (l) => l.firstContact ? new Date(l.firstContact).toLocaleDateString() : '—' },
+    { key: 'lastContact', header: 'Last Contact', cellClassName: 'text-muted-foreground', render: (l) => l.lastContact ? new Date(l.lastContact).toLocaleDateString() : '—' },
+    { key: 'followup', header: 'Next Follow-up', cellClassName: 'text-muted-foreground', render: (l) => l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '—', trackable: true },
+    { key: 'followupCount', header: 'Follow-up Count', cellClassName: 'text-muted-foreground', render: (l) => l.followupCount ?? '—' },
+    { key: 'meetingDate', header: 'Meeting Date', cellClassName: 'text-muted-foreground', render: (l) => l.meetingDate ? new Date(l.meetingDate).toLocaleDateString() : '—' },
+    { key: 'lostReason', header: 'Lost Reason', cellClassName: 'text-muted-foreground', render: (l) => l.lostReason ?? '—', searchable: true, searchValue: (l) => l.lostReason },
     {
       key: 'actions', header: '', required: true,
       render: (l) => (
         <div className="flex items-center gap-1.5">
-          {/* Info → Activity Log: always visible for managers (Admin / TL) */}
+          {/* Lead History — Admin & Team Leader only; hidden entirely for employees. */}
           {canManage && (
             <button
               onClick={() => setActivityLead(l)}
-              title="Activity log"
-              aria-label="Activity log"
+              title="Lead history"
+              aria-label="Lead history"
               className="grid h-[30px] w-[30px] place-items-center rounded-lg border border-[#bcd9ff] bg-[#f2f8ff] text-[#1f5fae] hover:bg-[#2D8CFF] hover:text-white"
             >
               <Info className="h-[15px] w-[15px]" />
             </button>
           )}
           <div className="flex gap-1.5 opacity-50 transition-opacity group-hover:opacity-100">
-            <button onClick={() => router.push('/calling')} title="Call" className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#333f25] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Phone className="h-[15px] w-[15px]" /></button>
-            <button onClick={() => router.push(`/leads/${l.id}`)} title="View" className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#333f25] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Eye className="h-[15px] w-[15px]" /></button>
+            <button onClick={() => { if (!guard()) return; openQuoDialer(l.phone); router.push(`/calling?leadId=${l.id}&autocall=1`); }} title="Call" aria-label={`Call ${l.businessName}`} className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#1d491f] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Phone className="h-[15px] w-[15px]" /></button>
+            <button onClick={() => router.push(`/leads/${l.id}`)} title="View" aria-label={`View ${l.businessName}`} className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#1d491f] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Eye className="h-[15px] w-[15px]" /></button>
           </div>
         </div>
       ),
     },
-  ], [router, canManage]);
+  ], [router, canManage, guard]);
+
+  // Shared column prefs for Column Customization (visibility/order) — unchanged.
+  const prefs = useColumnPrefs('leads', columns);
+  const term = q.trim().toLowerCase();
+  // All columns that have a searchValue — search runs across ALL of them regardless
+  // of which columns the user has toggled visible in Column Customization.
+  const searchCols = useMemo(() => columns.filter((c) => c.searchable && c.searchValue), [columns]);
+  const leads = allLeads.filter((l) => {
+    // Lead Status filter logic
+    if (status === 'assigned'   && !l.assignedTo) return false;
+    if (status === 'unassigned' && !!l.assignedTo) return false;
+    if (status === 'contacted'  && l.status !== 'contacted') return false;
+    // Call Status filter (case-insensitive match)
+    if (callStatus && (l.callStatus ?? '').toLowerCase() !== callStatus.toLowerCase()) return false;
+    // Remaining filters
+    if (tz && l.timezone !== tz) return false;
+    if (state && l.state !== state) return false;
+    if (city && l.city !== city) return false;
+    if (!inDateBounds(l.createdAt, dateFilter)) return false;
+    if (term && !searchCols.some((c) => String(c.searchValue!(l) ?? '').toLowerCase().includes(term))) return false;
+    return true;
+  });
 
   return (
     <div>
-      <PageHead lead="Master database of all leads across territories and timezones.">
+      <PageHead>
         {canManage && (
           <button onClick={() => router.push('/import')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted">
             <Upload className="h-4 w-4" /> Import CSV
@@ -162,18 +359,31 @@ export default function LeadsPage() {
           <Download className="h-4 w-4" /> Export Excel
         </button>
         {canManage && (
-          <button onClick={() => setShowForm((v) => !v)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground shadow-sm hover:opacity-90">
-            <Plus className="h-4 w-4" /> {showForm ? 'Close' : 'Add Lead'}
+          <button
+            onClick={() => { setSyncMsg(null); syncAll.mutate(); }}
+            disabled={syncAll.isPending}
+            title="Push every not-yet-synced lead to QUO/OpenPhone as a contact"
+            className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${syncAll.isPending ? 'animate-spin' : ''}`} />
+            {syncAll.isPending ? 'Syncing…' : 'Sync all to QUO'}
           </button>
         )}
+        <button onClick={() => (showForm ? closeForm() : setShowForm(true))} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground shadow-sm hover:opacity-90">
+          {showForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />} {showForm ? 'Close' : 'Add Lead'}
+        </button>
       </PageHead>
+      {syncMsg && (
+        <div className="mb-3 rounded-md border bg-muted/50 px-3 py-2 text-[13px] text-muted-foreground">{syncMsg}</div>
+      )}
 
-      {/* KPIs */}
+      {/* KPIs — for employees every card is derived from their own assigned book. */}
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
         <KpiCard icon={Target} iconBg="#e7f0f8" iconColor="#2c5d8f" value={(s?.totalLeads ?? 0).toLocaleString()} label="Total Leads" />
-        <KpiCard icon={Zap} iconBg="#e7eed8" iconColor="#42512f" value={(s?.plannedLeads ?? 0).toLocaleString()} label="Planned Leads" />
-        <KpiCard icon={Layers} iconBg="#fbf3e2" iconColor="#c98a18" value={(s?.balanceLeads ?? 0).toLocaleString()} label="Balance Leads" />
-        <KpiCard icon={Percent} iconBg="#e8f2e4" iconColor="#3f7a32" value={`${s?.progressPct ?? 0}%`} label="Progress to Target" />
+        <KpiCard icon={Zap} iconBg="#d8eed9" iconColor="#266929" value={(isEmployee ? (s?.totalLeads ?? 0) : (s?.plannedLeads ?? 0)).toLocaleString()} label="Assigned Leads" />
+        <KpiCard icon={PhoneCall} iconBg="#e3f1ee" iconColor="#2f6f63" value={(s?.contactedLeads ?? 0).toLocaleString()} label="Contacted" />
+        <KpiCard icon={Hourglass} iconBg="#fbf3e2" iconColor="#c98a18" value={balanceLeads.toLocaleString()} label="Balance Leads" />
+        <KpiCard icon={Percent} iconBg="#e4f2e4" iconColor="#317d34" value={`${isEmployee ? (s?.contactedPct ?? 0) : (s?.progressPct ?? 0)}%`} label={isEmployee ? 'Progress' : 'Progress to Target'} />
       </div>
 
       {/* Filter bar */}
@@ -182,22 +392,55 @@ export default function LeadsPage() {
         <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={[{ label: 'All Timezones', value: '' }, ...['EST', 'CST', 'MST', 'PST'].map((t) => ({ label: t, value: t }))]} />
         <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
-        <FilterSelect icon={Filter} value={status} onChange={setStatus} options={STATUS_OPTS} />
-        <DateRangePicker value={created} onChange={setCreated} />
+        <FilterSelect icon={Tag} value={status} onChange={setStatus} options={STATUS_OPTS} />
+        <FilterSelect icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={CALL_STATUS_OPTS} />
+        <DateFilter value={dateFilter} onChange={setDateFilter} />
       </div>
 
       {/* Create form */}
-      {showForm && canManage && (
+      {showForm && (
         <form
           onSubmit={(e) => { e.preventDefault(); create.mutate(); }}
           className="mb-[18px] grid grid-cols-1 gap-3 rounded-2xl border bg-card p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-3"
         >
+          <div className="col-span-full flex items-center justify-between">
+            <h3 className="text-sm font-semibold">Add Lead</h3>
+            <button
+              type="button"
+              onClick={closeForm}
+              title="Close"
+              aria-label="Close add lead form"
+              className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
           {([
-            ['businessName', 'Company Name *'], ['phone', 'Phone *'], ['contactName', 'Name'],
-            ['email', 'Email'], ['industry', 'Industry'], ['title', 'Title'],
-            ['state', 'State *'], ['city', 'City *'], ['vlc', 'VLC'],
-            ['employeeCode', 'Employee Code'], ['caller', 'Caller (name/email)'], ['leadCategory', 'Lead Category'],
-          ] as const).map(([key, label]) => (
+            ['leadId', 'Lead ID'],
+            ['leadGenerationId', 'Lead Generation ID'],
+            ['leadSource', 'Lead Source'],
+            ['businessName', 'Company Name *'],
+            ['contactName', 'Contact Person (Primary)'],
+            ['contactName2', 'Contact Person (Secondary)'],
+            ['phone', 'Phone *'],
+            ['altPhone', 'Alt Phone'],
+            ['email', 'Email'],
+            ['website', 'Website'],
+            ['socialMedia', 'Social Media'],
+            ['country', 'Country'],
+            ['state', 'State *'],
+            ['city', 'City *'],
+            ['industry', 'Industry'],
+            ['companySize', 'Company Size'],
+            ['foundedYear', 'Founded Year'],
+            ['address', 'Address'],
+            ['caller', 'Assigned To (name/email)'],
+            ['callStatus', 'Call Status'],
+            ['lostReason', 'Lost Reason'],
+          ] as const)
+            // Employees can't reassign to others — their new leads are theirs.
+            .filter(([key]) => canManage || key !== 'caller')
+            .map(([key, label]) => (
             <label key={key} className="space-y-1 text-sm">
               <span className="font-medium">{label}</span>
               <input value={(form as any)[key] ?? ''} onChange={(e) => setForm({ ...form, [key]: e.target.value })} required={label.includes('*')} className="w-full rounded-md border bg-background px-3 py-2" />
@@ -210,8 +453,24 @@ export default function LeadsPage() {
             </select>
           </label>
           <label className="space-y-1 text-sm">
+            <span className="font-medium">First Contact</span>
+            <input type="date" value={form.firstContact ?? ''} onChange={(e) => setForm({ ...form, firstContact: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="font-medium">Last Contact</span>
+            <input type="date" value={form.lastContact ?? ''} onChange={(e) => setForm({ ...form, lastContact: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
             <span className="font-medium">Next Follow-up Date</span>
             <input type="date" value={form.nextFollowUpDate ?? ''} onChange={(e) => setForm({ ...form, nextFollowUpDate: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="font-medium">Follow-up Count</span>
+            <input type="number" value={form.followupCount ?? ''} onChange={(e) => setForm({ ...form, followupCount: e.target.value ? parseInt(e.target.value, 10) : undefined })} className="w-full rounded-md border bg-background px-3 py-2" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="font-medium">Meeting Date</span>
+            <input type="date" value={form.meetingDate ?? ''} onChange={(e) => setForm({ ...form, meetingDate: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
           </label>
           <label className="col-span-full space-y-1 text-sm">
             <span className="font-medium">Comments</span>
@@ -220,6 +479,9 @@ export default function LeadsPage() {
           <div className="col-span-full flex items-center gap-3">
             <button type="submit" disabled={create.isPending} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
               {create.isPending ? 'Creating…' : 'Create & open'}
+            </button>
+            <button type="button" onClick={closeForm} disabled={create.isPending} className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-60">
+              Cancel
             </button>
             {create.isError && <span className="text-sm text-[#9e2b21]">Failed to create lead</span>}
           </div>
@@ -236,11 +498,36 @@ export default function LeadsPage() {
         subtitle={`${leads.length} shown`}
         loading={isLoading}
         emptyText={allLeads.length === 0 ? 'No leads yet — add one above.' : 'No leads match the current filters.'}
+        prefs={prefs}
+        // Excel-style viewport: header pinned, horizontal scrollbar always on
+        // screen. Lead Management has the most columns, so it needs it most.
+        fillViewport
+        selectable
+        onDeleteSelected={canManage ? (rows) => removeLeads.mutateAsync(rows) : undefined}
+        deleteConfirm={(rows) => `Permanently delete ${rows.length} lead${rows.length > 1 ? 's' : ''}? This also removes all associated data — calls, notes, messages, activities, assignments and zoom meetings. This cannot be undone.`}
+        bulkActions={canManage ? (rows, clear) => (
+          <button
+            onClick={() => { clearTableSelection.current = clear; setAssignLeads(rows); }}
+            title="Assign selected leads to an employee"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-[12.5px] font-semibold text-foreground hover:bg-muted"
+          >
+            <UserPlus className="h-4 w-4" /> Assign
+          </button>
+        ) : undefined}
       />
 
-      {/* Activity Log drawer (Admin / Manager / Team Lead) */}
-      {activityLead && canManage && (
+      {/* Lead History drawer — Admin & Team Leader only. */}
+      {canManage && activityLead && (
         <LeadActivityDrawer leadId={activityLead.id} leadName={activityLead.businessName} onClose={() => setActivityLead(null)} />
+      )}
+
+      {/* Employee-wise assign popup — Admin / Team Leader */}
+      {assignLeads && (
+        <LeadAssignDialog
+          leads={assignLeads}
+          onClose={() => setAssignLeads(null)}
+          onAssigned={() => clearTableSelection.current?.()}
+        />
       )}
     </div>
   );

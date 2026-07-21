@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Upload, Check, AlertTriangle } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -13,22 +13,34 @@ import { PageHead } from '@/components/page-head';
  * against the file header so minor naming differences still map.
  */
 const COLUMNS: { key: keyof LeadRow; label: string; aliases: string[] }[] = [
-  { key: 'phone', label: 'PHONE', aliases: ['phone', 'phone number', 'mobile'] },
-  { key: 'businessName', label: 'COMPANY NAME', aliases: ['company name', 'company', 'business name', 'businessname', 'business'] },
-  { key: 'contactName', label: 'NAME', aliases: ['name', 'contact', 'contact name'] },
-  { key: 'timezone', label: 'TIME ZONE', aliases: ['time zone', 'timezone', 'tz'] },
-  { key: 'email', label: 'EMAIL', aliases: ['email', 'e-mail'] },
-  { key: 'industry', label: 'INDUSTRY', aliases: ['industry'] },
-  { key: 'title', label: 'TITLE', aliases: ['title', 'job title'] },
-  { key: 'state', label: 'STATE', aliases: ['state'] },
-  { key: 'city', label: 'CITY', aliases: ['city'] },
-  { key: 'vlc', label: 'VLC', aliases: ['vlc'] },
-  { key: 'employeeCode', label: 'Employee Code', aliases: ['employee code', 'emp code', 'employeecode'] },
-  { key: 'caller', label: 'CALLER', aliases: ['caller', 'assigned to', 'agent'] },
-  { key: 'status', label: 'STATUS', aliases: ['status'] },
-  { key: 'comments', label: 'COMMENTS', aliases: ['comments', 'comment', 'remarks', 'notes'] },
-  { key: 'nextFollowUpDate', label: 'NEXT FOLLOW UP DATE', aliases: ['next follow up date', 'next followup date', 'next follow-up date', 'follow up date', 'followup date'] },
-  { key: 'leadCategory', label: 'LEAD CATEGORY', aliases: ['lead category', 'category'] },
+  { key: 'leadId', label: 'Lead ID', aliases: ['lead id', 'leadid'] },
+  { key: 'leadGenerationId', label: 'Lead Generation ID', aliases: ['lead generation id', 'leadgenerationid', 'lead gen id'] },
+  { key: 'createdAt', label: 'Created Date', aliases: ['created date', 'createddate', 'created_at'] },
+  { key: 'leadSource', label: 'Lead Source', aliases: ['lead source', 'leadsource'] },
+  { key: 'businessName', label: 'Company Name', aliases: ['company name', 'company', 'business name', 'businessname', 'business'] },
+  { key: 'contactName', label: 'Contact Person', aliases: ['contact person', 'contactname', 'contact person 1', 'primary contact'] },
+  { key: 'contactName2', label: 'Contact Person 2', aliases: ['contact person 2', 'contactname2', 'secondary contact'] },
+  { key: 'phone', label: 'Phone', aliases: ['phone', 'phone number', 'mobile'] },
+  { key: 'altPhone', label: 'Alt Phone', aliases: ['alt phone', 'altphone', 'alternate phone'] },
+  { key: 'email', label: 'Email', aliases: ['email', 'e-mail'] },
+  { key: 'website', label: 'Website', aliases: ['website', 'site', 'web'] },
+  { key: 'socialMedia', label: 'Social Media', aliases: ['social media', 'socialmedia', 'social', 'linkedin'] },
+  { key: 'country', label: 'Country', aliases: ['country'] },
+  { key: 'state', label: 'State', aliases: ['state'] },
+  { key: 'city', label: 'City', aliases: ['city'] },
+  { key: 'timezone', label: 'Time Zone', aliases: ['time zone', 'timezone', 'tz'] },
+  { key: 'industry', label: 'Industry', aliases: ['industry'] },
+  { key: 'companySize', label: 'Company Size', aliases: ['company size', 'companysize'] },
+  { key: 'foundedYear', label: 'Founded Year', aliases: ['founded year', 'foundedyear'] },
+  { key: 'address', label: 'Address', aliases: ['address'] },
+  { key: 'caller', label: 'Assigned To', aliases: ['assigned to', 'caller', 'agent'] },
+  { key: 'callStatus', label: 'Call Status', aliases: ['call status', 'callstatus'] },
+  { key: 'firstContact', label: 'First Contact', aliases: ['first contact', 'firstcontact'] },
+  { key: 'lastContact', label: 'Last Contact', aliases: ['last contact', 'lastcontact'] },
+  { key: 'nextFollowUpDate', label: 'Next Follow-up', aliases: ['next follow up', 'next followup', 'next follow-up date'] },
+  { key: 'followupCount', label: 'Follow-up Count', aliases: ['follow-up count', 'followup count'] },
+  { key: 'meetingDate', label: 'Meeting Date', aliases: ['meeting date', 'meetingdate'] },
+  { key: 'lostReason', label: 'Lost Reason', aliases: ['lost reason', 'lostreason'] },
 ];
 
 const STATUS_MAP: Record<string, string> = {
@@ -76,76 +88,109 @@ function normalize(key: keyof LeadRow, raw: string): string | undefined {
 // "Company-Name" and "companyname" all map to the same column.
 const normHeader = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-interface ParseResult {
-  rows: LeadRow[];
-  /** Per canonical column: the file header it matched (or null = not in file). */
-  matched: { label: string; header: string | null }[];
-  /** File headers that didn't map to any known column (ignored on import). */
-  unrecognized: string[];
+/** The uploaded file, kept raw so the mapping can be changed without re-reading it. */
+interface ParsedFile {
+  /** Header labels exactly as they appear in the file. */
+  headers: string[];
+  /** Data rows, still as raw strings. */
+  cells: string[][];
 }
 
-function parseCsv(text: string): ParseResult {
+/** CRM field key → index into `headers`. NOT_MAPPED means "don't import this field". */
+export const NOT_MAPPED = -1;
+type Mapping = Record<string, number>;
+
+function parseFile(text: string): ParsedFile {
   const lines = text.trim().split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 2) return { rows: [], matched: [], unrecognized: [] };
-  const original = splitCsvLine(lines[0]);
-  const headers = original.map(normHeader);
-  const colIdx = COLUMNS.map((col) => {
+  if (lines.length < 2) return { headers: [], cells: [] };
+  return { headers: splitCsvLine(lines[0]), cells: lines.slice(1).map(splitCsvLine) };
+}
+
+/**
+ * Best-guess mapping from the file's headers, matched by NAME (not position) so
+ * any column order works. It's only a starting point — every field can be
+ * re-pointed by hand afterwards, which is what makes an arbitrary sheet importable.
+ */
+function autoMap(headers: string[]): Mapping {
+  const norm = headers.map(normHeader);
+  const mapping: Mapping = {};
+  for (const col of COLUMNS) {
     const aliases = col.aliases.map(normHeader);
-    return headers.findIndex((h) => h !== '' && aliases.includes(h));
-  });
+    mapping[col.key] = norm.findIndex((h) => h !== '' && aliases.includes(h));
+  }
+  return mapping;
+}
 
-  const matched = COLUMNS.map((col, ci) => ({ label: col.label, header: colIdx[ci] >= 0 ? original[colIdx[ci]] : null }));
-  const usedIdx = new Set(colIdx.filter((i) => i >= 0));
-  const unrecognized = original.filter((h, i) => h.trim() !== '' && !usedIdx.has(i));
-
-  const rows = lines.slice(1).map((line) => {
-    const cells = splitCsvLine(line);
+function buildRows(file: ParsedFile, mapping: Mapping): LeadRow[] {
+  return file.cells.map((cells) => {
     const row: Record<string, string | undefined> = {};
-    COLUMNS.forEach((col, ci) => {
-      const i = colIdx[ci];
+    for (const col of COLUMNS) {
+      const i = mapping[col.key] ?? NOT_MAPPED;
       row[col.key] = i >= 0 ? normalize(col.key, cells[i] ?? '') : undefined;
-    });
+    }
     return {
+      leadId: row.leadId,
+      leadGenerationId: row.leadGenerationId,
+      createdAt: row.createdAt,
+      leadSource: row.leadSource,
       businessName: row.businessName ?? '',
+      contactName: row.contactName,
+      contactName2: row.contactName2,
       phone: row.phone ?? '',
+      altPhone: row.altPhone,
       email: row.email,
+      website: row.website,
+      socialMedia: row.socialMedia,
+      country: row.country,
       state: row.state ?? '',
       city: row.city ?? '',
       timezone: row.timezone,
-      status: row.status,
-      contactName: row.contactName,
       industry: row.industry,
-      title: row.title,
-      vlc: row.vlc,
-      employeeCode: row.employeeCode,
-      comments: row.comments,
-      leadCategory: row.leadCategory,
-      nextFollowUpDate: row.nextFollowUpDate,
+      companySize: row.companySize,
+      foundedYear: row.foundedYear,
+      address: row.address,
       caller: row.caller,
+      callStatus: row.callStatus,
+      firstContact: row.firstContact,
+      lastContact: row.lastContact,
+      nextFollowUpDate: row.nextFollowUpDate,
+      followupCount: row.followupCount ? parseInt(row.followupCount, 10) : undefined,
+      meetingDate: row.meetingDate,
+      lostReason: row.lostReason,
     };
   });
-  return { rows, matched, unrecognized };
 }
 
 const SAMPLE = `${COLUMNS.map((c) => c.label).join(',')}
-+13055551234,Acme Tax LLC,John Carter,EST,john@acme.com,Accounting,Owner,Florida,Miami,VLC-1,EMP-101,caller1@crm.local,New,"Interested, call back",2026-07-01,Hot
-+14155559876,Bay Books Inc,Mia Wong,PST,mia@baybooks.com,Bookkeeping,CFO,California,San Francisco,VLC-2,EMP-102,caller2@crm.local,Contacted,Left voicemail,2026-07-03,Warm`;
+L-99001,GEN-8802,2026-07-01,Google Ads,Acme Tax LLC,John Carter,Jane Doe,+13055551234,+13055555678,john@acme.com,https://acmetax.com,@acmetax,USA,Florida,Miami,EST,Accounting,10-50,2010,"123 Main St",caller1@crm.local,Contacted,2026-06-01,2026-07-01,2026-07-15,3,2026-07-10,
+L-99002,GEN-8803,2026-07-02,Referral,Bay Books Inc,Mia Wong,Alex Smith,+14155559876,,mia@baybooks.com,https://baybooks.com,,USA,California,San Francisco,PST,Bookkeeping,50-200,1995,"456 Market St",caller2@crm.local,In Progress,2026-06-05,2026-07-02,2026-07-20,5,2026-07-12,`;
 
 export default function ImportPage() {
-  const [rows, setRows] = useState<LeadRow[]>([]);
-  const [matched, setMatched] = useState<{ label: string; header: string | null }[]>([]);
-  const [unrecognized, setUnrecognized] = useState<string[]>([]);
+  const [file, setFile] = useState<ParsedFile>({ headers: [], cells: [] });
+  const [mapping, setMapping] = useState<Mapping>({});
   const [raw, setRaw] = useState('');
+
+  // Rows are derived from the mapping, so re-pointing a field updates the preview
+  // (and what gets imported) immediately — no need to re-upload the file.
+  const rows = useMemo(() => (file.headers.length ? buildRows(file, mapping) : []), [file, mapping]);
   const importMut = useMutation({ mutationFn: () => importApi.bulk(rows) });
+
+  // File columns nobody is reading yet — surfaced so it's obvious what's going
+  // unused, and which of them you might want to point a field at.
+  const unmapped = useMemo(() => {
+    const used = new Set(Object.values(mapping).filter((i) => i >= 0));
+    return file.headers.filter((h, i) => h.trim() !== '' && !used.has(i));
+  }, [file, mapping]);
 
   function load(text: string) {
     setRaw(text);
-    const res = parseCsv(text);
-    setRows(res.rows);
-    setMatched(res.matched);
-    setUnrecognized(res.unrecognized);
+    const parsed = parseFile(text);
+    setFile(parsed);
+    setMapping(autoMap(parsed.headers));
     importMut.reset();
   }
+
+  const setField = (key: string, idx: number) => setMapping((m) => ({ ...m, [key]: idx }));
 
   // Accept CSV or Excel (.xlsx/.xls) — Excel sheets are converted to CSV and
   // run through the same quote-aware parser + column-alias mapping.
@@ -161,11 +206,10 @@ export default function ImportPage() {
 
   return (
     <div>
-      <PageHead lead="Upload Excel/CSV using the standard lead columns. Preview, then import with dedupe." />
 
       <div className="grid gap-[18px] lg:grid-cols-2">
-        <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#ccd3ba] bg-background p-[34px] text-center transition-colors hover:border-[#94ab68]">
-          <div className="mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-[#e7eed8] text-[#42512f]"><Upload className="h-6 w-6" /></div>
+        <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#bbd3bc] bg-background p-[34px] text-center transition-colors hover:border-[#a6c74d]">
+          <div className="mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-[#d8eed9] text-[#266929]"><Upload className="h-6 w-6" /></div>
           <div className="font-semibold">Drop your file here or <span className="text-primary">browse</span></div>
           <div className="mt-1 text-[12.5px] text-muted-foreground">CSV or Excel (.xlsx/.xls) up to 25MB</div>
           <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) loadFile(f); }} />
@@ -182,25 +226,57 @@ export default function ImportPage() {
         </div>
       </div>
 
-      {rows.length > 0 && (
+      {file.headers.length > 0 && (
         <div className="mt-[18px] rounded-2xl border bg-card p-[18px] shadow-sm">
-          <h3 className="mb-3 font-display text-[15px] font-semibold">Detected column mapping</h3>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {matched.map((m) => (
-              <div key={m.label} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-[12.5px]">
-                <span className="font-medium">{m.label}</span>
-                {m.header ? (
-                  <span className="inline-flex items-center gap-1.5 text-muted-foreground"><Check className="h-3.5 w-3.5 text-[#3f7a32]" />{m.header}</span>
-                ) : (
-                  <span className="text-muted-foreground/60">not in file</span>
-                )}
-              </div>
-            ))}
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-display text-[15px] font-semibold">Column mapping</h3>
+            <button
+              onClick={() => setMapping(autoMap(file.headers))}
+              className="rounded-md border bg-card px-2.5 py-1.5 text-[12px] font-semibold hover:bg-muted"
+            >
+              Reset to auto-detected
+            </button>
           </div>
-          {unrecognized.length > 0 && (
+          {/* Every field is optional: nothing here is marked Required, and leaving
+              a field (including any date) unmapped simply skips it on import. */}
+          <p className="mb-3 text-[12px] text-muted-foreground">
+            Matched by column name, so your file&apos;s column order doesn&apos;t matter. Change any
+            row to point a CRM field at a different column. All fields are optional — leave anything
+            you don&apos;t have set to <span className="font-medium">Don&apos;t import</span>.
+          </p>
+
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {COLUMNS.map((col) => {
+              const idx = mapping[col.key] ?? NOT_MAPPED;
+              return (
+                <label key={col.key} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-[12.5px]">
+                  <span className="shrink-0 font-medium">{col.label}</span>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    {idx >= 0 && <Check className="h-3.5 w-3.5 shrink-0 text-[#317d34]" />}
+                    <select
+                      value={idx}
+                      onChange={(e) => setField(col.key, Number(e.target.value))}
+                      aria-label={`Source column for ${col.label}`}
+                      className={`min-w-0 max-w-[170px] cursor-pointer truncate rounded border bg-background px-1.5 py-1 text-[12px] outline-none ${idx < 0 ? 'text-muted-foreground/70' : ''}`}
+                    >
+                      <option value={NOT_MAPPED}>Don&apos;t import</option>
+                      {file.headers.map((h, i) => (
+                        <option key={`${h}-${i}`} value={i}>{h.trim() || `Column ${i + 1}`}</option>
+                      ))}
+                    </select>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+
+          {unmapped.length > 0 && (
             <div className="mt-3 flex items-start gap-2 rounded-md bg-[#fbf3e2] px-3 py-2 text-[12.5px] text-[#8a6a12]">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>Ignored unrecognized column{unrecognized.length > 1 ? 's' : ''}: {unrecognized.join(', ')}</span>
+              <span>
+                Not imported — no CRM field is pointed at {unmapped.length > 1 ? 'these columns' : 'this column'}:{' '}
+                {unmapped.join(', ')}. Pick {unmapped.length > 1 ? 'them' : 'it'} above if you want {unmapped.length > 1 ? 'them' : 'it'} imported.
+              </span>
             </div>
           )}
         </div>
@@ -230,7 +306,7 @@ export default function ImportPage() {
       )}
 
       {importMut.isSuccess && (
-        <div className="mt-4 rounded-md bg-[#e8f2e4] px-4 py-3 text-sm text-[#3f7a32]">
+        <div className="mt-4 rounded-md bg-[#e4f2e4] px-4 py-3 text-sm text-[#317d34]">
           Created {importMut.data.imported} · updated {importMut.data.updated} (existing) · {importMut.data.errors.length} errors
           {importMut.data.errors.length > 0 && <ul className="mt-1 list-inside list-disc text-xs">{importMut.data.errors.slice(0, 5).map((e) => <li key={e.row}>Row {e.row}: {e.reason}</li>)}</ul>}
         </div>

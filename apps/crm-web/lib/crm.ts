@@ -6,6 +6,10 @@ export interface MetricsSummary {
   totalLeads: number;
   plannedLeads: number;
   balanceLeads: number;
+  /** Leads successfully contacted (completed call or contacted-or-beyond status). */
+  contactedLeads: number;
+  /** Contacted as a % of total — per-book progress used for the employee view. */
+  contactedPct: number;
   progressPct: number;
   closedLeads: number;
 }
@@ -33,6 +37,10 @@ export interface StateMetric {
   state: string;
   timezone: string;
   total: number;
+  /** Leads in this state that have an owner. */
+  assigned: number;
+  /** Leads reached: completed call or contacted-or-beyond status. */
+  contacted: number;
   planned: number;
   balance: number;
   progressPct: number;
@@ -70,6 +78,7 @@ export interface Target {
 export const targetsApi = {
   list: async (): Promise<Target[]> => (await api.get('/targets')).data,
   upsert: async (t: Omit<Target, 'id'>) => (await api.post('/targets', t)).data,
+  remove: async (id: string) => (await api.delete(`/targets/${id}`)).data,
 };
 
 // ───────────────────────── Assignments ─────────────────────────
@@ -79,6 +88,12 @@ export interface AssignmentSummary {
 }
 export const assignmentsApi = {
   summary: async (): Promise<AssignmentSummary> => (await api.get('/assignments/summary')).data,
+  // Manually (re)assign a batch of leads to a single caller. Records history.
+  manual: async (body: { leadIds: string[]; callerId: string; batchName?: string }): Promise<{ assigned: number; callerId: string }> =>
+    (await api.post('/assignments', body)).data,
+  // Manual multi-employee distribution: each allocation names a caller and the exact leads they receive.
+  batch: async (body: { allocations: { callerId: string; leadIds: string[] }[]; batchName?: string }): Promise<{ assigned: number; perCaller: Record<string, number> }> =>
+    (await api.post('/assignments/batch', body)).data,
   auto: async (body: { callerIds: string[]; strategy: 'equal' | 'state' | 'timezone'; timezone?: string; state?: string }) =>
     (await api.post('/assignments/auto', body)).data,
 };
@@ -94,6 +109,21 @@ export interface CallerDashboard {
 // Outcomes are an admin-configurable list now; the slug is a free string.
 export type CallOutcome = string;
 
+/** Calls Made funnel bucket. Null = ungrouped: the status still appears in the
+ *  per-status breakdown but sits outside the Cold → Warm → Hot → Closed flow. */
+export type OutcomeCategory = 'cold' | 'warm' | 'hot' | 'connected' | 'closed_positive' | 'closed_negative';
+
+/** Options for the outcome admin's bucket picker; '' clears the grouping. */
+export const OUTCOME_CATEGORIES: { label: string; value: '' | OutcomeCategory }[] = [
+  { label: 'Ungrouped', value: '' },
+  { label: 'Cold', value: 'cold' },
+  { label: 'Warm', value: 'warm' },
+  { label: 'Hot', value: 'hot' },
+  { label: 'Connected', value: 'connected' },
+  { label: 'Closed — Won', value: 'closed_positive' },
+  { label: 'Closed — Lost', value: 'closed_negative' },
+];
+
 export interface Outcome {
   id: string;
   slug: string;
@@ -102,6 +132,7 @@ export interface Outcome {
   schedulesCallback: boolean;
   schedulesZoom: boolean;
   leadStatus: string | null;
+  category: OutcomeCategory | null;
   sortOrder: number;
   isActive: boolean;
 }
@@ -134,8 +165,159 @@ export interface OutcomeRecord {
   caller: { id: string; name: string; email: string } | null;
 }
 
+// ── Calls Made dashboard ──
+/** Date range is already resolved to plain yyyy-mm-dd bounds by the UI's
+ *  Day/Week/Month/Year/Custom filter, so the API only sees from/to. */
+export interface CallsMadeQuery {
+  from?: string;
+  to?: string;
+  /** Managers only — narrow to one caller. Ignored for employees. */
+  userId?: string;
+  // ── Lead-side filters, applied server-side ──
+  // These go to the API (not applied in the browser) so the summary tiles and the
+  // table describe the same calls, and so filtering covers the whole range rather
+  // than only the page of rows the table has loaded.
+  timezone?: string;
+  state?: string;
+  city?: string;
+  /** 'assigned' | 'unassigned' | a lead status value. */
+  leadStatus?: string;
+  /** Outcome slug (falls back to the lead's legacy call status). */
+  outcome?: string;
+}
+
+/** Values the Calls Made filter menus offer, for the current date + employee scope. */
+export interface CallsMadeFilterOptions {
+  geo: { timezone: string; state: string; city: string }[];
+  /** Legacy imported call statuses still present in the data. */
+  callStatuses: string[];
+}
+
+/** Per-status row of the report — every configured status, zeroes included. */
+export interface CallStatusCount {
+  slug: string;
+  name: string;
+  color: string;
+  category: OutcomeCategory | null;
+  count: number;
+}
+
+export interface CallsMadeStats {
+  // ── Raw call volume (every call, with or without an outcome) ──
+  total: number;
+  outgoing: number;
+  incoming: number;
+  connected: number;
+  missed: number;
+  failed: number;
+  totalDurationSecs: number;
+  avgDurationSecs: number;
+  connectedPct: number;
+  // ── Funnel report (calls that recorded an outcome) ──
+  /** Calls with an outcome — the denominator for every ratio below. */
+  given: number;
+  byStatus: CallStatusCount[];
+  categories: { cold: number; warm: number; hot: number; connected: number; closedPositive: number; closedNegative: number };
+  ratios: { callsMade: number; warm: number; hot: number; connected: number; closedPositive: number; closedNegative: number };
+  coldPct: number;
+  /** Null when no target applies (none set, or an open-ended date range). */
+  target: { target: number; completed: number; remaining: number; metPct: number; reason: string | null } | null;
+}
+
+export interface CallTarget {
+  dailyCallTarget: number;
+  targetMissReason: string | null;
+}
+
+/**
+ * A rep's lead book — the leads they hold, not the calls they made. Counts leads
+ * assigned right now, so unlike everything else on the Calls Made dashboard it
+ * does not move with the date range.
+ */
+export interface LeadBook {
+  assigned: number;
+  /** Leads that reached a terminal status (closed or rejected). */
+  completed: number;
+  /** Still to work: assigned − completed. */
+  balance: number;
+}
+
+export interface CallRecord {
+  id: string;
+  startTime: string;
+  endTime: string | null;
+  durationSecs: number | null;
+  direction: 'inbound' | 'outbound' | null;
+  status: string | null;
+  outcome: string | null;
+  /** Signed provider link — managers only; null for everyone else. */
+  recordingUrl: string | null;
+  /** Whether a recording exists. Safe for any viewer, and what the export reports. */
+  hasRecording: boolean;
+  lead: {
+    id: string; leadId: string; businessName: string; contactName: string | null; phone: string; status: string;
+    timezone: string; state: string; city: string; callStatus: string | null; assignedToId: string | null;
+  } | null;
+  caller: { id: string; name: string; email: string } | null;
+}
+
+// ───────────────────────── Calls pivot ─────────────────────────
+/** A dimension either pivot axis can carry. Mirrors the API's CallPivotDim. */
+export type CallPivotDim =
+  | 'employee' | 'outcome' | 'bucket' | 'direction'
+  | 'status' | 'leadStatus' | 'date' | 'weekday' | 'hour';
+
+/** One value on an axis. `color` is set for outcomes, which configure their own. */
+export interface CallPivotAxis {
+  key: string;
+  label: string;
+  color: string | null;
+}
+
+/**
+ * One populated cell, addressed by index into `rows`/`cols`. Cells carry the raw
+ * ingredients rather than a finished measure, so the measure can be switched
+ * without re-querying and every total is summed from counts, never from rates.
+ */
+export interface CallPivotCell {
+  r: number;
+  c: number;
+  calls: number;
+  /** Calls with an end time — the same "connected" the Calls Made stats use. */
+  connected: number;
+  secs: number;
+}
+
+export interface CallPivot {
+  rows: CallPivotAxis[];
+  cols: CallPivotAxis[];
+  /** Sparse — cells with no calls are omitted. */
+  cells: CallPivotCell[];
+  scanned: number;
+  /** True when the range holds more calls than one pivot may read. */
+  truncated: boolean;
+}
+
+export interface CallPivotQuery extends CallsMadeQuery {
+  rows: CallPivotDim;
+  cols: CallPivotDim;
+}
+
 export const callsApi = {
   dashboard: async (): Promise<CallerDashboard> => (await api.get('/calls/caller/dashboard')).data,
+  madeStats: async (params?: CallsMadeQuery): Promise<CallsMadeStats> =>
+    (await api.get('/calls/made/stats', { params })).data,
+  madeRecords: async (params?: CallsMadeQuery): Promise<CallRecord[]> =>
+    (await api.get('/calls/made/records', { params })).data,
+  madeFilters: async (params?: CallsMadeQuery): Promise<CallsMadeFilterOptions> =>
+    (await api.get('/calls/made/filters', { params })).data,
+  madePivot: async (params: CallPivotQuery): Promise<CallPivot> =>
+    (await api.get('/calls/made/pivot', { params })).data,
+  leadBook: async (userId?: string): Promise<LeadBook> =>
+    (await api.get('/calls/made/leads', { params: userId ? { userId } : {} })).data,
+  callTarget: async (userId: string): Promise<CallTarget> => (await api.get(`/calls/made/target/${userId}`)).data,
+  setCallTarget: async (userId: string, body: Partial<CallTarget>): Promise<CallTarget> =>
+    (await api.patch(`/calls/made/target/${userId}`, body)).data,
   myLeads: async (): Promise<Lead[]> => (await api.get('/calls/caller/leads')).data,
   followups: async (userId?: string): Promise<Followup[]> =>
     (await api.get('/calls/followups', { params: userId ? { userId } : {} })).data,
@@ -197,7 +379,9 @@ export interface Activity {
   ipAddress: string | null;
   createdAt: string;
   user: { id: string; name: string; email: string } | null;
-  lead: { id: string; businessName: string } | null;
+  lead: { id: string; leadId: string; businessName: string } | null;
+  callStatus: string | null;
+  assignedTo: { id: string; name: string; email: string } | null;
 }
 export const activitiesApi = {
   list: async (): Promise<Activity[]> => (await api.get('/activities')).data,
@@ -297,6 +481,8 @@ export interface TimelineItem {
   aiSummary?: string | null;
   body?: string;
   by?: string | null;
+  /** Caller identity (OpenPhone line) the call went out on. */
+  from?: string | null;
 }
 export interface StartCallResult {
   callId: string;
@@ -305,6 +491,20 @@ export interface StartCallResult {
   error?: string | null;
   /** tel: link handed to the agent's OpenPhone dialer to place the call. */
   tel?: string;
+  /** Caller identity the customer sees: the caller's own assigned OpenPhone line… */
+  from?: string;
+  /** …and their display name — shown on the widget so the agent dials as themselves. */
+  callerName?: string;
+}
+export interface MissedCall {
+  id: string;
+  at: string;
+  leadId: string;
+  businessName: string;
+  phone: string;
+  status: string | null;
+  assignedTo: string | null;
+  assignedToId: string;
 }
 export type CallPhase = 'initiated' | 'ringing' | 'connected' | 'on_hold' | 'ended';
 export interface CallState {
@@ -318,12 +518,25 @@ export interface CallState {
   recordingUrl: string | null;
   lead: { id: string; businessName: string; phone: string; city: string; state: string };
   by: string | null;
+  /** Caller identity (OpenPhone line) the call is going out on. */
+  from?: string | null;
 }
 export const communicationsApi = {
   timeline: async (leadId: string): Promise<TimelineItem[]> =>
     (await api.get(`/communications/lead/${leadId}`)).data,
-  sendSms: async (leadId: string, body: string): Promise<{ success: boolean; error: string | null }> =>
-    (await api.post(`/communications/lead/${leadId}/sms`, { body })).data,
+  /**
+   * Send an SMS to a lead.
+   *
+   * The endpoint answers 200 with `{ success: false, error }` when the PROVIDER
+   * rejects the message — the HTTP call succeeded, the send didn't. Callers were
+   * reading that as success and reporting "Message sent" for messages that never
+   * left, so the failure is raised here, once, rather than at each call site.
+   */
+  sendSms: async (leadId: string, body: string): Promise<{ success: boolean; error: string | null }> => {
+    const res = (await api.post(`/communications/lead/${leadId}/sms`, { body })).data;
+    if (!res?.success) throw new Error(res?.error || 'The message could not be sent.');
+    return res;
+  },
   startCall: async (leadId: string): Promise<StartCallResult> =>
     (await api.post(`/communications/lead/${leadId}/call`, {})).data,
   startCallByPhone: async (phone: string): Promise<StartCallResult & { lead: CallState['lead'] }> =>
@@ -332,9 +545,182 @@ export const communicationsApi = {
     (await api.get(`/communications/call/${callId}/state`)).data,
   latestIncoming: async (): Promise<IncomingCall | null> =>
     (await api.get('/communications/incoming/latest')).data,
+  /**
+   * Record the response to an incoming-call popup. `decline` logs the decision
+   * only — OpenPhone has no call-control API, so the call is not hung up on the
+   * carrier (`rejectedOnCarrier` is always false).
+   */
+  respondToCall: async (callId: string, action: 'attend' | 'decline'): Promise<{ ok: boolean; action: string; rejectedOnCarrier: boolean }> =>
+    (await api.post(`/communications/call/${callId}/respond`, { action })).data,
+  missedCalls: async (): Promise<MissedCall[]> => (await api.get('/communications/missed')).data,
   analytics: async (period = 'week'): Promise<CommAnalytics> =>
     (await api.get('/communications/analytics', { params: { period } })).data,
+
+  // ── Calling Panel: Recordings + SMS tabs ──
+  recordings: async (filters: HistoryFilters = {}): Promise<RecordedCall[]> =>
+    (await api.get('/communications/recordings', { params: clean(filters) })).data,
+  sms: async (filters: HistoryFilters = {}): Promise<SmsMessage[]> =>
+    (await api.get('/communications/sms', { params: clean(filters) })).data,
+  /** Status facets for the CURRENT filters — pass the same filters as `sms`. */
+  smsStatuses: async (filters: HistoryFilters = {}): Promise<{ status: string; count: number }[]> =>
+    (await api.get('/communications/sms/statuses', { params: clean(filters) })).data,
+
+  /**
+   * Recording audio as a blob URL. Fetched through axios (not a bare <audio src>)
+   * because the API authenticates with a bearer token, which an <audio> element
+   * cannot send — and the proxy is what keeps recordings manager-only.
+   */
+  recordingAudioUrl: async (recordingId: string, download = false): Promise<string> => {
+    const res = await api.get(`/communications/recordings/${recordingId}/audio`, {
+      params: download ? { download: '1' } : undefined,
+      responseType: 'blob',
+    });
+    return URL.createObjectURL(res.data as Blob);
+  },
+
+  /** Full AI Summary + Transcript for a recorded call (manager or the call's owner). */
+  callInsight: async (callId: string): Promise<CallInsight> =>
+    (await api.get(`/communications/calls/${callId}/insight`)).data,
+  /** Re-run AI summary + transcript generation for one call. */
+  regenerateInsight: async (callId: string): Promise<{ callId: string; status: string }> =>
+    (await api.post(`/communications/calls/${callId}/insight/regenerate`, {})).data,
+  /** Queue insight generation for every recorded call missing one (admin only). */
+  backfillInsights: async (): Promise<{ queued: number }> =>
+    (await api.post('/communications/insights/backfill', {})).data,
+  /** Progress of the insight generation queue. */
+  insightsStatus: async (): Promise<InsightsStatus> =>
+    (await api.get('/communications/insights/status')).data,
+
+  syncLead: async (leadId: string): Promise<LeadSyncResult> =>
+    (await api.post(`/communications/sync/lead/${leadId}`, {})).data,
+  syncAll: async (): Promise<{ started: boolean; running: boolean }> =>
+    (await api.post('/communications/sync/all', {})).data,
+  syncStatus: async (): Promise<SyncStatus> => (await api.get('/communications/sync/status')).data,
 };
+
+/** Drop empty filter values so they aren't sent as `?search=` and rejected. */
+const clean = (o: HistoryFilters) =>
+  Object.fromEntries(Object.entries(o).filter(([, v]) => v !== '' && v != null));
+
+export interface HistoryFilters {
+  search?: string;
+  direction?: 'inbound' | 'outbound';
+  status?: string;
+  from?: string;
+  to?: string;
+  leadId?: string;
+}
+
+export interface RecordingSegment {
+  id: string;
+  durationSecs: number | null;
+  mimeType: string | null;
+  status: string | null;
+}
+
+export interface RecordedCall {
+  callId: string;
+  leadId: string;
+  customerName: string;
+  businessName: string;
+  phone: string;
+  at: string;
+  direction: 'inbound' | 'outbound' | null;
+  status: string | null;
+  durationSecs: number | null;
+  by: string | null;
+  /** Caller identity the call went out on. Null on legacy outbound calls placed
+   *  before the line was recorded — the UI flags those. */
+  from: string | null;
+  recordings: RecordingSegment[];
+  /** AI insight status for this call. `ready` means summary + transcript exist. */
+  insight: { status: InsightStatus } | null;
+}
+
+/** Lifecycle of a call's AI insight. */
+export type InsightStatus = 'none' | 'pending' | 'processing' | 'ready' | 'failed' | 'unavailable';
+
+/** One turn of the rendered conversation transcript. */
+export interface TranscriptTurn {
+  speaker: 'employee' | 'customer';
+  speakerName: string;
+  text: string;
+  startSecs: number | null;
+  endSecs: number | null;
+}
+
+/** The nine structured sections of an AI call summary. */
+export interface CallSummary {
+  purpose: string;
+  keyPoints: string[];
+  customerRequirements: string[];
+  questionsAsked: string[];
+  employeeResponses: string[];
+  decisions: string[];
+  followUps: string[];
+  outcome: string;
+  nextSteps: string[];
+}
+
+/** Full AI insight for a call — returned when a recording's insight is opened. */
+export interface CallInsight {
+  callId: string;
+  status: InsightStatus;
+  summary: CallSummary | null;
+  transcript: TranscriptTurn[] | null;
+  model: string | null;
+  source: string | null;
+  generatedAt: string | null;
+  error: string | null;
+}
+
+export interface InsightsStatus {
+  running: boolean;
+  queued: number;
+  lastRun: { processed: number; failed: number; finishedAt: string } | null;
+}
+
+export interface SmsMessage {
+  id: string;
+  leadId: string | null;
+  businessName: string | null;
+  customerName: string | null;
+  direction: 'inbound' | 'outbound';
+  body: string;
+  from: string;
+  to: string;
+  status: string | null;
+  conversationId: string | null;
+  at: string;
+  /** CRM user who sent it (outbound only; null for inbound/legacy/synced). */
+  by?: string | null;
+  /** True when an outbound message went out from a line that isn't the sender's own caller ID. */
+  senderMismatch?: boolean;
+}
+
+export interface LeadSyncResult {
+  leadId: string;
+  calls: number;
+  recordings: number;
+  messages: number;
+  error?: string;
+}
+
+export interface SyncStatus {
+  running: boolean;
+  startedAt: string | null;
+  lastRun: {
+    conversations: number;
+    skipped: number;
+    leads: number;
+    calls: number;
+    recordings: number;
+    messages: number;
+    failed: number;
+    sandbox: boolean;
+    finishedAt: string;
+  } | null;
+}
 
 export interface IncomingCall {
   callId: string;
@@ -342,7 +728,14 @@ export interface IncomingCall {
   status: string | null;
   /** True once Quo reports the call as live/answered — drives popup auto-open. */
   connected: boolean;
-  lead: { id: string; businessName: string; phone: string; city: string; state: string; status: string };
+  /** Employee who previously handled this customer (the callback is routed to them). */
+  handledBy: string | null;
+  handledById: string;
+  /** Last logged outcome name for this customer, for recognition on callback. */
+  lastOutcome: string | null;
+  /** True when this customer had a callback pending (called back before it was due). */
+  pendingCallback: boolean;
+  lead: { id: string; businessName: string; contactName: string | null; phone: string; city: string; state: string; status: string };
 }
 export interface CommAnalytics {
   period: string;
@@ -399,12 +792,29 @@ export interface LeadRow {
   contactName?: string;
   industry?: string;
   title?: string;
-  vlc?: string;
   employeeCode?: string;
   comments?: string;
   leadCategory?: string;
   nextFollowUpDate?: string;
+  callStatus?: string;
+  firstContact?: string;
+  lastContact?: string;
+  followupCount?: number;
+  meetingDate?: string;
+  lostReason?: string;
   caller?: string;
+  leadId?: string;
+  leadGenerationId?: string;
+  leadSource?: string;
+  contactName2?: string;
+  altPhone?: string;
+  website?: string;
+  socialMedia?: string;
+  country?: string;
+  companySize?: string;
+  foundedYear?: string;
+  address?: string;
+  createdAt?: string;
 }
 export const importApi = {
   bulk: async (rows: LeadRow[]): Promise<ImportResult> => (await api.post('/leads/import', { rows })).data,

@@ -6,14 +6,14 @@ import { Plus, Users, Shield, UserCheck, Phone, Check, Pencil, Filter, X, Ban, R
 import { usersApi, type User, type UserRole } from '@/lib/users';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { DateRangePicker, FilterSelect, SearchInput } from '@/components/filter-controls';
-import { DataTable, type ColumnDef } from '@/components/data-table';
-import { inDateBounds, type DateRange } from '@/lib/date-filters';
+import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
+import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
+import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 
 const ROLE_META: Record<string, { label: string; cls: string; desc: string; perms: string[] }> = {
   admin: { label: 'Admin', cls: 'bg-[#f7e3da] text-[#a8431f]', desc: 'Full access to all modules, data, settings, and user management.', perms: ['All modules & settings', 'User management', 'Recordings & exports', 'System configuration'] },
   team_leader: { label: 'Team Leader', cls: 'bg-[#dff0ec] text-[#2f6f63]', desc: 'Assign leads, monitor team performance, and view team reports.', perms: ['Assign & distribute leads', 'Monitor live team', 'Team reports & recordings', 'No system settings'] },
-  employee: { label: 'Sales Caller', cls: 'bg-[#e7eed8] text-[#42512f]', desc: 'Work assigned leads — update status, add notes, and log calls.', perms: ['Assigned leads only', 'Make & log calls', 'Add notes & follow-ups', 'No team data access'] },
+  employee: { label: 'Sales Caller', cls: 'bg-[#d8eed9] text-[#266929]', desc: 'Work assigned leads — update status, add notes, and log calls.', perms: ['Assigned leads only', 'Make & log calls', 'Add notes & follow-ups', 'No team data access'] },
 };
 
 const ROLE_OPTS = [
@@ -32,7 +32,7 @@ export default function UsersPage() {
   const qc = useQueryClient();
   const { data: users = [] } = useQuery<User[]>({ queryKey: ['users'], queryFn: usersApi.list, retry: false });
   const [role, setRole] = useState('');
-  const [dateRange, setDateRange] = useState<DateRange>({ from: '', to: '' });
+  const [dateRange, setDateRange] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
@@ -43,36 +43,35 @@ export default function UsersPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
   });
 
+  // Bulk deactivate (soft): the API has no hard-delete, so "Delete" deactivates.
+  const deactivateUsers = useMutation({
+    mutationFn: async (rows: User[]) => { for (const u of rows.filter((x) => x.isActive)) await usersApi.deactivate(u.id); },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+
   // Refs keep the column defs stable while still calling the latest handlers.
   const editRef = useRef<(u: User) => void>(() => {});
   const toggleRef = useRef<(u: User) => void>(() => {});
   editRef.current = (u) => setEditing(u);
   toggleRef.current = (u) => toggleActive.mutate(u);
 
-  const term = q.trim().toLowerCase();
-  const shown = users.filter(
-    (u) =>
-      (!role || u.role === role) &&
-      inDateBounds(u.createdAt, dateRange) &&
-      (!term || u.name.toLowerCase().includes(term) || u.email.toLowerCase().includes(term)),
-  );
-
   const columns = useMemo<ColumnDef<User>[]>(() => [
     {
-      key: 'user', header: 'User', required: true,
+      key: 'user', header: 'User', required: true, searchable: true,
+      searchValue: (u) => `${u.name} ${u.email}`,
       render: (u) => <div className="flex items-center gap-[10px]"><Avatar name={u.name} /><div><div className="font-semibold">{u.name}</div><div className="text-[11.5px] text-muted-foreground">{u.email}</div></div></div>,
     },
-    { key: 'role', header: 'Role', render: (u) => <span className={`rounded-full px-2.5 py-[3px] text-[11.5px] font-bold ${ROLE_META[u.role].cls}`}>{ROLE_META[u.role].label}</span> },
-    { key: 'status', header: 'Status', render: (u) => <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold ${u.isActive ? 'bg-[#e7eed8] text-[#42512f]' : 'bg-[#e7f0f8] text-[#2c5d8f]'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{u.isActive ? 'Active' : 'Inactive'}</span> },
-    { key: 'shift', header: 'Shift', render: (u) => u.shiftStart ? <span className="font-mono text-[12px]">{u.shiftStart}</span> : <span className="text-muted-foreground">—</span> },
-    { key: 'openphone', header: 'OpenPhone #', render: (u) => u.openphoneNumber ? <span className="font-mono text-[12px]">{u.openphoneNumber}</span> : <span className="text-muted-foreground">—</span> },
+    { key: 'role', header: 'Role', trackable: true, render: (u) => <span className={`rounded-full px-2.5 py-[3px] text-[11.5px] font-bold ${ROLE_META[u.role].cls}`}>{ROLE_META[u.role].label}</span> },
+    { key: 'status', header: 'Status', trackable: true, render: (u) => <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold ${u.isActive ? 'bg-[#d8eed9] text-[#266929]' : 'bg-[#e7f0f8] text-[#2c5d8f]'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{u.isActive ? 'Active' : 'Inactive'}</span> },
+    { key: 'shift', header: 'Shift', trackable: true, render: (u) => u.shiftStart ? <span className="font-mono text-[12px]">{u.shiftStart}</span> : <span className="text-muted-foreground">—</span> },
+    { key: 'openphone', header: 'OpenPhone #', searchable: true, searchValue: (u) => u.openphoneNumber, render: (u) => u.openphoneNumber ? <span className="font-mono text-[12px]">{u.openphoneNumber}</span> : <span className="text-muted-foreground">—</span> },
     { key: 'created', header: 'Created', cellClassName: 'text-muted-foreground', render: (u) => new Date(u.createdAt).toLocaleDateString() },
     {
       key: 'actions', header: '', required: true, headerClassName: 'text-right', cellClassName: 'text-right',
       render: (u) => (
         <div className="flex justify-end gap-1.5">
           <button onClick={() => editRef.current(u)} title="Edit user" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil className="h-4 w-4" /></button>
-          <button onClick={() => toggleRef.current(u)} title={u.isActive ? 'Deactivate' : 'Activate'} className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-muted ${u.isActive ? 'text-muted-foreground hover:text-[#9e2b21]' : 'text-[#3f7a32]'}`}>
+          <button onClick={() => toggleRef.current(u)} title={u.isActive ? 'Deactivate' : 'Activate'} className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-muted ${u.isActive ? 'text-muted-foreground hover:text-[#9e2b21]' : 'text-[#317d34]'}`}>
             {u.isActive ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
           </button>
         </div>
@@ -80,17 +79,31 @@ export default function UsersPage() {
     },
   ], []);
 
+  // Shared column prefs so the search honors the user's Searchable config.
+  const prefs = useColumnPrefs('users', columns);
+  const term = q.trim().toLowerCase();
+  const searchCols = useMemo(() => columns.filter((c) => c.searchable), [columns]);
+  const shown = users.filter(
+    (u) =>
+      (!role || u.role === role) &&
+      inDateBounds(u.createdAt, dateRange) &&
+      (!term ||
+        searchCols.some(
+          (c) => prefs.searchable.has(c.key) && String(c.searchValue?.(u) ?? '').toLowerCase().includes(term),
+        )),
+  );
+
   return (
     <div>
-      <PageHead lead="Manage team members, roles, and access permissions across the organization.">
+      <PageHead>
         <button onClick={() => setCreating(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> Add User</button>
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={Users} iconBg="#e7eed8" iconColor="#42512f" value={users.length} label="Total Users" />
+        <KpiCard icon={Users} iconBg="#d8eed9" iconColor="#266929" value={users.length} label="Total Users" />
         <KpiCard icon={Shield} iconBg="#fdecdc" iconColor="#c98a18" value={count('admin')} label="Admins" />
         <KpiCard icon={UserCheck} iconBg="#dff0ec" iconColor="#2f6f63" value={count('team_leader')} label="Team Leaders" />
-        <KpiCard icon={Phone} iconBg="#e7eed8" iconColor="#42512f" value={count('employee')} label="Sales Callers" />
+        <KpiCard icon={Phone} iconBg="#d8eed9" iconColor="#266929" value={count('employee')} label="Sales Callers" />
       </div>
 
       <div className="mb-5 grid gap-[18px] md:grid-cols-3">
@@ -98,7 +111,7 @@ export default function UsersPage() {
           <div key={r} className="rounded-2xl border bg-card p-[18px] shadow-sm">
             <div className="mb-2.5 flex items-center justify-between"><span className={`rounded-full px-2.5 py-[3px] text-[11.5px] font-bold ${m.cls}`}>{m.label}</span><span className="text-[12px] text-muted-foreground">{count(r)} {count(r) === 1 ? 'user' : 'users'}</span></div>
             <div className="mb-3.5 text-[13px] text-muted-foreground">{m.desc}</div>
-            <div className="flex flex-col gap-2.5">{m.perms.map((p) => <div key={p} className="flex items-center gap-2.5 text-[13px] font-medium"><Check className="h-[15px] w-[15px] shrink-0 text-[#3f7a32]" />{p}</div>)}</div>
+            <div className="flex flex-col gap-2.5">{m.perms.map((p) => <div key={p} className="flex items-center gap-2.5 text-[13px] font-medium"><Check className="h-[15px] w-[15px] shrink-0 text-[#317d34]" />{p}</div>)}</div>
           </div>
         ))}
       </div>
@@ -111,11 +124,17 @@ export default function UsersPage() {
         title="All Users"
         subtitle={`${shown.length} ${shown.length === 1 ? 'member' : 'members'}`}
         emptyText={users.length === 0 ? 'Could not load users (admin role required).' : 'No users match the current filters.'}
+        prefs={prefs}
+        selectable
+        onEditSelected={(rows) => setEditing(rows[0])}
+        onDeleteSelected={(rows) => deactivateUsers.mutateAsync(rows)}
+        deleteLabel="Deactivate"
+        deleteConfirm={(rows) => `Deactivate ${rows.length} user${rows.length > 1 ? 's' : ''}? They won’t be able to sign in until reactivated.`}
         toolbar={
           <>
             <SearchInput value={q} onChange={setQ} placeholder="Search name or email…" className="min-w-[220px]" />
             <FilterSelect icon={Filter} value={role} onChange={setRole} options={ROLE_OPTS} />
-            <DateRangePicker value={dateRange} onChange={setDateRange} />
+            <DateFilter value={dateRange} onChange={setDateRange} />
           </>
         }
       />
@@ -193,7 +212,7 @@ function UserModal({ user, onClose, onSaved }: { user: User | null; onClose: () 
           )}
           {isEdit && (
             <label className="flex items-center gap-2.5 text-sm">
-              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 accent-[#42512f]" />
+              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 accent-[#266929]" />
               <span className="font-medium">Active</span>
             </label>
           )}

@@ -10,7 +10,7 @@ import { PageHead, Avatar } from '@/components/page-head';
 function Toggle({ on: initial }: { on: boolean }) {
   const [on, setOn] = useState(initial);
   return (
-    <button onClick={() => setOn((v) => !v)} className={`relative h-6 w-[42px] shrink-0 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-[#ccd3ba]'}`}>
+    <button onClick={() => setOn((v) => !v)} className={`relative h-6 w-[42px] shrink-0 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-[#bbd3bc]'}`}>
       <span className={`absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all ${on ? 'left-[21px]' : 'left-[3px]'}`} />
     </button>
   );
@@ -45,7 +45,6 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <PageHead lead="Manage your profile, preferences, notifications, and security." />
 
       <div className="mb-[18px] flex gap-1 overflow-x-auto border-b">
         {TABS.map((t) => (
@@ -100,7 +99,7 @@ export default function SettingsPage() {
               <div key={k[0] as string} className="flex items-center gap-3.5 border-b py-3.5 last:border-0">
                 <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground"><KeyRound className="h-4 w-4" /></div>
                 <div className="flex-1"><div className="text-[13.5px] font-semibold">{k[0] as string}</div><div className="text-[12px] text-muted-foreground">{k[1] as string}</div></div>
-                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold ${k[2] ? 'bg-[#e7eed8] text-[#42512f]' : 'bg-muted text-muted-foreground'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{k[2] ? 'Configured' : 'Not set'}</span>
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold ${k[2] ? 'bg-[#d8eed9] text-[#266929]' : 'bg-muted text-muted-foreground'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{k[2] ? 'Configured' : 'Not set'}</span>
               </div>
             ))}
             {!cfg && <p className="py-6 text-center text-sm text-muted-foreground">Loading status (admin role required)…</p>}

@@ -8,13 +8,13 @@ import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 
 const KB = [
-  { icon: Building2, t: 'Company Operations', d: 'Services, US markets covered, timezones handled, client industries served', n: 18, bg: '#e7eed8', color: '#42512f' },
+  { icon: Building2, t: 'Company Operations', d: 'Services, US markets covered, timezones handled, client industries served', n: 18, bg: '#d8eed9', color: '#266929' },
   { icon: FileText, t: 'Tax Knowledge', d: 'Tax forms, filing processes, common client questions (1099, W-2, deadlines)', n: 42, bg: '#fdecdc', color: '#c98a18' },
   { icon: BookOpen, t: 'Bookkeeping', d: 'QuickBooks, Xero, payroll basics, reconciliation workflows', n: 31, bg: '#dff0ec', color: '#2f6f63' },
   { icon: MessageSquare, t: 'Sales Scripts', d: 'Opening conversations, objection handling, closing methods', n: 24, bg: '#f7e3da', color: '#a8431f' },
 ];
 const COACH: [string, number, string][] = [
-  ['Confidence', 78, '#42512f'], ['Speaking Pace', 64, '#c98a18'], ['Objection Handling', 82, '#2f6f63'], ['Closing Strength', 58, '#a8431f'],
+  ['Confidence', 78, '#266929'], ['Speaking Pace', 64, '#c98a18'], ['Objection Handling', 82, '#2f6f63'], ['Closing Strength', 58, '#a8431f'],
 ];
 
 interface Msg { role: 'user' | 'ai'; text: string }
@@ -39,16 +39,16 @@ export default function AiTrainingPage() {
 
   return (
     <div>
-      <PageHead lead="AI-powered training knowledge base and call coaching for sales staff.">
+      <PageHead>
         <button className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted"><RefreshCw className="h-4 w-4" /> Sync KB</button>
         <button className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90"><Sparkles className="h-4 w-4" /> Run Voice Analysis</button>
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={BookMarked} iconBg="#e7eed8" iconColor="#42512f" value="115" label="KB Articles" />
+        <KpiCard icon={BookMarked} iconBg="#d8eed9" iconColor="#266929" value="115" label="KB Articles" />
         <KpiCard icon={Sparkles} iconBg="#fdecdc" iconColor="#c98a18" value="1,240" label="AI Answers This Week" trend="18%" trendDir="up" />
         <KpiCard icon={Mic} iconBg="#dff0ec" iconColor="#2f6f63" value="86" label="Calls Coached" />
-        <KpiCard icon={Target} iconBg="#e7eed8" iconColor="#42512f" value="7.8/10" label="Avg Confidence" />
+        <KpiCard icon={Target} iconBg="#d8eed9" iconColor="#266929" value="7.8/10" label="Avg Confidence" />
       </div>
 
       <div className="grid gap-[18px] xl:grid-cols-[7fr_5fr]">
@@ -71,16 +71,16 @@ export default function AiTrainingPage() {
         <div className="flex flex-col rounded-2xl border bg-card shadow-sm">
           <div className="flex items-center justify-between border-b px-[18px] py-4">
             <div><h3 className="font-display text-[15px] font-semibold">AI Assistant</h3><div className="text-xs text-muted-foreground">Instant answers for your team</div></div>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e7eed8] px-2.5 py-[3px] text-[11.5px] font-semibold text-[#42512f]"><span className="h-1.5 w-1.5 rounded-full bg-[#42512f]" /> Online</span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#d8eed9] px-2.5 py-[3px] text-[11.5px] font-semibold text-[#266929]"><span className="h-1.5 w-1.5 rounded-full bg-[#266929]" /> Online</span>
           </div>
           <div className="flex max-h-[360px] flex-1 flex-col gap-3.5 overflow-y-auto p-[18px]">
             {messages.map((m, i) => (
               <div key={i}>
                 <div className="mb-1.5 flex items-center gap-2 text-[11.5px] text-muted-foreground">
-                  {m.role === 'user' ? <Avatar name="You" /> : <span className="grid h-6 w-6 place-items-center rounded-full text-white" style={{ background: 'linear-gradient(135deg,#556b34,#333f25)' }}><Bot className="h-3.5 w-3.5" /></span>}
+                  {m.role === 'user' ? <Avatar name="You" /> : <span className="grid h-6 w-6 place-items-center rounded-full text-white" style={{ background: 'linear-gradient(135deg,#2b732f,#1d491f)' }}><Bot className="h-3.5 w-3.5" /></span>}
                   <b>{m.role === 'user' ? 'You asked' : 'Ranger AI'}</b>
                 </div>
-                <div className={`rounded-[13px] px-3.5 py-2.5 text-[13.5px] leading-relaxed ${m.role === 'user' ? 'border bg-muted/50' : 'bg-[#333f25] text-[#f4f7ec]'}`}>{m.text}</div>
+                <div className={`rounded-[13px] px-3.5 py-2.5 text-[13.5px] leading-relaxed ${m.role === 'user' ? 'border bg-muted/50' : 'bg-[#1d491f] text-[#eef6ef]'}`}>{m.text}</div>
               </div>
             ))}
             {ask.isPending && <p className="text-sm text-muted-foreground">Thinking…</p>}
@@ -101,12 +101,12 @@ export default function AiTrainingPage() {
             {COACH.map(([lab, v, c]) => (
               <div key={lab}>
                 <div className="mb-[7px] flex justify-between text-[13px] font-semibold"><span>{lab}</span><b>{v}%</b></div>
-                <div className="h-2 overflow-hidden rounded-full bg-[#e7eed8]"><i className="block h-full rounded-full" style={{ width: `${v}%`, background: c }} /></div>
+                <div className="h-2 overflow-hidden rounded-full bg-[#d8eed9]"><i className="block h-full rounded-full" style={{ width: `${v}%`, background: c }} /></div>
               </div>
             ))}
           </div>
-          <div className="flex gap-3 rounded-md border border-[#c3d2a3] bg-[#f4f7ec] p-[15px] text-[13px] leading-relaxed text-[#27301d]">
-            <Sparkles className="h-5 w-5 shrink-0 text-[#42512f]" />
+          <div className="flex gap-3 rounded-md border border-[#c7d69f] bg-[#eef6ef] p-[15px] text-[13px] leading-relaxed text-[#163618]">
+            <Sparkles className="h-5 w-5 shrink-0 text-[#266929]" />
             <div><b>AI Suggestion:</b> Strong rapport on opening, but 3 missed closing opportunities detected in today&apos;s calls. Try asking for the next step earlier — right after confirming interest.</div>
           </div>
         </div>

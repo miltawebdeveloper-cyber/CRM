@@ -45,6 +45,17 @@ export interface DateRange {
 /** Convenience empty range. */
 export const EMPTY_RANGE: DateRange = { from: '', to: '' };
 
+/** Modes for the Lead Management date filter. */
+export type DateMode = 'all' | 'day' | 'week' | 'month' | 'year' | 'custom';
+
+/** Date-filter value: the mode plus the resolved `{from,to}` bounds it maps to. */
+export interface DateFilterValue extends DateRange {
+  mode: DateMode;
+}
+
+/** Empty (all-dates) filter. */
+export const EMPTY_DATE_FILTER: DateFilterValue = { mode: 'all', from: '', to: '' };
+
 /** Explicit calendar from/to filter (inclusive of both whole days). */
 export function inDateBounds(iso: string | null | undefined, bounds: DateBounds): boolean {
   if (!bounds.from && !bounds.to) return true;

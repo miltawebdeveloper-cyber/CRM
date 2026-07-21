@@ -10,7 +10,7 @@ import { Segmented } from '@/components/segmented';
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const EV_STYLE: Record<string, string> = {
-  call: 'bg-[#e7eed8] text-[#42512f]',
+  call: 'bg-[#d8eed9] text-[#266929]',
   fu: 'bg-[#fbf3e2] text-[#c98a18]',
   task: 'bg-[#e7f0f8] text-[#2c5d8f]',
 };
@@ -44,7 +44,7 @@ export default function CalendarPage() {
   const dayCell = (d: number) => {
     const evs = byDay.get(d) ?? [];
     return (
-      <div key={d} className={`min-h-[96px] rounded-[10px] border bg-card p-[7px] transition-colors hover:bg-muted/50 ${d === todayDay ? 'border-[#556b34] shadow-[inset_0_0_0_1px_#556b34]' : ''}`}>
+      <div key={d} className={`min-h-[96px] rounded-[10px] border bg-card p-[7px] transition-colors hover:bg-muted/50 ${d === todayDay ? 'border-[#2b732f] shadow-[inset_0_0_0_1px_#2b732f]' : ''}`}>
         <div className="mb-[5px] text-[12px] font-semibold">{d}</div>
         {evs.slice(0, view === 'day' ? 20 : 3).map((e, i) => (
           <div key={i} title={e.label} className={`mb-[3px] truncate rounded-[5px] px-1.5 py-0.5 text-[10.5px] font-semibold ${EV_STYLE[e.type]}`}>{e.label}</div>
@@ -77,7 +77,7 @@ export default function CalendarPage() {
 
   return (
     <div>
-      <PageHead lead="Calls, follow-ups, and task due-dates — pulled from your live activity.">
+      <PageHead>
         <Segmented options={VIEWS} value={view} onChange={setView} />
         <div className="flex items-center gap-1 rounded-md border bg-card">
           <button onClick={() => shift(-1)} className="grid h-9 w-9 place-items-center rounded-l-md text-muted-foreground hover:bg-muted"><ChevronLeft className="h-4 w-4" /></button>
@@ -90,7 +90,7 @@ export default function CalendarPage() {
         <div className="flex items-center justify-between border-b px-[18px] py-4">
           <h3 className="font-display text-[15px] font-semibold">{heading} <span className="text-xs font-normal capitalize text-muted-foreground">· {view} view</span></h3>
           <div className="flex flex-wrap gap-3.5 text-[12px] text-muted-foreground">
-            <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-[#94ab68]" /> Calls</span>
+            <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-[#a6c74d]" /> Calls</span>
             <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-[#f0d589]" /> Follow-ups</span>
             <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-[#a9c8e6]" /> Tasks</span>
           </div>

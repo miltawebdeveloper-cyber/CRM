@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Role } from '@crm/database';
 import { CallsService } from './calls.service';
-import { StartCallDto, EndCallDto, CreateNoteDto, UpdateFollowupDto } from './dto/call.dto';
+import { CallPivotQueryDto, CallStatsQueryDto, SetCallTargetDto, StartCallDto, EndCallDto, CreateNoteDto, UpdateFollowupDto } from './dto/call.dto';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('calls')
@@ -61,10 +63,59 @@ export class CallsController {
     return this.calls.outcomes({ from, to, outcome, userId }, { id: user.id, role: user.role });
   }
 
-  // CAL-015 — call + note history for a lead
+  // Calls Made dashboard — stats and the detail rows behind them. Both are
+  // scoped in the service: employees see only their own calls, managers see
+  // everyone and may narrow with ?userId=.
+  @Get('made/stats')
+  callsMadeStats(@Query() query: CallStatsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.calls.callsMadeStats(query, { id: user.id, role: user.role });
+  }
+
+  @Get('made/records')
+  callsMadeRecords(@Query() query: CallStatsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.calls.callsMadeRecords(query, { id: user.id, role: user.role });
+  }
+
+  // Values the Calls Made filter menus offer, for the date + employee scope only
+  // (so choosing a state doesn't erase the other states from the menu).
+  @Get('made/filters')
+  callsMadeFilters(@Query() query: CallStatsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.calls.callsMadeFilterOptions(query, { id: user.id, role: user.role });
+  }
+
+  // The selected rep's lead book — assigned / completed / balance. Not date-
+  // filtered: it counts leads held now, not calls made in a range.
+  @Get('made/leads')
+  leadBook(@CurrentUser() user: AuthUser, @Query('userId') userId?: string) {
+    return this.calls.leadBook(userId, { id: user.id, role: user.role });
+  }
+
+  // Cross-tab of the same calls: ?rows= and ?cols= pick the two dimensions.
+  @Get('made/pivot')
+  callsMadePivot(@Query() query: CallPivotQueryDto, @CurrentUser() user: AuthUser) {
+    return this.calls.callsMadePivot(query, { id: user.id, role: user.role });
+  }
+
+  // Per-employee call target behind the dashboard's target dial. Reps may read
+  // their own; only managers may set one (for anybody).
+  @Get('made/target/:userId')
+  getCallTarget(@Param('userId') userId: string, @CurrentUser() user: AuthUser) {
+    const isManager = user.role === Role.admin || user.role === Role.team_leader;
+    if (!isManager && userId !== user.id) throw new ForbiddenException('Not your target');
+    return this.calls.getCallTarget(userId);
+  }
+
+  @Roles(Role.admin, Role.team_leader)
+  @Patch('made/target/:userId')
+  setCallTarget(@Param('userId') userId: string, @Body() dto: SetCallTargetDto) {
+    return this.calls.setCallTarget(userId, dto);
+  }
+
+  // CAL-015 — call + note history for a lead. Recordings/transcripts/AI summaries
+  // are redacted in the service for anyone below team leader.
   @Get()
-  history(@Query('leadId') leadId: string) {
-    return this.calls.history(leadId);
+  history(@Query('leadId') leadId: string, @CurrentUser() user: AuthUser) {
+    return this.calls.history(leadId, { role: user.role });
   }
 
   @Post('start')

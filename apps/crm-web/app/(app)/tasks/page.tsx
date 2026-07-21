@@ -5,14 +5,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, ChevronRight, X, Filter } from 'lucide-react';
 import { tasksApi, type Task, type TaskStatus } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
-import { DateRangePicker, FilterSelect } from '@/components/filter-controls';
-import { inDateBounds, type DateRange } from '@/lib/date-filters';
+import { DateFilter, FilterSelect } from '@/components/filter-controls';
+import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 
 const COLS: { key: TaskStatus; name: string; color: string }[] = [
   { key: 'todo', name: 'To Do', color: '#2c5d8f' },
   { key: 'in_progress', name: 'In Progress', color: '#c98a18' },
   { key: 'review', name: 'Review', color: '#2f6f63' },
-  { key: 'done', name: 'Done', color: '#3f7a32' },
+  { key: 'done', name: 'Done', color: '#317d34' },
 ];
 const NEXT: Record<TaskStatus, TaskStatus | null> = { todo: 'in_progress', in_progress: 'review', review: 'done', done: null };
 const PRI_STYLE: Record<string, string> = { high: 'bg-[#fbeeec] text-[#a8431f]', medium: 'bg-[#fbf3e2] text-[#c98a18]', low: 'bg-muted text-muted-foreground' };
@@ -22,7 +22,7 @@ export default function TasksPage() {
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
   const [status, setStatus] = useState('');
-  const [dateRange, setDateRange] = useState<DateRange>({ from: '', to: '' });
+  const [dateRange, setDateRange] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
   const { data: tasks = [] } = useQuery({ queryKey: ['tasks'], queryFn: tasksApi.list });
 
   const create = useMutation({ mutationFn: (t: string) => tasksApi.create(t), onSuccess: () => { qc.invalidateQueries({ queryKey: ['tasks'] }); setTitle(''); setAdding(false); } });
@@ -34,7 +34,7 @@ export default function TasksPage() {
 
   return (
     <div>
-      <PageHead lead="Personal task board. Use the arrow on a card to advance it to the next column.">
+      <PageHead>
         <FilterSelect
           icon={Filter}
           value={status}
@@ -44,7 +44,7 @@ export default function TasksPage() {
             ...COLS.map((c) => ({ label: c.name, value: c.key })),
           ]}
         />
-        <DateRangePicker value={dateRange} onChange={setDateRange} />
+        <DateFilter value={dateRange} onChange={setDateRange} />
         <button onClick={() => setAdding((v) => !v)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> New task</button>
       </PageHead>
 

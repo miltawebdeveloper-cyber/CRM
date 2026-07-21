@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Role } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -22,17 +22,17 @@ export class ActivitiesService {
     });
   }
 
-  listLead(leadId: string, user: { id: string; role: Role }, limit = 100) {
-    if (user.role === Role.employee) {
-      throw new ForbiddenException('Insufficient role for this action');
-    }
+  // Lead History — the controller restricts this to Admin + Team Leader, so
+  // employees never reach here; managers see the full trail for any lead.
+  listLead(leadId: string, _user: { id: string; role: Role }, limit = 100) {
     return this.prisma.activity.findMany({
       where: { leadId },
       orderBy: { createdAt: 'desc' },
       take: Math.min(limit, 200),
       include: {
         user: { select: { id: true, name: true, email: true } },
-        lead: { select: { id: true, businessName: true } },
+        lead: { select: { id: true, leadId: true, businessName: true } },
+        assignedTo: { select: { id: true, name: true, email: true } },
       },
     });
   }

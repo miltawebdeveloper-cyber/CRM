@@ -19,7 +19,7 @@ export function FilterSelect({
   options: readonly { label: string; value: string }[];
 }) {
   return (
-    <div className="flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium text-[#27301d] dark:text-foreground">
+    <div className="flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium text-[#163618] dark:text-foreground">
       <Icon className="h-3.5 w-3.5 text-muted-foreground" />
       <select
         value={value}
@@ -92,7 +92,7 @@ export function DateRangeSelect({
 
 // Modern calendar pickers (req 8) live in date-picker.tsx; re-export here so
 // pages keep importing date controls from a single module.
-export { DateRangePicker, DatePicker } from './date-picker';
+export { DateRangePicker, DatePicker, DateFilter } from './date-picker';
 
 /** Build `{label,value}` options from distinct values found in data. */
 export function optionsFrom(

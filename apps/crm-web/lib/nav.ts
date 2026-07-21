@@ -3,16 +3,13 @@ import {
   Activity,
   Headphones,
   Target,
-  Contact,
+  CircleCheckBig,
   GitBranch,
   Clock,
   PhoneCall,
-  ListOrdered,
-  PhoneForwarded,
   NotebookPen,
   SquareKanban,
   Calendar,
-  BarChart3,
   Map,
   Bot,
   Plug,
@@ -31,9 +28,14 @@ export interface NavItem {
   href: string;
   icon: LucideIcon;
   sub?: string;
-  badge?: string;
   /** Roles allowed to see/visit this item. Omitted = all roles. */
   roles?: Role[];
+  /**
+   * Kept out of the sidebar, but still the route's entry here: the page stays
+   * reachable by URL and keeps the title, subtitle and role rule this item
+   * carries. Dropping the entry instead would leave the page titled "Ranger CRM".
+   */
+  hidden?: boolean;
 }
 
 export interface NavGroup {
@@ -44,23 +46,23 @@ export interface NavGroup {
 const MANAGERS: Role[] = ['admin', 'team_leader'];
 const ADMIN: Role[] = ['admin'];
 
-// Exact Ranger CRM menu — groups, labels, order, badges.
+// Exact Ranger CRM menu — groups, labels, order.
 export const NAV: NavGroup[] = [
   {
     heading: 'Operations',
     items: [
       { label: 'Dashboard', href: '/dashboard', icon: LayoutGrid, sub: 'Operations overview' },
       { label: 'Performance', href: '/productivity', icon: Activity, sub: 'Team productivity', roles: MANAGERS },
-      { label: 'Live Team', href: '/manager', icon: Headphones, sub: 'Real-time floor status', badge: '3', roles: MANAGERS },
+      { label: 'Live Team', href: '/manager', icon: Headphones, sub: 'Real-time floor status', roles: MANAGERS },
     ],
   },
   {
     heading: 'Pipeline',
     items: [
-      { label: 'Lead Management', href: '/leads', icon: Target, sub: 'Master lead database' },
-      { label: 'Contacts', href: '/contacts', icon: Contact, sub: 'People & companies' },
+      { label: 'Lead Management', href: '/leads', icon: Target, sub: 'Active lead database' },
+      { label: 'Closed Leads', href: '/closed-leads', icon: CircleCheckBig, sub: 'Leads marked closed' },
       { label: 'Sales Pipeline', href: '/pipeline', icon: GitBranch, sub: 'Deals by stage' },
-      { label: 'Follow-Ups', href: '/followups', icon: Clock, sub: 'Callbacks & reminders', badge: '5', roles: MANAGERS },
+      { label: 'Follow-Ups', href: '/followups', icon: Clock, sub: 'Callbacks & reminders', roles: MANAGERS },
     ],
   },
   {
@@ -68,9 +70,7 @@ export const NAV: NavGroup[] = [
     items: [
       { label: 'Calling Panel', href: '/calling', icon: PhoneCall, sub: 'Dialer workspace' },
       { label: 'Zoom Meetings', href: '/zoom', icon: Video, sub: 'Schedule & meeting history' },
-      { label: 'Call Queue', href: '/queue', icon: ListOrdered, sub: "Today's assignments" },
-      { label: 'Assigned Calls', href: '/assigned', icon: PhoneForwarded, sub: 'Team assignments', roles: MANAGERS },
-      { label: 'Outcome', href: '/outcomes', icon: NotebookPen, sub: 'Outcome status records' },
+      { label: 'Outcome', href: '/outcomes', icon: NotebookPen, sub: 'Outcome status records', hidden: true },
       { label: 'Activity Tracker', href: '/activity', icon: NotebookPen, sub: 'Call activity log' },
       { label: 'Communications', href: '/communications', icon: MessageSquare, sub: 'Calls & SMS analytics', roles: MANAGERS },
     ],
@@ -80,7 +80,6 @@ export const NAV: NavGroup[] = [
     items: [
       { label: 'Tasks', href: '/tasks', icon: SquareKanban, sub: 'Personal task board' },
       { label: 'Calendar', href: '/calendar', icon: Calendar, sub: 'Calls & meetings' },
-      { label: 'Reports & Analytics', href: '/reports', icon: BarChart3, sub: 'Pivot & charts', roles: MANAGERS },
       { label: 'Territory Map', href: '/territories', icon: Map, sub: 'State coverage' },
     ],
   },
@@ -120,9 +119,12 @@ export function subForPath(pathname: string): string {
 // Restricted route prefixes not represented in the nav (still reachable by URL).
 const EXTRA_ROUTE_ROLES: { prefix: string; roles: Role[] }[] = [
   { prefix: '/analytics', roles: MANAGERS },
-  { prefix: '/reports', roles: MANAGERS },
   { prefix: '/targets', roles: MANAGERS },
   { prefix: '/assignments', roles: MANAGERS },
+  // Dropped from the nav (lead assignment lives in Lead Management now), but the
+  // page and its workflows still work by URL — so it keeps its manager-only rule
+  // here. Without this the route would fall through to "open to every role".
+  { prefix: '/assigned', roles: MANAGERS },
   { prefix: '/security', roles: MANAGERS },
   { prefix: '/call-summary', roles: MANAGERS },
   { prefix: '/import', roles: MANAGERS },
@@ -145,10 +147,11 @@ export function canAccessPath(pathname: string, role: Role | undefined): boolean
   return !!role && rule.roles.includes(role);
 }
 
-/** Nav filtered to a role — items the role can see, dropping empty groups. */
+/** Nav filtered to a role — items the role can see, dropping empty groups.
+ *  Hidden items are never listed, whatever the role. */
 export function navForRole(role: Role | undefined): NavGroup[] {
   return NAV.map((g) => ({
     ...g,
-    items: g.items.filter((i) => !i.roles || (role && i.roles.includes(role))),
+    items: g.items.filter((i) => !i.hidden && (!i.roles || (role && i.roles.includes(role)))),
   })).filter((g) => g.items.length > 0);
 }

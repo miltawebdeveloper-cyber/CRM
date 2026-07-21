@@ -61,9 +61,9 @@ export function LeadActivityLog({ leadId, title }: { leadId: string; title?: str
     <section className="rounded-lg border bg-card p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <ShieldCheck className="h-4 w-4 text-[#42512f]" /> Activity Log{title ? <span className="text-muted-foreground">— {title}</span> : null}
+          <ShieldCheck className="h-4 w-4 text-[#266929]" /> Activity Log{title ? <span className="text-muted-foreground">— {title}</span> : null}
         </h2>
-        <span className="shrink-0 text-xs text-muted-foreground">Admin &amp; Team Lead only · {items.length} entries</span>
+        <span className="shrink-0 text-xs text-muted-foreground">Complete lead lifecycle timeline · {items.length} entries</span>
       </div>
 
       {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
@@ -74,25 +74,33 @@ export function LeadActivityLog({ leadId, title }: { leadId: string; title?: str
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-left text-[11px] uppercase tracking-[.08em] text-muted-foreground">
+                <th className="px-3 py-2 font-semibold">Lead ID</th>
                 <th className="px-3 py-2 font-semibold">Date &amp; time</th>
-                <th className="px-3 py-2 font-semibold">User</th>
-                <th className="px-3 py-2 font-semibold">Activity</th>
-                <th className="px-3 py-2 font-semibold">Previous</th>
-                <th className="px-3 py-2 font-semibold">Updated</th>
-                <th className="px-3 py-2 font-semibold">Remarks</th>
+                <th className="px-3 py-2 font-semibold">Call Status</th>
+                <th className="px-3 py-2 font-semibold">Assigned Employee</th>
+                <th className="px-3 py-2 font-semibold">Description</th>
               </tr>
             </thead>
             <tbody>
-              {items.map((a) => (
-                <tr key={a.id} className="border-b align-top last:border-0">
-                  <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">{fmt(a.createdAt)}</td>
-                  <td className="px-3 py-2.5">{a.user?.name ?? 'System'}</td>
-                  <td className="px-3 py-2.5 font-medium capitalize">{label(a.action)}</td>
-                  <td className="px-3 py-2.5 capitalize text-muted-foreground">{showVal(a.oldValue)}</td>
-                  <td className="px-3 py-2.5 capitalize">{showVal(a.newValue)}</td>
-                  <td className="px-3 py-2.5 text-muted-foreground">{a.remarks ?? '—'}</td>
-                </tr>
-              ))}
+              {items.map((a) => {
+                let desc = label(a.action);
+                if (a.oldValue || a.newValue) {
+                  desc += `: ${showVal(a.oldValue)} ➔ ${showVal(a.newValue)}`;
+                }
+                if (a.remarks) {
+                  desc += ` (${a.remarks})`;
+                }
+
+                return (
+                  <tr key={a.id} className="border-b align-top last:border-0">
+                    <td className="whitespace-nowrap px-3 py-2.5 font-mono text-xs">{a.lead?.leadId ?? '—'}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">{fmt(a.createdAt)}</td>
+                    <td className="px-3 py-2.5 capitalize">{a.callStatus ?? '—'}</td>
+                    <td className="px-3 py-2.5 font-medium">{a.assignedTo?.name ?? '—'}</td>
+                    <td className="px-3 py-2.5 text-muted-foreground">{desc}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

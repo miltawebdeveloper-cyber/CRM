@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { tokenStore } from './api';
 import { loadServerPreferences, saveServerPreference, removeServerPreference } from './preferences';
@@ -23,12 +23,22 @@ export interface ColumnDef<T> {
   width?: number;
   headerClassName?: string;
   cellClassName?: string;
+  /** Eligible for the "Trackable Columns" section (change-tracking). On by default when eligible. */
+  trackable?: boolean;
+  /** Eligible for the "Searchable Columns" section (global search). On by default when eligible. */
+  searchable?: boolean;
+  /** Plain-text value used for global search over this column (falls back to none). */
+  searchValue?: (row: T) => string | number | null | undefined;
 }
 
 interface StoredPrefs {
   order: string[];
   hidden: string[];
   widths?: Record<string, number>;
+  /** Trackable-eligible columns the user turned OFF. */
+  untracked?: string[];
+  /** Searchable-eligible columns the user turned OFF. */
+  unsearchable?: string[];
 }
 
 /** Decode the current user's id from the JWT so prefs are per-user. */
@@ -80,6 +90,22 @@ export interface ColumnPrefs<T> {
   reset: () => void;
   /** True when the layout differs from the column defaults. */
   customized: boolean;
+
+  // ── Trackable columns (change-tracking configuration) ──
+  /** Columns eligible for tracking (declared `trackable`). */
+  trackableColumns: ColumnDef<T>[];
+  /** Keys currently enabled for tracking. */
+  tracked: Set<string>;
+  isTracked: (key: string) => boolean;
+  toggleTracked: (key: string) => void;
+
+  // ── Searchable columns (global-search configuration) ──
+  /** Columns eligible for search (declared `searchable`). */
+  searchableColumns: ColumnDef<T>[];
+  /** Keys currently enabled for search. */
+  searchable: Set<string>;
+  isSearchable: (key: string) => boolean;
+  toggleSearchable: (key: string) => void;
 }
 
 /**
@@ -90,11 +116,16 @@ export interface ColumnPrefs<T> {
 export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): ColumnPrefs<T> {
   const defaultOrder = useMemo(() => columns.map((c) => c.key), [columns]);
   const defaultHidden = useMemo(() => columns.filter((c) => c.defaultHidden).map((c) => c.key), [columns]);
+  const trackableKeys = useMemo(() => columns.filter((c) => c.trackable).map((c) => c.key), [columns]);
+  const searchableKeys = useMemo(() => columns.filter((c) => c.searchable).map((c) => c.key), [columns]);
   const byKey = useMemo(() => new Map(columns.map((c) => [c.key, c])), [columns]);
 
   const [order, setOrder] = useState<string[]>(defaultOrder);
   const [hidden, setHidden] = useState<string[]>(defaultHidden);
   const [widths, setWidths] = useState<Record<string, number>>({});
+  // Trackable/searchable-eligible columns the user turned OFF (default: all on).
+  const [untracked, setUntracked] = useState<string[]>([]);
+  const [unsearchable, setUnsearchable] = useState<string[]>([]);
 
   // Load saved prefs and merge with the current column set. localStorage is
   // applied instantly; the server copy (cross-device) is applied once it loads.
@@ -105,6 +136,8 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
         setOrder(defaultOrder);
         setHidden(defaultHidden);
         setWidths({});
+        setUntracked([]);
+        setUnsearchable([]);
         return;
       }
       const known = new Set(defaultOrder);
@@ -116,6 +149,8 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
       setOrder(mergedOrder);
       setHidden(mergedHidden);
       setWidths(saved.widths ?? {});
+      setUntracked((saved.untracked ?? []).filter((k) => known.has(k)));
+      setUnsearchable((saved.unsearchable ?? []).filter((k) => known.has(k)));
     };
 
     applyMerged(load(tableKey)); // instant local
@@ -133,9 +168,18 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableKey, defaultOrder, defaultHidden]);
 
+  // Latest committed snapshot, so persist can merge a single-field patch without
+  // threading every dimension through each callback's closure. Kept in sync via
+  // an effect (never mutated during render). Each action changes one dimension
+  // and passes it in the patch, so the rest coming from the last commit is correct.
+  const stateRef = useRef<StoredPrefs>({ order, hidden, widths, untracked, unsearchable });
+  useEffect(() => {
+    stateRef.current = { order, hidden, widths, untracked, unsearchable };
+  }, [order, hidden, widths, untracked, unsearchable]);
+
   const persist = useCallback(
-    (nextOrder: string[], nextHidden: string[], nextWidths: Record<string, number>) => {
-      const value: StoredPrefs = { order: nextOrder, hidden: nextHidden, widths: nextWidths };
+    (patch: Partial<StoredPrefs>) => {
+      const value: StoredPrefs = { ...stateRef.current, ...patch };
       saveLocal(tableKey, value); // instant
       saveServerPreference(serverKeyFor(tableKey), value); // cross-device (debounced)
     },
@@ -147,11 +191,11 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
       if (byKey.get(key)?.required) return;
       setHidden((h) => {
         const next = h.includes(key) ? h.filter((k) => k !== key) : [...h, key];
-        persist(order, next, widths);
+        persist({ hidden: next });
         return next;
       });
     },
-    [byKey, order, widths, persist],
+    [byKey, persist],
   );
 
   const reorder = useCallback(
@@ -162,11 +206,11 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
         const idx = next.indexOf(beforeKey);
         if (idx < 0) next.push(key);
         else next.splice(idx, 0, key);
-        persist(next, hidden, widths);
+        persist({ order: next });
         return next;
       });
     },
-    [hidden, widths, persist],
+    [persist],
   );
 
   const setWidth = useCallback(
@@ -174,17 +218,42 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
       const w = Math.max(60, Math.round(px));
       setWidths((prev) => {
         const next = { ...prev, [key]: w };
-        persist(order, hidden, next);
+        persist({ widths: next });
         return next;
       });
     },
-    [order, hidden, persist],
+    [persist],
+  );
+
+  // Toggle a column in/out of the tracked set (stored as the OFF list).
+  const toggleTracked = useCallback(
+    (key: string) => {
+      setUntracked((u) => {
+        const next = u.includes(key) ? u.filter((k) => k !== key) : [...u, key];
+        persist({ untracked: next });
+        return next;
+      });
+    },
+    [persist],
+  );
+
+  const toggleSearchable = useCallback(
+    (key: string) => {
+      setUnsearchable((u) => {
+        const next = u.includes(key) ? u.filter((k) => k !== key) : [...u, key];
+        persist({ unsearchable: next });
+        return next;
+      });
+    },
+    [persist],
   );
 
   const reset = useCallback(() => {
     setOrder(defaultOrder);
     setHidden(defaultHidden);
     setWidths({});
+    setUntracked([]);
+    setUnsearchable([]);
     if (typeof window !== 'undefined') localStorage.removeItem(keyFor(tableKey));
     removeServerPreference(serverKeyFor(tableKey));
   }, [tableKey, defaultOrder, defaultHidden]);
@@ -202,8 +271,31 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
     () =>
       order.join() !== defaultOrder.join() ||
       hidden.slice().sort().join() !== defaultHidden.slice().sort().join() ||
-      Object.keys(widths).length > 0,
-    [order, hidden, widths, defaultOrder, defaultHidden],
+      Object.keys(widths).length > 0 ||
+      untracked.length > 0 ||
+      unsearchable.length > 0,
+    [order, hidden, widths, untracked, unsearchable, defaultOrder, defaultHidden],
+  );
+
+  // Trackable / searchable: eligible columns (in the user's column order) and
+  // the currently-enabled subset (eligible minus the user's OFF list).
+  const trackableColumns = useMemo(
+    () => ordered.filter((c) => c.trackable),
+    [ordered],
+  );
+  const searchableColumns = useMemo(
+    () => ordered.filter((c) => c.searchable),
+    [ordered],
+  );
+  const untrackedSet = useMemo(() => new Set(untracked), [untracked]);
+  const unsearchableSet = useMemo(() => new Set(unsearchable), [unsearchable]);
+  const tracked = useMemo(
+    () => new Set(trackableKeys.filter((k) => !untrackedSet.has(k))),
+    [trackableKeys, untrackedSet],
+  );
+  const searchable = useMemo(
+    () => new Set(searchableKeys.filter((k) => !unsearchableSet.has(k))),
+    [searchableKeys, unsearchableSet],
   );
 
   return {
@@ -215,6 +307,14 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
     widths,
     setWidth,
     reset,
+    trackableColumns,
+    tracked,
+    isTracked: useCallback((k: string) => !untrackedSet.has(k), [untrackedSet]),
+    toggleTracked,
+    searchableColumns,
+    searchable,
+    isSearchable: useCallback((k: string) => !unsearchableSet.has(k), [unsearchableSet]),
+    toggleSearchable,
     customized,
   };
 }

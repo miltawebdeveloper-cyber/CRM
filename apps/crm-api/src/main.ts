@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
@@ -13,7 +13,9 @@ async function bootstrap() {
     new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
   );
 
-  app.setGlobalPrefix('api');
+  // Quo delivers to a bare /hook/<token> path (proxied straight through), which
+  // would otherwise 404 against the /api prefix — so that one route is exempt.
+  app.setGlobalPrefix('api', { exclude: [{ path: 'hook/:token', method: RequestMethod.POST }] });
   app.enableCors({
     origin: process.env.WEB_ORIGIN ?? 'http://localhost:3000',
     credentials: true,

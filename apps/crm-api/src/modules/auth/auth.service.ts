@@ -42,6 +42,17 @@ export class AuthService {
     return this.issueTokens(user.id, user.email, user.role);
   }
 
+  /** Current user for /auth/me — includes the caller identity (name + assigned
+   *  OpenPhone number) so the UI can show "you call as …" and flag an unassigned rep. */
+  async me(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true, role: true, openphoneNumber: true },
+    });
+    if (!user) throw new UnauthorizedException('Account not found');
+    return user;
+  }
+
   async refresh(refreshToken: string) {
     try {
       const payload = await this.jwt.verifyAsync(refreshToken, {

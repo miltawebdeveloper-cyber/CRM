@@ -87,6 +87,35 @@ export class QuoService {
     };
   }
 
+  /**
+   * Bulk-sync every lead that isn't already synced (covers not_synced + failed).
+   * Processed in small concurrent chunks to stay within OpenPhone's rate limits.
+   */
+  async syncAllLeads() {
+    const leads = await this.prisma.lead.findMany({
+      where: { deletedAt: null, quoStatus: { not: QuoSyncStatus.synced } },
+      select: { id: true },
+    });
+    let synced = 0;
+    let failed = 0;
+    const chunkSize = 5;
+    for (let i = 0; i < leads.length; i += chunkSize) {
+      const chunk = leads.slice(i, i + chunkSize);
+      const results = await Promise.all(
+        chunk.map(async (l) => {
+          try {
+            return (await this.syncLead(l.id)).success;
+          } catch (err) {
+            this.logger.warn(`Bulk sync failed for lead ${l.id}: ${(err as Error).message}`);
+            return false;
+          }
+        }),
+      );
+      for (const ok of results) ok ? synced++ : failed++;
+    }
+    return { total: leads.length, synced, failed, sandbox: this.openphone.isSandbox };
+  }
+
   /** Sync history for the Lead Details page. */
   async getLogs(leadId: string) {
     return this.prisma.quoSyncLog.findMany({

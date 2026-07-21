@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, Timezone } from '@crm/database';
+import { Prisma, Timezone, Role } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MetricsQueryDto } from './dto/metrics.dto';
 
@@ -7,6 +7,10 @@ interface Node {
   total: number;
   planned: number;
 }
+
+// Parse a yyyy-mm-dd string into the first/last instant of that local day.
+const dayStart = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d, 0, 0, 0, 0); };
+const dayEnd = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d, 23, 59, 59, 999); };
 
 @Injectable()
 export class MetricsService {
@@ -19,9 +23,11 @@ export class MetricsService {
     if (q.state) where.state = q.state;
     if (q.city) where.city = q.city;
     if (q.from || q.to) {
+      // Treat from/to as whole local days so a single-day (Daily) filter spans the
+      // full day rather than only the midnight instant.
       where.createdAt = {};
-      if (q.from) where.createdAt.gte = new Date(q.from);
-      if (q.to) where.createdAt.lte = new Date(q.to);
+      if (q.from) where.createdAt.gte = dayStart(q.from);
+      if (q.to) where.createdAt.lte = dayEnd(q.to);
     }
     return where;
   }
@@ -34,17 +40,41 @@ export class MetricsService {
     return where;
   }
 
-  /** DSH-001..004 / MET — KPI summary for the active filter. */
-  async summary(q: MetricsQueryDto) {
-    const [totalLeads, plannedAgg, closed] = await Promise.all([
-      this.prisma.lead.count({ where: this.leadWhere(q) }),
+  /**
+   * DSH-001..004 / MET — KPI summary for the active filter.
+   *
+   * Employees are scoped to the leads assigned to them, so their Lead Management
+   * cards (Total / Assigned / Contacted / Progress) reflect only their own book.
+   * Admins/leaders see the whole territory as before.
+   */
+  async summary(q: MetricsQueryDto, user?: { id: string; role: Role }) {
+    const where: Prisma.LeadWhereInput = { ...this.leadWhere(q) };
+    if (user?.role === Role.employee) where.assignedToId = user.id;
+
+    const [totalLeads, plannedAgg, closed, contacted] = await Promise.all([
+      this.prisma.lead.count({ where }),
       this.prisma.target.aggregate({ where: this.targetWhere(q), _sum: { monthlyTarget: true } }),
-      this.prisma.lead.count({ where: { ...this.leadWhere(q), status: 'closed' } }),
+      this.prisma.lead.count({ where: { ...where, status: 'closed' } }),
+      // Leads successfully contacted: a completed call exists OR the lead has been
+      // moved to a contacted-or-beyond status. Derived live from call/status
+      // history so the count stays accurate as leads progress or are deleted.
+      this.prisma.lead.count({
+        where: {
+          ...where,
+          OR: [
+            { status: { in: ['contacted', 'interested', 'closed'] } },
+            { calls: { some: { endTime: { not: null } } } },
+          ],
+        },
+      }),
     ]);
     const plannedLeads = plannedAgg._sum.monthlyTarget ?? 0;
     const balanceLeads = Math.max(plannedLeads - totalLeads, 0);
     const progressPct = plannedLeads > 0 ? Number(((totalLeads / plannedLeads) * 100).toFixed(2)) : 0;
-    return { totalLeads, plannedLeads, balanceLeads, progressPct, closedLeads: closed };
+    // Progress through the contacted pipeline — used for employees, whose target
+    // is per-book rather than per-territory.
+    const contactedPct = totalLeads > 0 ? Number(((contacted / totalLeads) * 100).toFixed(2)) : 0;
+    return { totalLeads, plannedLeads, balanceLeads, contactedLeads: contacted, contactedPct, progressPct, closedLeads: closed };
   }
 
   /** CHT-002 — leads split by timezone (pie). */
@@ -63,10 +93,11 @@ export class MetricsService {
 
   /** MAP-002/003 — per-state totals vs targets (color-coded state map). */
   async byState(q: MetricsQueryDto) {
-    const [leadGroups, targetGroups] = await Promise.all([
+    const where = this.leadWhere(q);
+    const [leadGroups, targetGroups, assignedGroups, contactedGroups] = await Promise.all([
       this.prisma.lead.groupBy({
         by: ['state', 'timezone'],
-        where: this.leadWhere(q),
+        where,
         _count: { _all: true },
       }),
       this.prisma.target.groupBy({
@@ -74,8 +105,28 @@ export class MetricsService {
         where: this.targetWhere(q),
         _sum: { monthlyTarget: true },
       }),
+      this.prisma.lead.groupBy({
+        by: ['state'],
+        where: { ...where, assignedToId: { not: null } },
+        _count: { _all: true },
+      }),
+      // Same contacted rule as summary(): a completed call exists OR the lead has
+      // reached a contacted-or-beyond status.
+      this.prisma.lead.groupBy({
+        by: ['state'],
+        where: {
+          ...where,
+          OR: [
+            { status: { in: ['contacted', 'interested', 'closed'] } },
+            { calls: { some: { endTime: { not: null } } } },
+          ],
+        },
+        _count: { _all: true },
+      }),
     ]);
     const plannedByState = new Map(targetGroups.map((t) => [t.state, t._sum.monthlyTarget ?? 0]));
+    const assignedByState = new Map(assignedGroups.map((g) => [g.state, g._count._all]));
+    const contactedByState = new Map(contactedGroups.map((g) => [g.state, g._count._all]));
     const totalByState = new Map<string, { total: number; timezone: string }>();
     for (const g of leadGroups) {
       const cur = totalByState.get(g.state) ?? { total: 0, timezone: g.timezone };
@@ -90,6 +141,8 @@ export class MetricsService {
           state,
           timezone: v.timezone,
           total: v.total,
+          assigned: assignedByState.get(state) ?? 0,
+          contacted: contactedByState.get(state) ?? 0,
           planned,
           balance: Math.max(planned - v.total, 0),
           progressPct,

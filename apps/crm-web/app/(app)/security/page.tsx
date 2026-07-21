@@ -5,9 +5,9 @@ import { useQuery } from '@tanstack/react-query';
 import { activitiesApi, type Activity } from '@/lib/crm';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { useState } from 'react';
-import { DateRangePicker, FilterSelect } from '@/components/filter-controls';
+import { DateFilter, FilterSelect } from '@/components/filter-controls';
 import { Filter } from 'lucide-react';
-import { inDateBounds, type DateRange } from '@/lib/date-filters';
+import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 
 export default function SecurityPage() {
   const { data: activities = [], isLoading, isError } = useQuery({
@@ -15,7 +15,7 @@ export default function SecurityPage() {
     queryFn: activitiesApi.list,
     retry: false,
   });
-  const [dateRange, setDateRange] = useState<DateRange>({ from: '', to: '' });
+  const [dateRange, setDateRange] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
   const [action, setAction] = useState('');
   const actions = Array.from(new Set(activities.map((a) => a.action))).sort();
   const filtered = activities.filter((a) => (!action || a.action === action) && inDateBounds(a.createdAt, dateRange));
@@ -35,7 +35,7 @@ export default function SecurityPage() {
       </p>
       <div className="flex flex-wrap items-center gap-2.5">
         <FilterSelect icon={Filter} value={action} onChange={setAction} options={[{ label: 'All Actions', value: '' }, ...actions.map((a) => ({ label: a.replace('_', ' '), value: a }))]} />
-        <DateRangePicker value={dateRange} onChange={setDateRange} />
+        <DateFilter value={dateRange} onChange={setDateRange} />
       </div>
 
       <DataTable
