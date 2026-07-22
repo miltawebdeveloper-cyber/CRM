@@ -1,0 +1,19 @@
+# Deps & build outputs — rebuilt inside the image for the correct platform.
+node_modules
+**/node_modules
+**/dist
+apps/crm-web/.next
+**/.next
+**/*.tsbuildinfo
+
+# Secrets & local runtime files — real env comes from Northflank at runtime.
+.env
+.env.*
+*.log
+webhook-deliveries.log
+
+# VCS & tooling noise.
+.git
+.gitignore
+.claude
+.vscode
