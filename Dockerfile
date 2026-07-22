@@ -6,9 +6,11 @@
 # but crashes at runtime with "Unknown file extension .ts". Do not downgrade.
 FROM node:22-slim
 
-# Prisma needs OpenSSL present.
+# Prisma needs OpenSSL. python3/make/g++ are the toolchain node-gyp uses to compile
+# native deps (e.g. bcrypt) from source — node:*-slim ships without them, so
+# `npm install` fails at the native build step without this.
 RUN apt-get update -y \
- && apt-get install -y --no-install-recommends openssl \
+ && apt-get install -y --no-install-recommends openssl python3 make g++ \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
