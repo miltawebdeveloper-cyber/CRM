@@ -15,6 +15,13 @@ RUN apt-get update -y \
 
 WORKDIR /app
 
+# prisma.config.ts resolves `env('DATABASE_URL')` at load time for EVERY prisma
+# command — including `prisma generate`, which runs in postinstall/build here — and
+# `.env` is (rightly) excluded from the image. `generate` never connects to the DB,
+# so a throwaway value just satisfies config loading. The platform injects the real
+# DATABASE_URL at runtime, which overrides this build-time default.
+ENV DATABASE_URL="postgresql://build:build@localhost:5432/build"
+
 # Copy the whole monorepo. node_modules / dist are excluded via .dockerignore so
 # native deps (e.g. bcrypt) are compiled for Linux HERE instead of being copied
 # from the host — never ship a host node_modules into the image.
