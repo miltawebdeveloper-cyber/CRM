@@ -10,6 +10,7 @@
     "migrate:deploy": "prisma migrate deploy",
     "studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
+    "set-admin": "tsx prisma/set-admin.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
