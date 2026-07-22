@@ -30,6 +30,24 @@ export class CommunicationsService {
   private readonly logger = new Logger(CommunicationsService.name);
   private fallbackAdminId: string | null = null;
 
+  // Last webhook the provider actually delivered — the single fact that tells you
+  // whether Quo's real-time push is reaching the CRM at all, or whether inbound
+  // calls are only ever arriving via the 10-minute REST backfill (which can never
+  // drive a live incoming-call popup). Exposed read-only via GET
+  // /communications/webhook/health so it's checkable without server log access.
+  private lastWebhook: { at: Date; type: string } | null = null;
+  private webhookCount = 0;
+  get webhookHealth() {
+    return {
+      everReceived: this.webhookCount > 0,
+      count: this.webhookCount,
+      lastAt: this.lastWebhook?.at ?? null,
+      lastType: this.lastWebhook?.type ?? null,
+      secondsSinceLast: this.lastWebhook ? Math.round((Date.now() - this.lastWebhook.at.getTime()) / 1000) : null,
+      signatureEnforced: !!this.webhookSecret,
+    };
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly openphone: OpenPhoneService,
@@ -90,6 +108,10 @@ export class CommunicationsService {
     const type = str(payload.type) ?? '';
     const data = (payload.data as Json) ?? {};
     const obj = ((data.object as Json) ?? data) as Json;
+    // Stamp the delivery the moment it's accepted (after signature/token checks in
+    // the controller) so webhookHealth reflects real pushes only.
+    this.lastWebhook = { at: new Date(), type: type || 'unknown' };
+    this.webhookCount++;
     this.logger.log(`Quo webhook: ${type}`);
 
     if (type.startsWith('message.')) return this.handleMessage(type, obj);
@@ -350,6 +372,11 @@ export class CommunicationsService {
       });
       await this.linkRecording(existing.id, rec, durationSecs);
       await this.touchLead(existing.leadId);
+      // Log the completion to the Activity Log exactly once — when the call first
+      // reaches a final state (same guard as stamping endTime above).
+      if (isFinal && !existing.endTime) {
+        await this.logCallCompleted(existing.leadId, existing.callerId, existing.direction, status, durationSecs ?? existing.durationSecs);
+      }
       return { ok: true, callId: existing.id };
     }
 
@@ -385,6 +412,12 @@ export class CommunicationsService {
     await this.linkRecording(created.id, rec, durationSecs);
     await this.touchLead(lead.id);
 
+    // A provider event that already carries a final state (e.g. call.completed for
+    // a call we never saw ring) → log the completion to the Activity Log.
+    if (isFinal) {
+      await this.logCallCompleted(lead.id, callerId, direction, status, durationSecs);
+    }
+
     // Workflow: missed inbound call → follow-up task for the owner.
     const missed = ['missed', 'no-answer', 'no_answer'].includes(status) || (direction === CommDirection.inbound && durationSecs === 0);
     if (missed) {
@@ -393,6 +426,32 @@ export class CommunicationsService {
       });
     }
     return { ok: true, callId: created.id, missed };
+  }
+
+  /**
+   * Record a "call completed" entry in the lead's Activity Log when a call first
+   * reaches a final state — so the log reflects the finished call (direction,
+   * duration, status) alongside the synced recording, summary and transcript.
+   */
+  private async logCallCompleted(
+    leadId: string,
+    userId: string,
+    direction: CommDirection | null,
+    status: string,
+    durationSecs?: number | null,
+  ) {
+    const secs = Math.max(0, Math.round(durationSecs ?? 0));
+    const dur = `${Math.floor(secs / 60)}m ${secs % 60}s`;
+    const dirLabel = direction === CommDirection.inbound ? 'Inbound' : 'Outbound';
+    await this.prisma.activity.create({
+      data: {
+        leadId,
+        userId,
+        action: 'call_completed',
+        newValue: status || 'completed',
+        remarks: `${dirLabel} call completed via Quo — ${dur} (${status || 'completed'}).`,
+      },
+    });
   }
 
   // ── Contacts ──
@@ -640,10 +699,35 @@ export class CommunicationsService {
   // call the customer, falling back to the assignee), so scoping the popup by
   // `callerId` sends the callback to the right person. Managers see every callback.
   async latestIncoming(userId: string, role: string) {
-    const since = new Date(Date.now() - 60_000);
+    const now = Date.now();
+    // Three ways an inbound call earns a popup, deliberately narrow so the 10-minute
+    // REST backfill (which imports already-finished calls minutes-to-hours late)
+    // can never surface one:
+    //   1. Just arrived — startTime within the last 90s. A real-time `call.ringing`
+    //      whose payload timestamp is fresh lands here.
+    //   2. Still live by call time — a ringing/connected call that hasn't ended yet,
+    //      kept visible past 90s (ring + talk-time can run longer) but capped to 5 min
+    //      and gated on endTime = null.
+    //   3. Just LEARNED and still live — the row was created (its first event seen) in
+    //      the last 3 min, is a live status, and hasn't ended. This is the one that
+    //      matters in practice: Quo delivers `call.ringing` with the call's ORIGINAL
+    //      createdAt, which can be minutes stale (delivery lag / retries), so keying
+    //      the popup off the payload's startTime alone misses live rings. `createdAt`
+    //      is the CRM's own server receipt time — for a live call the ringing webhook
+    //      is the first event, so it ≈ "the phone is ringing now", regardless of how
+    //      stale the provider's timestamp is. Backfilled rows are terminal (endTime
+    //      set / non-live status), so this branch still can't surface them.
+    const freshSince = new Date(now - 90_000);
+    const liveSince = new Date(now - 5 * 60_000);
+    const learnedSince = new Date(now - 3 * 60_000);
+    const LIVE_STATUSES = ['ringing', 'in-progress', 'in_progress', 'answered', 'connected', 'ongoing', 'active'];
     const where: Prisma.CallWhereInput = {
       direction: CommDirection.inbound,
-      startTime: { gte: since },
+      OR: [
+        { startTime: { gte: freshSince } },
+        { status: { in: LIVE_STATUSES }, endTime: null, startTime: { gte: liveSince } },
+        { status: { in: LIVE_STATUSES }, endTime: null, createdAt: { gte: learnedSince } },
+      ],
     };
     if (role === 'employee') where.callerId = userId;
     const call = await this.prisma.call.findFirst({
@@ -652,7 +736,9 @@ export class CommunicationsService {
         lead: { select: { id: true, businessName: true, contactName: true, phone: true, city: true, state: true, status: true, callStatus: true, callbackAt: true, callbackCompletedAt: true } },
         caller: { select: { id: true, name: true } },
       },
-      orderBy: { startTime: 'desc' },
+      // Most recently LEARNED wins, not most recent call time — a live ring that Quo
+      // delivered with a stale timestamp must outrank an older freshly-missed call.
+      orderBy: { createdAt: 'desc' },
     });
     if (!call) return null;
     // "Connected" = Quo reports the call as live/answered (drives the popup's

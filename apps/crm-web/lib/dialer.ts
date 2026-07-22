@@ -19,17 +19,25 @@ export function openQuoDialer(phone?: string | null) {
 }
 
 /**
- * The QUO/OpenPhone app where inbound calls are actually answered. Configurable
- * (e.g. a self-hosted or region-specific host) via NEXT_PUBLIC_OPENPHONE_APP_URL;
- * defaults to the OpenPhone web app.
+ * Custom URL scheme that launches the installed Quo/OpenPhone DESKTOP app. The OS
+ * hands a `scheme://` link to the app's registered protocol handler — the same
+ * mechanism as `slack://` or `zoommtg://` — so this opens the native desktop app,
+ * not a browser tab. Configurable because the scheme is brand-specific
+ * (OpenPhone: `openphone://`, Quo: `quo://`); set NEXT_PUBLIC_QUO_APP_SCHEME.
  */
-export const OPENPHONE_APP_URL = process.env.NEXT_PUBLIC_OPENPHONE_APP_URL || 'https://my.openphone.com';
+export const QUO_APP_SCHEME = process.env.NEXT_PUBLIC_QUO_APP_SCHEME || 'openphone://';
 
 /**
- * Redirect the agent to the calling platform to answer an incoming callback. The
- * CRM only notifies + redirects; the voice call is handled entirely in OpenPhone.
+ * Open the Quo/OpenPhone DESKTOP app so the agent can answer an incoming call.
+ * Must run inside a user click (the Attend button) — browsers only hand a custom
+ * protocol to the desktop app from a real gesture. If the desktop app isn't
+ * installed the OS simply ignores the link; the CRM tab is left untouched.
  */
 export function openOpenPhoneApp() {
   if (typeof window === 'undefined') return;
-  window.open(OPENPHONE_APP_URL, '_blank', 'noopener,noreferrer');
+  const a = document.createElement('a');
+  a.href = QUO_APP_SCHEME; // e.g. openphone:// → launches the installed desktop app
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }

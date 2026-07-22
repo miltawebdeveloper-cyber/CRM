@@ -12,7 +12,6 @@ import { usePersistedState } from '@/lib/use-persisted-state';
 /** What the columns can break down by. Values mirror the API's CallPivotDim. */
 const DIMS: readonly { label: string; value: CallPivotDim }[] = [
   { value: 'bucket', label: 'Funnel bucket' },
-  { value: 'outcome', label: 'Outcome' },
   { value: 'direction', label: 'Direction' },
   { value: 'status', label: 'Call status' },
   { value: 'leadStatus', label: 'Lead status' },
@@ -196,7 +195,13 @@ export function CallsAspects({ filters }: { filters: CallFilters }) {
       ) : !hasData ? (
         <p className="py-16 text-center text-sm text-muted-foreground">No calls in the selected range.</p>
       ) : (
-        <div className="h-[340px]">
+        /* Responsive plot: height shrinks on small screens, and the chart keeps a
+           readable per-bar width by scrolling horizontally rather than squashing
+           every bar and axis label together once there are many categories (e.g.
+           24 hour buckets on a phone). With few bars the min-width is under 100%,
+           so ResponsiveContainer just fills the card as before. */
+        <div className="h-[260px] overflow-x-auto sm:h-[300px] lg:h-[340px]">
+          <div className="h-full" style={{ minWidth: Math.max(bars.length * 46, 320) }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={bars} margin={{ top: 16, right: 12, bottom: 28, left: 8 }} barCategoryGap="22%">
               {/* Recessive grid: horizontal only — the bars carry the comparison. */}
@@ -245,6 +250,7 @@ export function CallsAspects({ filters }: { filters: CallFilters }) {
               </Bar>
             </BarChart>
           </ResponsiveContainer>
+          </div>
         </div>
       )}
     </div>

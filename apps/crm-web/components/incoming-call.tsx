@@ -60,9 +60,9 @@ export function IncomingCallPopup() {
 
   if (!active) return null;
 
-  // Attend: hand off to the calling platform, where the call is actually picked
-  // up, then get the popup out of the way. Logged either way — a failure to
-  // record must never stop the agent reaching the ringing call.
+  // Attend: launch the Quo/OpenPhone DESKTOP app, where the call is actually
+  // picked up, then get the popup out of the way. Logged either way — a failure
+  // to record must never stop the agent reaching the ringing call.
   const attend = () => {
     void communicationsApi.respondToCall(active.callId, 'attend').catch(() => {});
     openOpenPhoneApp();
@@ -163,8 +163,8 @@ export function IncomingCallPopup() {
             </button>
           </div>
           <p className="mt-2.5 text-[10.5px] leading-relaxed text-muted-foreground">
-            Attend opens OpenPhone, where the call is picked up. Declining records it in the CRM but
-            can&apos;t hang up the line — reject it in OpenPhone too, or it rings out to voicemail.
+            Attend opens the Quo desktop app, where the call is picked up. Declining records it in the
+            CRM but can&apos;t hang up the line — reject it in Quo too, or it rings out to voicemail.
             The final status, recording and outcome sync back automatically.
           </p>
         </div>

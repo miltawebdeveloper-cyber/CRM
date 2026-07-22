@@ -31,6 +31,9 @@ export default function LeadDetailPage() {
   const { data: lead, isLoading } = useQuery({
     queryKey: ['lead', id],
     queryFn: () => leadsApi.get(id),
+    // Auto-refresh so a call that completes/syncs in the background (status,
+    // outcome, callback) updates the page without a manual reload.
+    refetchInterval: 15000,
   });
 
   // Current user — the Activity Log is restricted to Admin & Team Lead.
@@ -58,6 +61,9 @@ export default function LeadDetailPage() {
   const { data: timeline = [] } = useQuery({
     queryKey: ['lead', id, 'timeline'],
     queryFn: () => communicationsApi.timeline(id),
+    // Poll so a completed call's recording, AI summary and transcript appear on
+    // the conversation timeline automatically once the webhook syncs them.
+    refetchInterval: 12000,
   });
 
   const refreshTimeline = () => {
@@ -73,6 +79,7 @@ export default function LeadDetailPage() {
   const { data: logs = [] } = useQuery({
     queryKey: ['lead', id, 'quo-logs'],
     queryFn: () => leadsApi.quoLogs(id),
+    refetchInterval: 20000,
   });
 
   const sync = useMutation({

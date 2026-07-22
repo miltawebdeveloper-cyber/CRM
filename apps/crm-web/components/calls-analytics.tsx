@@ -59,15 +59,15 @@ function Figure({ value, label, color, tint }: { value: number; label: string; c
 function Stage({ label, value, sub, color, tint, dark }: { label: string; value: number; sub: string; color?: string; tint?: string; dark?: boolean }) {
   return (
     <div
-      className="min-w-[124px] flex-1 rounded-[10px] px-3 py-2"
+      className="min-w-[112px] flex-1 shrink-0 rounded-[9px] px-2.5 py-1.5"
       style={dark ? { background: '#27301d', color: '#fff' } : { background: tint, color }}
     >
-      <div className="text-[9.5px] font-semibold uppercase tracking-wider opacity-80">{label}</div>
+      <div className="text-[9px] font-semibold uppercase tracking-wider opacity-80">{label}</div>
       {/* Value and its qualifier share a line — the stage is a glanceable figure,
           and a third row of text was buying height without buying meaning. */}
-      <div className="mt-[3px] flex items-baseline gap-1.5">
-        <span className="font-display text-[19px] font-semibold leading-none">{value.toLocaleString()}</span>
-        <span className="truncate text-[10px] leading-none opacity-70" title={sub}>{sub}</span>
+      <div className="mt-[2px] flex items-baseline gap-1.5">
+        <span className="font-display text-[17px] font-semibold leading-none">{value.toLocaleString()}</span>
+        <span className="truncate text-[9.5px] leading-none opacity-70" title={sub}>{sub}</span>
       </div>
     </div>
   );
@@ -78,22 +78,22 @@ function Breakdown({ title, color, rows, total, totalLabel = 'Total' }: {
   title: string; color: string; rows: CallStatusCount[]; total: number; totalLabel?: string;
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-      <div className="flex items-center gap-2 border-b px-4 py-3">
+    <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+      <div className="flex items-center gap-2 border-b px-3 py-2">
         <span className="h-2 w-2 rounded-full" style={{ background: color }} />
-        <h4 className="text-[13px] font-semibold">{title}</h4>
+        <h4 className="text-[12.5px] font-semibold">{title}</h4>
       </div>
-      <div className="px-4 py-1.5">
+      <div className="px-3">
         {rows.length === 0 ? (
-          <p className="py-4 text-center text-[12px] text-muted-foreground">No statuses in this bucket.</p>
+          <p className="py-3 text-center text-[11.5px] text-muted-foreground">No statuses in this bucket.</p>
         ) : rows.map((r) => (
-          <div key={r.slug} className="flex items-center justify-between gap-3 border-b py-1.5 text-[12.5px] last:border-0">
+          <div key={r.slug} className="flex items-center justify-between gap-3 border-b py-1 text-[12px] last:border-0">
             <span className="truncate" style={{ color: r.count > 0 ? undefined : '#9aa08e' }}>{r.name}</span>
             <span className={`shrink-0 tabular-nums ${r.count > 0 ? 'font-semibold' : 'text-muted-foreground'}`}>{r.count}</span>
           </div>
         ))}
       </div>
-      <div className="flex items-center justify-between border-t px-4 py-2 text-[12.5px] font-semibold">
+      <div className="flex items-center justify-between border-t px-3 py-1.5 text-[12px] font-semibold">
         <span>{totalLabel}</span>
         <span className="tabular-nums">{total}</span>
       </div>
@@ -242,31 +242,35 @@ export function CallsAnalytics({ isManager }: { isManager: boolean }) {
         </div>
       </div>
 
-      {/* Cold → Warm → Hot → Closed */}
-      <div className="mb-[18px] rounded-2xl border bg-card p-3.5 shadow-sm">
-        <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Lead Pipeline</h3>
-        <div className="flex flex-wrap items-stretch gap-2">
-          <Stage dark label="Given Leads" value={given} sub={stats?.target ? `of ${stats.target.target.toLocaleString()} target` : 'with an outcome'} />
-          <div className="grid place-items-center text-[11px] text-muted-foreground/50">→</div>
-          <Stage label="Cold" value={cats?.cold ?? 0} sub={`${Math.round(stats?.coldPct ?? 0)}% of leads`} color={CAT.cold.color} tint={CAT.cold.tint} />
-          <div className="grid place-items-center text-[11px] text-muted-foreground/50">→</div>
-          <Stage label="Warm" value={cats?.warm ?? 0} sub={`${Math.round(stats?.ratios.warm ?? 0)}% of leads`} color={CAT.warm.color} tint={CAT.warm.tint} />
-          <div className="grid place-items-center text-[11px] text-muted-foreground/50">→</div>
-          <Stage label="Hot" value={cats?.hot ?? 0} sub={`${Math.round(stats?.ratios.hot ?? 0)}% of leads`} color={CAT.hot.color} tint={CAT.hot.tint} />
-          <div className="grid place-items-center text-[11px] text-muted-foreground/50">→</div>
-          <Stage dark label="Closed" value={(cats?.closedPositive ?? 0) + (cats?.closedNegative ?? 0)} sub={`${cats?.closedPositive ?? 0} won · ${cats?.closedNegative ?? 0} lost`} />
+      {/* Cold → Warm → Hot → Closed. Compact single-line row that sticks to the top
+          of the scroll area, so the pipeline stays in view while the per-status
+          breakdown below is scrolled. Overflows to a horizontal scroll on narrow
+          screens rather than wrapping, keeping it to one line. */}
+      <div className="sticky top-0 z-20 mb-[18px] rounded-2xl border bg-card px-3.5 py-2.5 shadow-sm">
+        <div className="flex items-center gap-3">
+          <div className="flex flex-1 items-stretch gap-1.5 overflow-x-auto">
+            <Stage dark label="Given Leads" value={given} sub={stats?.target ? `of ${stats.target.target.toLocaleString()} target` : 'with an outcome'} />
+            <div className="grid shrink-0 place-items-center text-[11px] text-muted-foreground/50">→</div>
+            <Stage label="Cold" value={cats?.cold ?? 0} sub={`${Math.round(stats?.coldPct ?? 0)}% of leads`} color={CAT.cold.color} tint={CAT.cold.tint} />
+            <div className="grid shrink-0 place-items-center text-[11px] text-muted-foreground/50">→</div>
+            <Stage label="Warm" value={cats?.warm ?? 0} sub={`${Math.round(stats?.ratios.warm ?? 0)}% of leads`} color={CAT.warm.color} tint={CAT.warm.tint} />
+            <div className="grid shrink-0 place-items-center text-[11px] text-muted-foreground/50">→</div>
+            <Stage label="Hot" value={cats?.hot ?? 0} sub={`${Math.round(stats?.ratios.hot ?? 0)}% of leads`} color={CAT.hot.color} tint={CAT.hot.tint} />
+            <div className="grid shrink-0 place-items-center text-[11px] text-muted-foreground/50">→</div>
+            <Stage dark label="Closed" value={(cats?.closedPositive ?? 0) + (cats?.closedNegative ?? 0)} sub={`${cats?.closedPositive ?? 0} won · ${cats?.closedNegative ?? 0} lost`} />
+          </div>
         </div>
       </div>
 
       {/* Per-status breakdown, bucket by bucket */}
-      <div className="grid gap-[18px] md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Breakdown title="Given Leads" color="#27301d" rows={byStatus} total={given} />
         <Breakdown title={CAT.cold.label} color={CAT.cold.color} rows={inCat('cold')} total={cats?.cold ?? 0} />
-        <div className="space-y-[18px]">
+        <div className="space-y-3">
           <Breakdown title={CAT.warm.label} color={CAT.warm.color} rows={inCat('warm')} total={cats?.warm ?? 0} />
           <Breakdown title={CAT.hot.label} color={CAT.hot.color} rows={inCat('hot')} total={cats?.hot ?? 0} />
         </div>
-        <div className="space-y-[18px]">
+        <div className="space-y-3">
           <Breakdown title="Connected / Follow-ups" color={CAT.connected.color} rows={inCat('connected')} total={cats?.connected ?? 0} />
           <Breakdown title="Closed" color={CAT.closed_negative.color} rows={[...inCat('closed_positive'), ...inCat('closed_negative')]} total={(cats?.closedPositive ?? 0) + (cats?.closedNegative ?? 0)} />
         </div>

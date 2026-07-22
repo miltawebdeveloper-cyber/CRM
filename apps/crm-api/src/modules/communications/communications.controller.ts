@@ -59,6 +59,18 @@ export class CommunicationsController {
   }
 
   /**
+   * Is Quo's real-time webhook actually reaching the CRM? Returns when the last
+   * provider push landed and its type. If `everReceived` is false, the incoming-
+   * call popup can never fire live — no webhook is configured/accepted in Quo, and
+   * inbound calls are arriving only via the 10-minute REST backfill. Admin/TL only.
+   */
+  @Get('webhook/health')
+  @Roles(Role.admin, Role.team_leader)
+  webhookHealth() {
+    return this.comms.webhookHealth;
+  }
+
+  /**
    * Record the agent's response to the incoming-call popup (Attend / Decline).
    * Decline logs the decision — it cannot hang the call up, since OpenPhone has
    * no call-control API. The provider's webhook still supplies the final status.

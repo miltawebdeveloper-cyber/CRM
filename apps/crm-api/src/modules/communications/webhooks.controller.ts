@@ -1,10 +1,28 @@
 import { Controller, Post, Req, Headers, Param, ForbiddenException, HttpCode, Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
+import * as fs from 'fs';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator';
 import { CommunicationsService } from './communications.service';
+
+/**
+ * TEMP DIAGNOSTIC: append every webhook delivery attempt to a file so the incoming-
+ * call flow can be traced without access to the dev server's console. Records type,
+ * whether a signature header was present, and whether it was accepted or rejected.
+ * Safe to remove once the incoming-call popup is confirmed working.
+ */
+function recordWebhook(endpoint: string, type: string, signed: boolean, result: string) {
+  try {
+    fs.appendFileSync(
+      'D:\\CRM\\webhook-deliveries.log',
+      `${new Date().toISOString()}  endpoint=${endpoint}  type=${type}  signed=${signed}  result=${result}\n`,
+    );
+  } catch {
+    /* diagnostics must never break delivery */
+  }
+}
 
 /** Inbound Quo (OpenPhone) webhooks — public, but HMAC-verified. */
 @ApiTags('webhooks')
@@ -28,7 +46,9 @@ export class WebhooksController {
     // signature verification (distinguishes "not delivered" from "rejected").
     const type = (req.body as { type?: string })?.type ?? 'unknown';
     this.logger.log(`Webhook delivery received: type=${type}, signed=${sig ? 'yes' : 'no'}`);
-    if (!this.comms.verifySignature(raw, sig)) throw new ForbiddenException('Invalid webhook signature');
+    const ok = this.comms.verifySignature(raw, sig);
+    recordWebhook('/api/webhooks/quo', type, !!sig, ok ? 'ACCEPTED' : 'REJECTED(signature-mismatch)');
+    if (!ok) throw new ForbiddenException('Invalid webhook signature');
     return this.comms.handleEvent((req.body as Record<string, unknown>) ?? {});
   }
 }
@@ -71,7 +91,10 @@ export class QuoHookController {
   ) {
     const type = (req.body as { type?: string })?.type ?? 'unknown';
     this.logger.log(`Hook delivery received: type=${type}`);
-    if (!this.tokenOk(token)) throw new ForbiddenException('Invalid webhook token');
+    if (!this.tokenOk(token)) {
+      recordWebhook('/hook/:token', type, false, 'REJECTED(bad-token)');
+      throw new ForbiddenException('Invalid webhook token');
+    }
 
     // Signature is verified too when a signing secret is configured; the path
     // token alone proves the URL, not that Quo sent this particular body.
@@ -81,8 +104,11 @@ export class QuoHookController {
       headers['openphone-signature'] ||
       headers['x-openphone-signature'] ||
       headers['x-webhook-signature'];
-    if (!this.comms.verifySignature(raw, sig)) throw new ForbiddenException('Invalid webhook signature');
+    const ok = this.comms.verifySignature(raw, sig);
+    recordWebhook('/hook/:token', type, !!sig, ok ? 'ACCEPTED' : 'REJECTED(signature-mismatch)');
+    if (!ok) throw new ForbiddenException('Invalid webhook signature');
 
     return this.comms.handleEvent((req.body as Record<string, unknown>) ?? {});
   }
 }
+
