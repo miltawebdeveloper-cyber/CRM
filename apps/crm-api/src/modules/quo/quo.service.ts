@@ -111,7 +111,7 @@ export class QuoService {
           }
         }),
       );
-      for (const ok of results) ok ? synced++ : failed++;
+      for (const ok of results) { if (ok) synced++; else failed++; }
     }
     return { total: leads.length, synced, failed, sandbox: this.openphone.isSandbox };
   }
