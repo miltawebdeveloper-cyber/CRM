@@ -9,6 +9,8 @@
     "packages/*"
   ],
   "scripts": {
+    "postinstall": "npm run -w @crm/database generate",
+    "heroku-postbuild": "npm run -w @crm/api build",
     "dev": "concurrently -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "npm run dev --workspace=@crm/api",
     "dev:web": "npm run dev --workspace=@crm/web",
