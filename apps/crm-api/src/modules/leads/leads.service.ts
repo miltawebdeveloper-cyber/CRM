@@ -312,7 +312,11 @@ export class LeadsService {
     return this.prisma.lead.findMany({
       where: { deletedAt: null, status: query.status, state: query.state, ...closedFilter, ...scope },
       orderBy: query.closed === true ? { closedAt: 'desc' } : { createdAt: 'desc' },
-      take: 100,
+      // Was a hardcoded 100, which quietly truncated the list: importing 300 leads
+      // showed only 100, so "select all" could never reach the rest to bulk-assign
+      // them. Caller-controlled, with a generous default and a hard ceiling in the
+      // DTO so this can't turn into an unbounded scan.
+      take: query.limit ?? 1000,
       include: {
         assignedTo: { select: { id: true, name: true, email: true } },
         closedBy: { select: { id: true, name: true, email: true } },

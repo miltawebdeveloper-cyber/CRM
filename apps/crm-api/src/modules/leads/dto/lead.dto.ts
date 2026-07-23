@@ -1,4 +1,4 @@
-import { ArrayNotEmpty, IsArray, IsBoolean, IsEmail, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsBoolean, IsEmail, IsEnum, IsInt, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Timezone, LeadStatus } from '@crm/database';
@@ -208,4 +208,18 @@ export class ListLeadsQueryDto {
   @Transform(({ value }) => (value === undefined ? undefined : value === true || value === 'true'))
   @IsBoolean()
   closed?: boolean;
+
+  /**
+   * Max rows to return. The list used to be capped at a hardcoded 100, which
+   * silently truncated Lead Management — you could never see, let alone
+   * select-all and bulk-assign, a book bigger than 100 leads. Still bounded so a
+   * caller can't ask for an unlimited scan.
+   */
+  @ApiPropertyOptional({ description: 'Max rows to return (default 1000, max 5000)' })
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  @Max(5000)
+  limit?: number;
 }
