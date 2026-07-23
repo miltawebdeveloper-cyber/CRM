@@ -15,10 +15,22 @@ import { CommunicationsService } from './communications.service';
  * level noise-wise but remain greppable.
  */
 const deliveryLog = new Logger('WebhookDelivery');
-function recordWebhook(endpoint: string, type: string, signed: boolean, result: string) {
+function recordWebhook(endpoint: string, type: string, signed: boolean, result: string, body?: unknown) {
   const line = `endpoint=${endpoint} type=${type} signed=${signed} result=${result}`;
   if (result.startsWith('REJECTED')) deliveryLog.warn(line);
   else deliveryLog.log(line);
+  // Dump the raw payload of accepted call.* events. An ACCEPTED `call.ringing`
+  // that produces no Call row means handleCall dropped it (e.g. `ignored: no
+  // phone`) because the provider nests/names fields differently from what it
+  // reads (data.object.from / .to / .direction). The body is the only way to see
+  // the real shape and correct the parser rather than guess at it.
+  if (result === 'ACCEPTED' && type.startsWith('call.') && body !== undefined) {
+    try {
+      deliveryLog.log(`PAYLOAD ${type}: ${JSON.stringify(body).slice(0, 4000)}`);
+    } catch {
+      /* diagnostics must never break delivery */
+    }
+  }
 }
 
 /** Inbound Quo (OpenPhone) webhooks — public, but HMAC-verified. */
@@ -44,7 +56,7 @@ export class WebhooksController {
     const type = (req.body as { type?: string })?.type ?? 'unknown';
     this.logger.log(`Webhook delivery received: type=${type}, signed=${sig ? 'yes' : 'no'}`);
     const ok = this.comms.verifySignature(raw, sig);
-    recordWebhook('/api/webhooks/quo', type, !!sig, ok ? 'ACCEPTED' : 'REJECTED(signature-mismatch)');
+    recordWebhook('/api/webhooks/quo', type, !!sig, ok ? 'ACCEPTED' : 'REJECTED(signature-mismatch)', req.body);
     if (!ok) throw new ForbiddenException('Invalid webhook signature');
     return this.comms.handleEvent((req.body as Record<string, unknown>) ?? {});
   }
@@ -102,7 +114,7 @@ export class QuoHookController {
       headers['x-openphone-signature'] ||
       headers['x-webhook-signature'];
     const ok = this.comms.verifySignature(raw, sig);
-    recordWebhook('/hook/:token', type, !!sig, ok ? 'ACCEPTED' : 'REJECTED(signature-mismatch)');
+    recordWebhook('/hook/:token', type, !!sig, ok ? 'ACCEPTED' : 'REJECTED(signature-mismatch)', req.body);
     if (!ok) throw new ForbiddenException('Invalid webhook signature');
 
     return this.comms.handleEvent((req.body as Record<string, unknown>) ?? {});

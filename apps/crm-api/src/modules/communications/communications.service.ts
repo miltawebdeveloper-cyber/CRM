@@ -385,7 +385,16 @@ export class CommunicationsService {
     const from = str(o.from) ?? '';
     const to = Array.isArray(o.to) ? str(o.to[0]) ?? '' : str(o.to) ?? '';
     const external = direction === CommDirection.inbound ? from : to;
-    if (!external) return { ignored: 'no phone' };
+    if (!external) {
+      // Never drop a call event silently. A verified `call.ringing` that lands here
+      // creates no Call row, so the incoming-call popup has nothing to show and the
+      // failure is invisible — which is exactly how this went unnoticed. Name the
+      // keys that actually arrived so a payload-shape mismatch is obvious.
+      this.logger.warn(
+        `${type} dropped ('no phone'): direction=${direction} from=${from || '(empty)'} to=${to || '(empty)'}; payload keys: ${Object.keys(o).join(', ') || '(none)'}`,
+      );
+      return { ignored: 'no phone' };
+    }
 
     const lead = await this.findOrCreateLeadByPhone(external);
     // Inbound calls are owned by whoever last called this customer (so missed
