@@ -1,6 +1,5 @@
 import { Controller, Post, Req, Headers, Param, ForbiddenException, HttpCode, Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
-import * as fs from 'fs';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags } from '@nestjs/swagger';
@@ -8,20 +7,18 @@ import { Public } from '../../common/decorators/public.decorator';
 import { CommunicationsService } from './communications.service';
 
 /**
- * TEMP DIAGNOSTIC: append every webhook delivery attempt to a file so the incoming-
- * call flow can be traced without access to the dev server's console. Records type,
- * whether a signature header was present, and whether it was accepted or rejected.
- * Safe to remove once the incoming-call popup is confirmed working.
+ * Record the outcome of every webhook delivery attempt to stdout, so the incoming-call
+ * flow stays traceable in a hosted environment (the platform captures stdout as runtime
+ * logs). A REJECTED line is the single most useful signal there is: it means the provider
+ * IS delivering and the signing secret is out of sync — the failure that silently breaks
+ * the popup. Rejections log at warn so they stand out; accepted deliveries stay at debug
+ * level noise-wise but remain greppable.
  */
+const deliveryLog = new Logger('WebhookDelivery');
 function recordWebhook(endpoint: string, type: string, signed: boolean, result: string) {
-  try {
-    fs.appendFileSync(
-      'D:\\CRM\\webhook-deliveries.log',
-      `${new Date().toISOString()}  endpoint=${endpoint}  type=${type}  signed=${signed}  result=${result}\n`,
-    );
-  } catch {
-    /* diagnostics must never break delivery */
-  }
+  const line = `endpoint=${endpoint} type=${type} signed=${signed} result=${result}`;
+  if (result.startsWith('REJECTED')) deliveryLog.warn(line);
+  else deliveryLog.log(line);
 }
 
 /** Inbound Quo (OpenPhone) webhooks — public, but HMAC-verified. */
