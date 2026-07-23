@@ -7,6 +7,17 @@ import * as XLSX from 'xlsx';
 import { importApi, type LeadRow } from '@/lib/crm';
 import { PageHead } from '@/components/page-head';
 
+/** Server message if there is one, else the transport error. A 413 here means the
+ *  sheet exceeded the API's request-body limit — worth naming, since the fix is a
+ *  smaller batch rather than anything about the data itself. */
+function errorText(err: unknown): string {
+  const res = (err as { response?: { status?: number; data?: { message?: string | string[] } } })?.response;
+  if (res?.status === 413) return 'The file is too large to send in one request. Split it into smaller batches and import again.';
+  const msg = res?.data?.message;
+  if (Array.isArray(msg)) return msg.join(', ');
+  return msg ?? (err as Error)?.message ?? 'Unknown error.';
+}
+
 /**
  * Canonical lead column order (matches the upload sheet). Drives parsing,
  * the preview header, and the sample. `aliases` are matched case-insensitively
@@ -309,6 +320,15 @@ export default function ImportPage() {
         <div className="mt-4 rounded-md bg-[#e4f2e4] px-4 py-3 text-sm text-[#317d34]">
           Created {importMut.data.imported} · updated {importMut.data.updated} (existing) · {importMut.data.errors.length} errors
           {importMut.data.errors.length > 0 && <ul className="mt-1 list-inside list-disc text-xs">{importMut.data.errors.slice(0, 5).map((e) => <li key={e.row}>Row {e.row}: {e.reason}</li>)}</ul>}
+        </div>
+      )}
+
+      {/* A failed import only raised a toast before, which is easy to miss and gone
+          by the time you look — so the whole upload appeared to do nothing. Show it
+          in place, next to the Import button that triggered it. */}
+      {importMut.isError && (
+        <div className="mt-4 rounded-md bg-[#fbeeec] px-4 py-3 text-sm text-[#a8431f]">
+          Import failed — nothing was saved. {errorText(importMut.error)}
         </div>
       )}
     </div>
