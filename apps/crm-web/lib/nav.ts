@@ -61,7 +61,7 @@ export const NAV: NavGroup[] = [
     items: [
       { label: 'Lead Management', href: '/leads', icon: Target, sub: 'Active lead database' },
       { label: 'Closed Leads', href: '/closed-leads', icon: CircleCheckBig, sub: 'Leads marked closed' },
-      { label: 'Sales Pipeline', href: '/pipeline', icon: GitBranch, sub: 'Deals by stage' },
+      { label: 'Sales Pipeline', href: '/pipeline', icon: GitBranch, sub: 'Deals by stage', hidden: true },
       { label: 'Follow-Ups', href: '/followups', icon: Clock, sub: 'Callbacks & reminders', roles: MANAGERS },
     ],
   },
