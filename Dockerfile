@@ -41,4 +41,11 @@ ENV NODE_ENV=production
 # Northflank injects PORT; apps/crm-api/src/main.ts binds process.env.PORT.
 # Apply any pending migrations on boot (idempotent), then start the API. Requires
 # DATABASE_URL to be set in the service's environment.
-CMD ["sh", "-c", "npm run -w @crm/database migrate:deploy && node apps/crm-api/dist/main.js"]
+# Migrations must NOT gate startup: with `&&`, any migrate failure (bad
+# DATABASE_URL, DB still booting, SSL mismatch) stops the API from ever
+# listening, and the platform's proxy then reports only an opaque
+# "upstream connect error ... connection refused" with no clue why. Running it
+# non-blocking means the API always binds its port, the health check answers, and
+# the real Prisma error is visible in the runtime logs. `exec` makes node PID 1 so
+# it receives SIGTERM and shuts down cleanly on redeploy.
+CMD ["sh", "-c", "npm run -w @crm/database migrate:deploy || echo '!!! migrate deploy FAILED - starting API anyway; check DATABASE_URL !!!'; exec node apps/crm-api/dist/main.js"]
