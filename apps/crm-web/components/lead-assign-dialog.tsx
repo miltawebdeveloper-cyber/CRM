@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { X, Check, Users, SlidersHorizontal, AlertTriangle, MapPin, Building2, Clock, Globe } from 'lucide-react';
+import { X, Check, Users, SlidersHorizontal, AlertTriangle, MapPin, Building2, Clock, Globe, ArrowRight } from 'lucide-react';
 import { assignmentsApi } from '@/lib/crm';
-import type { Lead } from '@/lib/leads';
+import { leadsApi, isAssignedToday, SAME_DAY_LOCK_MESSAGE, type Lead } from '@/lib/leads';
 import { MultiSelect } from '@/components/multi-select';
 import { Avatar } from '@/components/page-head';
 
@@ -38,6 +38,43 @@ export function LeadAssignDialog({
   const { data, isLoading } = useQuery({ queryKey: ['assignments-summary'], queryFn: assignmentsApi.summary });
   const callers = data?.callers ?? [];
 
+  // ── Assignment method ──
+  // 'selected' distributes the leads ticked in the table across several employees.
+  // 'range' ignores the selection entirely and works on a lead-id window, which is
+  // how a freshly imported block gets handed to one person without hunting for it
+  // in the table.
+  const [mode, setMode] = useState<'selected' | 'range'>('selected');
+
+  // ── Lead range ──
+  const [fromLead, setFromLead] = useState('');
+  const [toLead, setToLead] = useState('');
+  const [rangeCaller, setRangeCaller] = useState('');
+  const [ackReassign, setAckReassign] = useState(false);
+  const rangeReady = fromLead.trim() !== '' && toLead.trim() !== '';
+  const { data: rangeLeads = [], isFetching: rangeLoading } = useQuery({
+    queryKey: ['lead-range', fromLead.trim(), toLead.trim()],
+    queryFn: () => leadsApi.list({ fromLeadId: fromLead.trim(), toLeadId: toLead.trim(), limit: 5000 }),
+    enabled: mode === 'range' && rangeReady,
+  });
+  // The range deliberately covers leads that already belong to someone; moving them
+  // is the point of a re-assignment, but it must never happen unnoticed — so the
+  // count is surfaced and has to be acknowledged before the button unlocks.
+  // Locked-today and owned-by-someone are both "not assignable", but they're
+  // counted apart so the dialog can say which rule is holding a lead back.
+  const rangeLockedToday = useMemo(() => rangeLeads.filter(isAssignedToday), [rangeLeads]);
+  const rangeTaken = useMemo(() => rangeLeads.filter((l) => l.assignedTo && !isAssignedToday(l)), [rangeLeads]);
+  const rangeAssignable = useMemo(() => rangeLeads.filter((l) => !l.assignedTo && !isAssignedToday(l)), [rangeLeads]);
+  const rangeFree = rangeAssignable.length;
+  // Owned leads are never reassigned by a range: the manager must consciously choose
+  // to skip them and take the rest, or back out.
+  const rangeNeedsAck = rangeTaken.length > 0 && !ackReassign;
+
+  // Leads ticked in the table that already belong to someone. The table locks these
+  // out, but a stale selection (someone assigned them meanwhile) can still carry
+  // them in — so the popup re-checks rather than trusting the incoming list.
+  const selectedTaken = useMemo(() => leads.filter((l) => l.assignedTo || isAssignedToday(l)), [leads]);
+  const selectedLockedToday = useMemo(() => leads.filter(isAssignedToday), [leads]);
+
   // Multi-select, searchable location filters (cascade: state → city).
   const [tzSel, setTzSel] = useState<string[]>([]);
   const [stateSel, setStateSel] = useState<string[]>([]);
@@ -68,6 +105,10 @@ export function LeadAssignDialog({
     () =>
       leads.filter(
         (l) =>
+          // Never distribute a lead that already has an owner, or one handed over
+          // earlier today (locked to its owner until tomorrow).
+          !l.assignedTo &&
+          !isAssignedToday(l) &&
           (tzSel.length === 0 || tzSel.includes(l.timezone)) &&
           (stateSel.length === 0 || stateSel.includes(l.state)) &&
           (citySel.length === 0 || citySel.includes(l.city)) &&
@@ -136,7 +177,29 @@ export function LeadAssignDialog({
     },
   });
 
+  const invalidateAfterAssign = () => {
+    qc.invalidateQueries({ queryKey: ['leads'] });
+    qc.invalidateQueries({ queryKey: ['assignments-summary'] });
+    qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
+    qc.invalidateQueries({ queryKey: ['lead-range'] });
+  };
+
+  const assignRange = useMutation({
+    // Only the unowned leads in the window are sent; skipAssigned makes the server
+    // enforce the same rule rather than trusting the client's filtering.
+    mutationFn: () =>
+      assignmentsApi.manual({ leadIds: rangeAssignable.map((l) => l.id), callerId: rangeCaller, skipAssigned: true }),
+    meta: { successMessage: `Assigned ${rangeFree} lead${rangeFree === 1 ? '' : 's'} (${fromLead.trim()} → ${toLead.trim()})` },
+    onSuccess: () => {
+      invalidateAfterAssign();
+      onAssigned?.();
+      onClose();
+    },
+  });
+
   const canAssign = totalAssigned > 0 && !overAllocated && !assign.isPending;
+  const canAssignRange =
+    rangeAssignable.length > 0 && rangeCaller !== '' && !rangeNeedsAck && !rangeLoading && !assignRange.isPending;
 
   return (
     <>
@@ -151,7 +214,9 @@ export function LeadAssignDialog({
             <div>
               <h3 className="font-display text-[15px] font-semibold">Distribute lead ownership</h3>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                {leads.length} lead{leads.length > 1 ? 's' : ''} selected · filter by location, then assign a count per employee
+                {mode === 'range'
+                  ? 'Assign every lead in a lead-id range to one employee'
+                  : `${leads.length} lead${leads.length > 1 ? 's' : ''} selected · filter by location, then assign a count per employee`}
               </p>
             </div>
             <button onClick={onClose} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted">
@@ -159,7 +224,181 @@ export function LeadAssignDialog({
             </button>
           </div>
 
+          {/* Assignment method */}
+          <div className="flex gap-1 border-b bg-muted/30 px-4 py-2">
+            {([['selected', 'Selected leads'], ['range', 'Lead range']] as const).map(([m, label]) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                aria-pressed={mode === m}
+                className={`rounded-md px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                  mode === m ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-background hover:text-foreground'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           <div className="flex-1 overflow-y-auto p-4">
+            {mode === 'range' ? (
+              <>
+                {/* From → To */}
+                <div className="mb-4 rounded-xl border bg-muted/30 p-3">
+                  <span className="mb-2 inline-flex items-center gap-1.5 text-[12.5px] font-medium">
+                    <SlidersHorizontal className="h-3.5 w-3.5" /> Lead range
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <label className="min-w-0 flex-1">
+                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground">From lead</span>
+                      <input
+                        value={fromLead}
+                        onChange={(e) => { setFromLead(e.target.value); setAckReassign(false); }}
+                        placeholder="L-2026-1"
+                        className="w-full rounded-md border bg-background px-2.5 py-1.5 font-mono text-[13px] outline-none focus:border-primary"
+                      />
+                    </label>
+                    <ArrowRight className="mt-4 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <label className="min-w-0 flex-1">
+                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground">To lead</span>
+                      <input
+                        value={toLead}
+                        onChange={(e) => { setToLead(e.target.value); setAckReassign(false); }}
+                        placeholder="L-2026-300"
+                        className="w-full rounded-md border bg-background px-2.5 py-1.5 font-mono text-[13px] outline-none focus:border-primary"
+                      />
+                    </label>
+                  </div>
+                  <p className="mt-2 text-[11.5px] text-muted-foreground">
+                    Inclusive, and independent of what&apos;s ticked in the table. Use the lead id exactly as shown in the Lead ID column (e.g. L-2026-42).
+                  </p>
+                </div>
+
+                {/* What the range actually resolves to — shown before anything is assigned. */}
+                {!rangeReady && <p className="py-4 text-center text-[12.5px] text-muted-foreground">Enter both ends to preview the range.</p>}
+                {rangeReady && rangeLoading && <p className="py-4 text-center text-[12.5px] text-muted-foreground">Finding leads…</p>}
+                {rangeReady && !rangeLoading && rangeLeads.length === 0 && (
+                  <p className="py-4 text-center text-[12.5px] text-muted-foreground">No leads fall in that range.</p>
+                )}
+                {rangeReady && !rangeLoading && rangeLeads.length > 0 && (
+                  <div className="mb-4 rounded-xl border p-3">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-[12.5px] font-medium">
+                        {rangeLeads.length} lead{rangeLeads.length === 1 ? '' : 's'} in range
+                      </span>
+                      <span className="truncate font-mono text-[11.5px] text-muted-foreground">
+                        {rangeLeads[0].leadId} → {rangeLeads[rangeLeads.length - 1].leadId}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[11.5px] text-muted-foreground">
+                      <span className="font-semibold tabular-nums text-foreground">{rangeFree}</span> can be assigned ·{' '}
+                      <span className="font-semibold tabular-nums text-foreground">{rangeTaken.length}</span> already assigned
+                      {rangeLockedToday.length > 0 && (
+                        <>
+                          {' '}· <span className="font-semibold tabular-nums text-foreground">{rangeLockedToday.length}</span> locked
+                          today
+                        </>
+                      )}
+                    </p>
+                    {rangeLockedToday.length > 0 && (
+                      <p className="mt-1.5 rounded-lg bg-[#fbf3e2] px-2.5 py-2 text-[12px] text-[#8a5d0a]">
+                        <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
+                        {SAME_DAY_LOCK_MESSAGE} ({rangeLockedToday.length} in this range.)
+                      </p>
+                    )}
+                    {rangeTaken.length > 0 && (
+                      <div className="mt-2 rounded-lg bg-[#fbeeec] px-2.5 py-2 text-[12px] text-[#a8431f]">
+                        <p>
+                          <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
+                          Some leads in this range are already assigned to other employees. Duplicate lead assignment is not allowed.
+                        </p>
+                        {/* The already-owned leads, named — "which ones" is the first
+                            thing asked when a range comes back short. */}
+                        <ul className="mt-1.5 max-h-24 overflow-y-auto pl-5 font-mono text-[11px] leading-relaxed">
+                          {rangeTaken.slice(0, 12).map((l) => (
+                            <li key={l.id}>
+                              {l.leadId} — {l.assignedTo?.name}
+                            </li>
+                          ))}
+                          {rangeTaken.length > 12 && <li>+{rangeTaken.length - 12} more…</li>}
+                        </ul>
+                        <label className="mt-2 flex cursor-pointer items-start gap-2 font-medium">
+                          <input
+                            type="checkbox"
+                            checked={ackReassign}
+                            onChange={(e) => setAckReassign(e.target.checked)}
+                            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[#a8431f]"
+                          />
+                          <span>
+                            Skip {rangeTaken.length} already-assigned lead{rangeTaken.length === 1 ? '' : 's'} and assign the remaining{' '}
+                            {rangeFree}.
+                          </span>
+                        </label>
+                      </div>
+                    )}
+                    {rangeTaken.length > 0 && rangeFree === 0 && (
+                      <p className="mt-2 text-[12px] font-medium text-[#a8431f]">
+                        Every lead in this range is already assigned — nothing left to assign.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Range goes to exactly one employee. */}
+                <div className="mb-2 inline-flex items-center gap-1.5 text-[12.5px] font-medium">
+                  <Users className="h-3.5 w-3.5" /> Assign all to
+                </div>
+                {isLoading && <div className="px-2 py-6 text-center text-sm text-muted-foreground">Loading…</div>}
+                {!isLoading && callers.length === 0 && (
+                  <div className="px-2 py-6 text-center text-sm text-muted-foreground">No active employees.</div>
+                )}
+                {callers.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => setRangeCaller(c.id)}
+                    className={`mb-1.5 flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                      rangeCaller === c.id ? 'border-primary bg-primary/5' : 'border-transparent bg-background hover:border-border'
+                    }`}
+                  >
+                    <span
+                      className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border ${
+                        rangeCaller === c.id ? 'border-primary bg-primary text-primary-foreground' : 'border-input bg-background'
+                      }`}
+                    >
+                      {rangeCaller === c.id && <Check className="h-3.5 w-3.5" />}
+                    </span>
+                    <Avatar name={c.name} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium">{c.name}</span>
+                      <span className="block truncate text-[11.5px] text-muted-foreground">
+                        {c.leadCount} current lead{c.leadCount === 1 ? '' : 's'}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </>
+            ) : (
+              <>
+            {/* A lead can only ever have one owner, so any already-owned lead in the
+                selection is excluded from the pool rather than quietly taken. */}
+            {selectedTaken.length > 0 && (
+              <div className="mb-3 rounded-xl bg-[#fbeeec] px-3 py-2.5 text-[12px] text-[#a8431f]">
+                <p className="font-medium">
+                  <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
+                  {selectedLockedToday.length === selectedTaken.length
+                    ? SAME_DAY_LOCK_MESSAGE
+                    : selectedTaken.length === 1
+                      ? `This lead is already assigned to ${selectedTaken[0].assignedTo?.name}. A lead can only be assigned to one employee.`
+                      : 'Some selected leads are already assigned to other employees. Duplicate lead assignment is not allowed.'}
+                </p>
+                {selectedLockedToday.length > 0 && selectedLockedToday.length !== selectedTaken.length && (
+                  <p className="mt-1">{selectedLockedToday.length} of them were assigned today and are locked until tomorrow.</p>
+                )}
+                <p className="mt-1">
+                  {selectedTaken.length} of {leads.length} excluded — the remaining {pool.length} can be distributed below.
+                </p>
+              </div>
+            )}
             {/* Rule-based, multi-select location filters */}
             <div className="mb-4 rounded-xl border bg-muted/30 p-3">
               <div className="mb-2 flex items-center justify-between">
@@ -238,9 +477,12 @@ export function LeadAssignDialog({
                 </div>
               );
             })}
+              </>
+            )}
           </div>
 
-          {/* Preview + validation */}
+          {/* Preview + validation — the count split only applies to the selection mode. */}
+          {mode === 'selected' && (
           <div className="border-t px-5 py-3">
             <div className="grid grid-cols-3 gap-2 text-center">
               <div className="rounded-lg bg-muted/50 px-2 py-2">
@@ -277,19 +519,34 @@ export function LeadAssignDialog({
               </div>
             )}
           </div>
+          )}
 
           {/* Footer */}
           <div className="flex items-center justify-end gap-2 border-t px-5 py-3.5">
             <button onClick={onClose} className="rounded-md border bg-card px-3 py-2 text-[13px] font-medium hover:bg-muted">
               Cancel
             </button>
-            <button
-              onClick={() => assign.mutate()}
-              disabled={!canAssign}
-              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
-            >
-              {assign.isPending ? 'Assigning…' : totalAssigned > 0 ? `Assign ${totalAssigned} lead${totalAssigned === 1 ? '' : 's'}` : 'Assign leads'}
-            </button>
+            {mode === 'range' ? (
+              <button
+                onClick={() => assignRange.mutate()}
+                disabled={!canAssignRange}
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                {assignRange.isPending
+                  ? 'Assigning…'
+                  : rangeLeads.length > 0
+                    ? `Assign ${rangeLeads.length} lead${rangeLeads.length === 1 ? '' : 's'}`
+                    : 'Assign range'}
+              </button>
+            ) : (
+              <button
+                onClick={() => assign.mutate()}
+                disabled={!canAssign}
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                {assign.isPending ? 'Assigning…' : totalAssigned > 0 ? `Assign ${totalAssigned} lead${totalAssigned === 1 ? '' : 's'}` : 'Assign leads'}
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -2,12 +2,13 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Phone, Clock, NotebookPen, CheckCircle2, Download, Calendar } from 'lucide-react';
+import { Phone, Users, NotebookPen, CheckCircle2, Download, Calendar } from 'lucide-react';
 import { activitiesApi, type Activity } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
 import { StatusPill } from '@/components/status-pill';
 import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
+import { KpiCard } from '@/components/dashboard/kpi-card';
 import { downloadCsv } from '@/lib/export';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 
@@ -52,9 +53,17 @@ export default function ActivityPage() {
   const calls = activities.filter((a) => a.action === 'call_completed');
   const positive = calls.filter((a) => a.newValue === 'closed_deal' || a.newValue === 'interested').length;
 
+  // Distinct leads represented in the filtered activities.
+  const leadsTouched = new Set(activities.map((a) => a.lead?.id).filter(Boolean)).size;
+
+  // Every figure here is derived from `activities`, so all four move with the
+  // search and date filters. This row previously carried a hardcoded "5h 10m"
+  // Talk Time that never changed with the data — the activity feed carries no
+  // call duration to compute it from, so it's been replaced with a count this
+  // page can actually stand behind.
   const KPIS = [
     { icon: Phone, bg: '#d8eed9', color: '#266929', val: calls.length, lab: 'Calls Logged' },
-    { icon: Clock, bg: '#e3f1ee', color: '#2f6f63', val: '5h 10m', lab: 'Talk Time' },
+    { icon: Users, bg: '#e3f1ee', color: '#2f6f63', val: leadsTouched, lab: 'Leads Touched' },
     { icon: NotebookPen, bg: '#fbf3e2', color: '#c98a18', val: activities.length, lab: 'Activities' },
     { icon: CheckCircle2, bg: '#e4f2e4', color: '#317d34', val: positive, lab: 'Positive Outcomes' },
   ];
@@ -80,13 +89,13 @@ export default function ActivityPage() {
         ><Download className="h-4 w-4" /> Export</button>
       </PageHead>
 
+      {/* Summary cards come from the shared KpiCard, like every other module. This
+          page used to hand-roll the same markup, which meant it silently missed the
+          hover lift and entrance animation and would drift further with each tweak
+          to the real card. */}
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        {KPIS.map((k) => (
-          <div key={k.lab} className="rounded-2xl border bg-card p-[17px] shadow-sm">
-            <div className="mb-3 grid h-[38px] w-[38px] place-items-center rounded-[10px]" style={{ background: k.bg, color: k.color }}><k.icon className="h-[19px] w-[19px]" /></div>
-            <div className="font-display text-[28px] font-semibold leading-none">{k.val}</div>
-            <div className="mt-1.5 text-[12.5px] text-muted-foreground">{k.lab}</div>
-          </div>
+        {KPIS.map((k, i) => (
+          <KpiCard key={k.lab} index={i} icon={k.icon} iconBg={k.bg} iconColor={k.color} value={k.val} label={k.lab} />
         ))}
       </div>
 

@@ -1,4 +1,4 @@
-import { ArrayNotEmpty, IsArray, IsBoolean, IsEmail, IsEnum, IsInt, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsBoolean, IsEmail, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, Min, MinLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Timezone, LeadStatus } from '@crm/database';
@@ -117,7 +117,9 @@ export class CreateLeadDto {
   @IsString()
   leadSource?: string;
 
-  @ApiPropertyOptional({ description: 'Contact Person 2' })
+  // Labelled "Designation" in the UI. The column keeps its original name so the
+  // stored data and every existing integration keep working without a migration.
+  @ApiPropertyOptional({ description: 'Designation (stored as contactName2)' })
   @IsOptional()
   @IsString()
   contactName2?: string;
@@ -172,8 +174,38 @@ export class UpdateLeadDto extends PartialType(CreateLeadDto) {}
 
 /** IMP-001/005 — bulk import. Rows are validated per-row in the service so a
  * single bad row never rejects the whole file; errors are returned per row. */
+/**
+ * Bulk delete. Also carries an import rollback: the import response hands back the
+ * ids it created, and sending exactly those removes that batch and nothing else.
+ */
+export class BulkDeleteLeadsDto {
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsUUID('4', { each: true })
+  ids: string[];
+}
+
 export class ImportLeadsDto {
   @ApiProperty({ type: [CreateLeadDto], description: 'Parsed rows from the uploaded Excel/CSV' })
+  @IsArray()
+  @ArrayNotEmpty()
+  rows: CreateLeadDto[];
+
+  /**
+   * Leave out rows that duplicate an existing lead (or an earlier row in the file)
+   * by Company Name, Phone or Email. Set from the duplicate-warning dialog's "Skip
+   * Duplicate Leads"; "Import Anyway" sends it false/absent.
+   */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  skipDuplicates?: boolean;
+}
+
+/** Body for the pre-import duplicate check — just the parsed rows. */
+export class CheckImportDto {
+  @ApiProperty({ type: [CreateLeadDto] })
   @IsArray()
   @ArrayNotEmpty()
   rows: CreateLeadDto[];
@@ -222,4 +254,21 @@ export class ListLeadsQueryDto {
   @Min(1)
   @Max(5000)
   limit?: number;
+
+  /**
+   * Inclusive lead-id range, for "assign leads L-00100 → L-00300" in the Assign
+   * popup. `leadId` is a zero-padded sequential id (L-00001, L-00002 …), so a
+   * plain string comparison orders it the same way the number does. Leads that
+   * carried their own id in from an import may not fit that shape and simply
+   * won't match the range.
+   */
+  @ApiPropertyOptional({ description: 'Assign-by-range: first lead id, inclusive (e.g. L-00100)' })
+  @IsOptional()
+  @IsString()
+  fromLeadId?: string;
+
+  @ApiPropertyOptional({ description: 'Assign-by-range: last lead id, inclusive (e.g. L-00300)' })
+  @IsOptional()
+  @IsString()
+  toLeadId?: string;
 }

@@ -233,7 +233,7 @@ export default function LeadDetailPage() {
               {field('Lead Source', lead.leadSource)}
               {field('Company Name', lead.businessName)}
               {field('Contact Person', lead.contactName)}
-              {field('Contact Person', lead.contactName2)}
+              {field('Designation', lead.contactName2)}
               {field('Phone', lead.phone)}
               {field('Alt Phone', lead.altPhone)}
               {field('Email', lead.email)}
@@ -271,7 +271,7 @@ export default function LeadDetailPage() {
                 </select></label>
               <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Contact Person (Primary)</span>
                 <input className={editInput} value={form.contactName ?? ''} onChange={(e) => set('contactName', e.target.value)} /></label>
-              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Contact Person (Secondary)</span>
+              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Designation</span>
                 <input className={editInput} value={form.contactName2 ?? ''} onChange={(e) => set('contactName2', e.target.value)} /></label>
               <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Phone</span>
                 <input className={editInput} value={form.phone ?? ''} onChange={(e) => set('phone', e.target.value)} required /></label>

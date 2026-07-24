@@ -228,7 +228,7 @@ export class CallsService {
   async addNoteToCall(callId: string, dto: CreateNoteDto, userId: string) {
     const call = await this.prisma.call.findUnique({ where: { id: callId } });
     if (!call) throw new NotFoundException('Call not found');
-    return this.prisma.note.create({
+    const note = await this.prisma.note.create({
       data: {
         leadId: call.leadId,
         callId,
@@ -238,6 +238,14 @@ export class CallsService {
         createdById: userId,
       },
     });
+    // Mirror the note onto the lead's Comments so Lead Management shows the latest
+    // remark without opening the record. The note row above is the history; this
+    // field is just the newest entry, denormalized for the list column.
+    const text = dto.noteText?.trim();
+    if (text) {
+      await this.prisma.lead.update({ where: { id: call.leadId }, data: { comments: text } });
+    }
+    return note;
   }
 
   // CAL-015 — call + note history for a lead.

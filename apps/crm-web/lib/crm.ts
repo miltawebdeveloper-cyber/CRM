@@ -89,7 +89,7 @@ export interface AssignmentSummary {
 export const assignmentsApi = {
   summary: async (): Promise<AssignmentSummary> => (await api.get('/assignments/summary')).data,
   // Manually (re)assign a batch of leads to a single caller. Records history.
-  manual: async (body: { leadIds: string[]; callerId: string; batchName?: string }): Promise<{ assigned: number; callerId: string }> =>
+  manual: async (body: { leadIds: string[]; callerId: string; batchName?: string; skipAssigned?: boolean; allowReassign?: boolean }): Promise<{ assigned: number; callerId: string }> =>
     (await api.post('/assignments', body)).data,
   // Manual multi-employee distribution: each allocation names a caller and the exact leads they receive.
   batch: async (body: { allocations: { callerId: string; leadIds: string[] }[]; batchName?: string }): Promise<{ assigned: number; perCaller: Record<string, number> }> =>
@@ -779,6 +779,31 @@ export interface ImportResult {
   skipped: number;
   totalRows: number;
   errors: { row: number; reason: string }[];
+  /** Rows whose "Assigned To" employee was matched and applied. */
+  /** Ids of leads this import created — post these to rollback exactly this batch. */
+  createdIds: string[];
+  assignedSuccessfully: number;
+  /** Rows naming an employee that couldn't be matched, or a lead already owned. */
+  assignmentFailed: number;
+  /** Requirement 15 duplicate summary. */
+  newRecords: number;
+  duplicateRecords: number;
+}
+
+/** One row flagged as a duplicate by the pre-import check. */
+export interface ImportDuplicateRow {
+  index: number;
+  matchedOn: string[];
+  /** The import row's own key fields (left side of the preview grid). */
+  row: { businessName: string; phone: string; email: string };
+  /** The existing CRM lead it clashed with — null when it only repeats an earlier file row. */
+  existing: { leadId: string; businessName: string; phone: string; email: string | null; assignedTo: string | null; createdAt: string } | null;
+}
+export interface ImportCheckResult {
+  total: number;
+  newRecords: number;
+  duplicateRecords: number;
+  duplicateRows: ImportDuplicateRow[];
 }
 export interface LeadRow {
   businessName: string;
@@ -817,7 +842,11 @@ export interface LeadRow {
   createdAt?: string;
 }
 export const importApi = {
-  bulk: async (rows: LeadRow[]): Promise<ImportResult> => (await api.post('/leads/import', { rows })).data,
+  /** Import. `skipDuplicates` leaves out rows matching an existing lead (or an earlier file row). */
+  bulk: async (rows: LeadRow[], skipDuplicates = false): Promise<ImportResult> =>
+    (await api.post('/leads/import', { rows, skipDuplicates })).data,
+  /** Pre-import scan — no writes. Flags rows duplicating an existing lead by Company / Phone / Email. */
+  check: async (rows: LeadRow[]): Promise<ImportCheckResult> => (await api.post('/leads/import/check', { rows })).data,
 };
 
 /** Format seconds as "5h 10m" / "2m 40s". */

@@ -8,6 +8,7 @@ import { OutcomePill } from '@/components/outcome-pill';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
 import { downloadCsv, downloadXlsx } from '@/lib/export';
 import { Avatar } from '@/components/page-head';
+import { KpiCard } from '@/components/dashboard/kpi-card';
 import { CAT, DirectionPill, useCallFilters } from '@/components/calls-shared';
 import { DateFilter, FilterSelect, optionsFrom } from '@/components/filter-controls';
 
@@ -192,14 +193,14 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
       {/* Call summary — eight nano-compact stat tiles. A tighter gap + smaller
           padding keeps all 8 in a single row on typical ≥1280 px screens. */}
       <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
-        <StatTile icon={Phone} iconBg="#e7f0f8" iconColor="#2c5d8f" value={(stats?.total ?? 0).toLocaleString()} label="Total Calls Made" />
-        <StatTile icon={PhoneOutgoing} iconBg="#e7eed8" iconColor="#42512f" value={(stats?.outgoing ?? 0).toLocaleString()} label="Outgoing Calls" />
-        <StatTile icon={PhoneIncoming} iconBg="#e3f1ee" iconColor="#2f6f63" value={(stats?.incoming ?? 0).toLocaleString()} label="Incoming Calls" />
-        <StatTile icon={CheckCircle2} iconBg="#e8f2e4" iconColor="#3f7a32" value={(stats?.connected ?? 0).toLocaleString()} label={`Connected · ${stats?.connectedPct ?? 0}%`} />
-        <StatTile icon={PhoneMissed} iconBg="#fdecdc" iconColor="#c98a18" value={(stats?.missed ?? 0).toLocaleString()} label="Missed Calls" />
-        <StatTile icon={PhoneOff} iconBg="#fbeeec" iconColor="#a8431f" value={(stats?.failed ?? 0).toLocaleString()} label="Failed Calls" />
-        <StatTile icon={Clock} iconBg="#fbf3e2" iconColor="#c98a18" value={formatDuration(stats?.totalDurationSecs ?? 0)} label="Call Duration" />
-        <StatTile icon={Timer} iconBg="#eef0e8" iconColor="#6b7359" value={formatDuration(stats?.avgDurationSecs ?? 0)} label="Avg Call" />
+        <KpiCard icon={Phone} iconBg="#e7f0f8" iconColor="#2c5d8f" value={(stats?.total ?? 0).toLocaleString()} label="Total Calls Made" />
+        <KpiCard icon={PhoneOutgoing} iconBg="#e7eed8" iconColor="#42512f" value={(stats?.outgoing ?? 0).toLocaleString()} label="Outgoing Calls" />
+        <KpiCard icon={PhoneIncoming} iconBg="#e3f1ee" iconColor="#2f6f63" value={(stats?.incoming ?? 0).toLocaleString()} label="Incoming Calls" />
+        <KpiCard icon={CheckCircle2} iconBg="#e8f2e4" iconColor="#3f7a32" value={(stats?.connected ?? 0).toLocaleString()} label={`Connected · ${stats?.connectedPct ?? 0}%`} />
+        <KpiCard icon={PhoneMissed} iconBg="#fdecdc" iconColor="#c98a18" value={(stats?.missed ?? 0).toLocaleString()} label="Missed Calls" />
+        <KpiCard icon={PhoneOff} iconBg="#fbeeec" iconColor="#a8431f" value={(stats?.failed ?? 0).toLocaleString()} label="Failed Calls" />
+        <KpiCard icon={Clock} iconBg="#fbf3e2" iconColor="#c98a18" value={formatDuration(stats?.totalDurationSecs ?? 0)} label="Call Duration" />
+        <KpiCard icon={Timer} iconBg="#eef0e8" iconColor="#6b7359" value={formatDuration(stats?.avgDurationSecs ?? 0)} label="Avg Call" />
       </div>
 
       {/* Call Details filters — same geography/status/date bar as Lead Management. */}
@@ -253,31 +254,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
   );
 }
 
-// ── StatTile ──────────────────────────────────────────────────────────────────
-// A slimmer, more compact variant of KpiCard used for the 8-tile summary row.
-// Smaller padding, icon, value, and label so all 8 sit comfortably on one line
-// without crowding at typical 1280 px+ viewports.
-import type { LucideIcon } from 'lucide-react';
+// The 8-tile summary row used to define its own StatTile here. That tile became
+// the standard card for the whole app, so it now lives in KpiCard and this file
+// just uses it — one definition, no drift.
 
-function StatTile({ icon: Icon, iconBg, iconColor, value, label }: {
-  icon: LucideIcon;
-  iconBg: string;
-  iconColor: string;
-  value: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <div className="flex items-center gap-2.5 overflow-hidden rounded-xl border bg-card px-3 py-2.5 shadow-sm transition-all hover:-translate-y-[1px] hover:shadow-md">
-      <div
-        className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[8px]"
-        style={{ background: iconBg, color: iconColor }}
-      >
-        <Icon className="h-[13px] w-[13px]" />
-      </div>
-      <div className="min-w-0">
-        <div className="font-display text-[16px] font-semibold leading-none tracking-tight">{value}</div>
-        <div className="mt-[3px] truncate text-[10px] font-medium text-muted-foreground">{label}</div>
-      </div>
-    </div>
-  );
-}

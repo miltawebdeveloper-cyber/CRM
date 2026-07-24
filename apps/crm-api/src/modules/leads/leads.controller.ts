@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
 import { LeadsService } from './leads.service';
 import { QuoService } from '../quo/quo.service';
-import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto';
+import { BulkDeleteLeadsDto, CheckImportDto, CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 
@@ -32,6 +32,15 @@ export class LeadsController {
     return this.leads.bulkImport(dto, user.id);
   }
 
+  /** Pre-import duplicate scan — no writes. Returns which rows match an existing
+   *  lead (or an earlier row) by Company Name, Phone or Email. */
+  @Roles(Role.admin, Role.team_leader)
+  @Post('import/check')
+  @HttpCode(200)
+  checkImport(@Body() dto: CheckImportDto) {
+    return this.leads.checkImport(dto.rows);
+  }
+
   // Employees see only their assigned leads; admins/leaders see all.
   @Get()
   findAll(@Query() query: ListLeadsQueryDto, @CurrentUser() user: AuthUser) {
@@ -41,6 +50,12 @@ export class LeadsController {
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.leads.findOne(id, user);
+  }
+
+  /** Full comment trail for a lead — manual edits and call notes, newest first. */
+  @Get(':id/comments')
+  commentHistory(@Param('id') id: string) {
+    return this.leads.commentHistory(id);
   }
 
   // Edit a lead — Admin + Team Leader only. Field-level changes are logged to
@@ -53,6 +68,18 @@ export class LeadsController {
 
   // Delete (soft) — any authenticated user; employees are limited to their own
   // assigned leads (enforced in the service), managers may delete any.
+  /**
+   * Delete many leads at once, in one transaction — the bulk-delete confirmation
+   * and the "undo import" rollback both post here (rollback sends the ids the
+   * import returned, so only that batch is removed). POST, not DELETE-with-body,
+   * because request bodies on DELETE aren't reliably forwarded by every proxy.
+   */
+  @Post('bulk-delete')
+  @HttpCode(200)
+  bulkDelete(@Body() dto: BulkDeleteLeadsDto, @CurrentUser() user: AuthUser) {
+    return this.leads.removeMany(dto.ids, user);
+  }
+
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.leads.remove(id, user);

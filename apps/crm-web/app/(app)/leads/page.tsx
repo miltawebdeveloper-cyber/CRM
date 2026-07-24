@@ -3,10 +3,12 @@
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, X, Hourglass } from 'lucide-react';
-import { leadsApi, type CreateLeadInput, type Lead } from '@/lib/leads';
+import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, X, Hourglass, Lock } from 'lucide-react';
+import { leadsApi, isAssignedToday, SAME_DAY_LOCK_MESSAGE, type CreateLeadInput, type Lead } from '@/lib/leads';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { LeadAssignDialog } from '@/components/lead-assign-dialog';
+import { LeadCommentCell } from '@/components/lead-comment-cell';
+import { LeadInlineCell } from '@/components/lead-inline-cell';
 import { metricsApi } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
@@ -17,6 +19,7 @@ import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
+import { sortRows, type SortState } from '@/lib/use-column-prefs';
 import { downloadCsv, downloadXlsx } from '@/lib/export';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { usePersistedState } from '@/lib/use-persisted-state';
@@ -120,6 +123,8 @@ export default function LeadsPage() {
   const [activityLead, setActivityLead] = useState<Lead | null>(null); // Activity Log drawer (managers only)
   const [assignLeads, setAssignLeads] = useState<Lead[] | null>(null);  // Employee-wise assign popup (managers only)
   const clearTableSelection = useRef<(() => void) | null>(null);        // set from DataTable's bulkActions clear fn
+  // Lead lists open in ascending order (by lead id) until the user says otherwise.
+  const [sort, setSort] = useState<SortState>({ key: 'leadId', dir: 'asc' });
 
   // Bulk-push every not-yet-synced lead to Quo/OpenPhone as a contact.
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
@@ -144,7 +149,7 @@ export default function LeadsPage() {
     'Lead Source',
     'Company Name',
     'Contact Person',
-    'Contact Person 2',
+    'Designation',
     'Phone',
     'Alt Phone',
     'Email',
@@ -165,7 +170,8 @@ export default function LeadsPage() {
     'Next Follow-up',
     'Follow-up Count',
     'Meeting Date',
-    'Lost Reason'
+    'Lost Reason',
+    'Comments'
   ];
   const exportRows = () => leads.map((l) => [
     l.leadId,
@@ -195,7 +201,8 @@ export default function LeadsPage() {
     l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '',
     l.followupCount ?? '',
     l.meetingDate ? new Date(l.meetingDate).toLocaleDateString() : '',
-    l.lostReason ?? ''
+    l.lostReason ?? '',
+    l.comments ?? ''
   ]);
 
   // States cascade from the selected timezone; cities from timezone + state.
@@ -227,10 +234,16 @@ export default function LeadsPage() {
     : (s?.balanceLeads ?? 0);
 
   // Soft-delete selected leads (Admin / TL). Runs sequentially, then refreshes.
+  // One transaction, not a loop of requests — deleting a few hundred leads used to
+  // fire that many round-trips. Refreshes the table and every dashboard count.
   const removeLeads = useMutation({
-    mutationFn: async (rows: Lead[]) => { for (const l of rows) await leadsApi.remove(l.id); },
-    meta: { successMessage: 'Lead(s) deleted' },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['leads'] }); qc.invalidateQueries({ queryKey: ['metrics', 'summary'] }); },
+    mutationFn: (rows: Lead[]) => leadsApi.bulkDelete(rows.map((l) => l.id)),
+    meta: { successMessage: 'Selected lead(s) deleted' },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leads'] });
+      qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
+      qc.invalidateQueries({ queryKey: ['assignments-summary'] });
+    },
   });
 
   const create = useMutation({
@@ -254,7 +267,7 @@ export default function LeadsPage() {
 
   const columns = useMemo<ColumnDef<Lead>[]>(() => [
     {
-      key: 'leadId', header: 'Lead ID', required: true, searchable: true,
+      key: 'leadId', header: 'Lead ID', required: true, searchable: true, sortable: true,
       searchValue: (l) => l.leadId,
       render: (l) => (
         <div className="flex items-center gap-[10px]">
@@ -263,33 +276,71 @@ export default function LeadsPage() {
         </div>
       ),
     },
-    { key: 'leadGenerationId', header: 'Lead Generation ID', cellClassName: 'text-muted-foreground', render: (l) => l.leadGenerationId ?? '—', searchable: true, searchValue: (l) => l.leadGenerationId },
+    { key: 'leadGenerationId', header: 'Lead Generation ID', cellClassName: 'text-muted-foreground', render: (l) => l.leadGenerationId ?? '—', searchable: true, sortable: true, searchValue: (l) => l.leadGenerationId },
     { key: 'createdDate', header: 'Created Date', cellClassName: 'text-muted-foreground', render: (l) => l.createdAt ? new Date(l.createdAt).toLocaleDateString() : '—' },
-    { key: 'leadSource', header: 'Lead Source', cellClassName: 'text-muted-foreground', render: (l) => l.leadSource ?? '—', searchable: true, searchValue: (l) => l.leadSource },
-    { key: 'businessName', header: 'Company Name', render: (l) => l.businessName, searchable: true, searchValue: (l) => l.businessName },
-    { key: 'contactName', header: 'Contact Person', render: (l) => l.contactName ?? '—', searchable: true, searchValue: (l) => l.contactName },
-    { key: 'contactName2', header: 'Contact Person 2', render: (l) => l.contactName2 ?? '—', searchable: true, searchValue: (l) => l.contactName2 },
-    { key: 'phone', header: 'Phone', cellClassName: 'font-mono text-[12px] text-muted-foreground', render: (l) => l.phone, searchable: true, searchValue: (l) => l.phone },
-    { key: 'altPhone', header: 'Alt Phone', cellClassName: 'font-mono text-[12px] text-muted-foreground', render: (l) => l.altPhone ?? '—', searchable: true, searchValue: (l) => l.altPhone },
-    { key: 'email', header: 'Email', cellClassName: 'text-muted-foreground', render: (l) => l.email ?? '—', searchable: true, searchValue: (l) => l.email },
-    { key: 'website', header: 'Website', cellClassName: 'text-muted-foreground', render: (l) => l.website ?? '—', searchable: true, searchValue: (l) => l.website },
-    { key: 'socialMedia', header: 'Social Media', cellClassName: 'text-muted-foreground', render: (l) => l.socialMedia ?? '—', searchable: true, searchValue: (l) => l.socialMedia },
-    { key: 'country', header: 'Country', cellClassName: 'text-muted-foreground', render: (l) => l.country ?? '—', searchable: true, searchValue: (l) => l.country },
-    { key: 'state', header: 'State', cellClassName: 'text-muted-foreground', render: (l) => l.state, searchable: true, searchValue: (l) => l.state },
-    { key: 'city', header: 'City', cellClassName: 'text-muted-foreground', render: (l) => l.city, searchable: true, searchValue: (l) => l.city },
+    { key: 'leadSource', header: 'Lead Source', cellClassName: 'text-muted-foreground', render: (l) => l.leadSource ?? '—', searchable: true, sortable: true, searchValue: (l) => l.leadSource },
+    { key: 'businessName', header: 'Company Name', render: (l) => l.businessName, searchable: true, sortable: true, searchValue: (l) => l.businessName },
+    { key: 'contactName', header: 'Contact Person', render: (l) => l.contactName ?? '—', searchable: true, sortable: true, searchValue: (l) => l.contactName },
+    { key: 'contactName2', header: 'Designation', render: (l) => l.contactName2 ?? '—', searchable: true, sortable: true, searchValue: (l) => l.contactName2 },
+    { key: 'phone', header: 'Phone', cellClassName: 'font-mono text-[12px] text-muted-foreground', render: (l) => l.phone, searchable: true, sortable: true, searchValue: (l) => l.phone },
+    { key: 'altPhone', header: 'Alt Phone', cellClassName: 'font-mono text-[12px] text-muted-foreground', render: (l) => l.altPhone ?? '—', searchable: true, sortable: true, searchValue: (l) => l.altPhone },
+    { key: 'email', header: 'Email', cellClassName: 'text-muted-foreground', render: (l) => l.email ?? '—', searchable: true, sortable: true, searchValue: (l) => l.email },
+    { key: 'website', header: 'Website', cellClassName: 'text-muted-foreground', render: (l) => l.website ?? '—', searchable: true, sortable: true, searchValue: (l) => l.website },
+    { key: 'socialMedia', header: 'Social Media', cellClassName: 'text-muted-foreground', render: (l) => l.socialMedia ?? '—', searchable: true, sortable: true, searchValue: (l) => l.socialMedia },
+    { key: 'country', header: 'Country', cellClassName: 'text-muted-foreground', render: (l) => l.country ?? '—', searchable: true, sortable: true, searchValue: (l) => l.country },
+    { key: 'state', header: 'State', cellClassName: 'text-muted-foreground', render: (l) => l.state, searchable: true, sortable: true, searchValue: (l) => l.state },
+    { key: 'city', header: 'City', cellClassName: 'text-muted-foreground', render: (l) => l.city, searchable: true, sortable: true, searchValue: (l) => l.city },
     { key: 'tz', header: 'Time Zone', render: (l) => <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold">{l.timezone}</span> },
-    { key: 'industry', header: 'Industry', cellClassName: 'text-muted-foreground', render: (l) => l.industry ?? '—', searchable: true, searchValue: (l) => l.industry },
-    { key: 'companySize', header: 'Company Size', cellClassName: 'text-muted-foreground', render: (l) => l.companySize ?? '—', searchable: true, searchValue: (l) => l.companySize },
-    { key: 'foundedYear', header: 'Founded Year', cellClassName: 'text-muted-foreground', render: (l) => l.foundedYear ?? '—', searchable: true, searchValue: (l) => l.foundedYear },
-    { key: 'address', header: 'Address', cellClassName: 'text-muted-foreground max-w-[200px] truncate', render: (l) => l.address ?? '—', searchable: true, searchValue: (l) => l.address },
-    { key: 'caller', header: 'Assigned To', render: (l) => l.assignedTo?.name ?? '—', searchable: true, trackable: true, searchValue: (l) => l.assignedTo?.name },
-    { key: 'callStatus', header: 'Call Status', cellClassName: 'text-muted-foreground', render: (l) => l.callStatus ?? '—', searchable: true, searchValue: (l) => l.callStatus },
+    { key: 'industry', header: 'Industry', cellClassName: 'text-muted-foreground', render: (l) => l.industry ?? '—', searchable: true, sortable: true, searchValue: (l) => l.industry },
+    { key: 'companySize', header: 'Company Size', cellClassName: 'text-muted-foreground', render: (l) => l.companySize ?? '—', searchable: true, sortable: true, searchValue: (l) => l.companySize },
+    { key: 'foundedYear', header: 'Founded Year', cellClassName: 'text-muted-foreground', render: (l) => l.foundedYear ?? '—', searchable: true, sortable: true, searchValue: (l) => l.foundedYear },
+    { key: 'address', header: 'Address', cellClassName: 'text-muted-foreground max-w-[200px] truncate', render: (l) => l.address ?? '—', searchable: true, sortable: true, searchValue: (l) => l.address },
+    // An owned lead is called out with a badge, not just a name: a lead has exactly
+    // one owner, and these rows are locked out of bulk assignment, so it has to be
+    // obvious at a glance why their checkbox is greyed out.
+    {
+      key: 'caller',
+      header: 'Assigned To',
+      render: (l) =>
+        l.assignedTo ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-[#d8eed9] px-2 py-0.5 text-[11px] font-medium text-[#266929]">
+            <Lock className="h-3 w-3" /> {l.assignedTo.name}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">Unassigned</span>
+        ),
+      searchable: true,
+      trackable: true,
+      searchValue: (l) => l.assignedTo?.name,
+    },
+    { key: 'callStatus', header: 'Call Status', cellClassName: 'text-muted-foreground', render: (l) => l.callStatus ?? '—', searchable: true, sortable: true, searchValue: (l) => l.callStatus },
     { key: 'firstContact', header: 'First Contact', cellClassName: 'text-muted-foreground', render: (l) => l.firstContact ? new Date(l.firstContact).toLocaleDateString() : '—' },
     { key: 'lastContact', header: 'Last Contact', cellClassName: 'text-muted-foreground', render: (l) => l.lastContact ? new Date(l.lastContact).toLocaleDateString() : '—' },
     { key: 'followup', header: 'Next Follow-up', cellClassName: 'text-muted-foreground', render: (l) => l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '—', trackable: true },
     { key: 'followupCount', header: 'Follow-up Count', cellClassName: 'text-muted-foreground', render: (l) => l.followupCount ?? '—' },
+    // Requested tail order: Meeting Date → Comments → Lost Reason → Actions. Comments
+    // and Lost Reason both edit in place; Comments also syncs with call notes.
     { key: 'meetingDate', header: 'Meeting Date', cellClassName: 'text-muted-foreground', render: (l) => l.meetingDate ? new Date(l.meetingDate).toLocaleDateString() : '—' },
-    { key: 'lostReason', header: 'Lost Reason', cellClassName: 'text-muted-foreground', render: (l) => l.lostReason ?? '—', searchable: true, searchValue: (l) => l.lostReason },
+    {
+      key: 'comments',
+      header: 'Comments',
+      width: 240,
+      render: (l) => <LeadCommentCell lead={l} />,
+      searchable: true,
+      trackable: true,
+      sortable: true,
+      searchValue: (l) => l.comments,
+    },
+    {
+      key: 'lostReason',
+      header: 'Lost Reason',
+      width: 200,
+      render: (l) => <LeadInlineCell lead={l} field="lostReason" placeholder="Add a reason…" />,
+      searchable: true,
+      trackable: true,
+      sortable: true,
+      searchValue: (l) => l.lostReason,
+    },
     {
       key: 'actions', header: '', required: true,
       render: (l) => (
@@ -320,7 +371,7 @@ export default function LeadsPage() {
   // All columns that have a searchValue — search runs across ALL of them regardless
   // of which columns the user has toggled visible in Column Customization.
   const searchCols = useMemo(() => columns.filter((c) => c.searchable && c.searchValue), [columns]);
-  const leads = allLeads.filter((l) => {
+  const filteredLeads = allLeads.filter((l) => {
     // Lead Status filter logic
     if (status === 'assigned'   && !l.assignedTo) return false;
     if (status === 'unassigned' && !!l.assignedTo) return false;
@@ -335,6 +386,12 @@ export default function LeadsPage() {
     if (term && !searchCols.some((c) => String(c.searchValue!(l) ?? '').toLowerCase().includes(term))) return false;
     return true;
   });
+
+  // Sorting is owned here rather than inside the table so that Export CSV/Excel can
+  // reuse the exact order on screen — `leads` is what both the grid and the export
+  // read. Ascending by lead id is the default, per spec.
+  const sortedLeads = useMemo(() => sortRows(filteredLeads, sort, columns), [filteredLeads, sort, columns]);
+  const leads = sortedLeads;
 
   return (
     <div>
@@ -421,7 +478,7 @@ export default function LeadsPage() {
             ['leadSource', 'Lead Source'],
             ['businessName', 'Company Name *'],
             ['contactName', 'Contact Person (Primary)'],
-            ['contactName2', 'Contact Person (Secondary)'],
+            ['contactName2', 'Designation'],
             ['phone', 'Phone *'],
             ['altPhone', 'Alt Phone'],
             ['email', 'Email'],
@@ -503,8 +560,29 @@ export default function LeadsPage() {
         // screen. Lead Management has the most columns, so it needs it most.
         fillViewport
         selectable
-        onDeleteSelected={canManage ? (rows) => removeLeads.mutateAsync(rows) : undefined}
-        deleteConfirm={(rows) => `Permanently delete ${rows.length} lead${rows.length > 1 ? 's' : ''}? This also removes all associated data — calls, notes, messages, activities, assignments and zoom meetings. This cannot be undone.`}
+        // Drag across rows to select a run of leads, then assign them in one go —
+        // far quicker than ticking hundreds of boxes after a bulk import.
+        dragSelect
+        // A lead has exactly one owner, so one that already belongs to someone is
+        // locked out of selection entirely — that keeps it out of select-all and
+        // drag sweeps, which is where a bulk assignment would otherwise quietly
+        // take it off them.
+        sort={sort}
+        onSortChange={setSort}
+        // Lead Management headings read as capitals; the underlying column names stay
+        // mixed-case for the Column Chooser and the CSV/Excel export.
+        uppercaseHeaders
+        // Two separate locks. A lead handed over TODAY is held for the rest of the
+        // day whoever owns it; after that it's only blocked while it belongs to
+        // someone else, and becomes freely reassignable again from tomorrow.
+        isRowSelectable={(l) => !isAssignedToday(l) && !l.assignedTo}
+        rowNotSelectableReason={(l) =>
+          isAssignedToday(l)
+            ? SAME_DAY_LOCK_MESSAGE
+            : `Already assigned to ${l.assignedTo?.name ?? 'another employee'}. A lead can only be assigned to one employee.`
+        }
+        onDeleteSelected={canManage ? async (rows) => { await removeLeads.mutateAsync(rows); } : undefined}
+        deleteConfirm={() => 'Are you sure you want to delete the selected lead(s)? This action cannot be undone.'}
         bulkActions={canManage ? (rows, clear) => (
           <button
             onClick={() => { clearTableSelection.current = clear; setAssignLeads(rows); }}

@@ -17,7 +17,10 @@ export interface Lead {
   industry: string | null;
   title: string | null;
   employeeCode: string | null;
-  comments: string | null;
+  comments: string | null;   // latest remark; full trail via leadsApi.commentHistory
+  /** When the lead last changed hands. Same-day = locked until tomorrow. */
+  assignedAt?: string | null;
+
   leadCategory: string | null;
   nextFollowUpDate: string | null;
   callStatus: string | null;
@@ -52,6 +55,37 @@ export interface Lead {
   quoError: string | null;
   quoSyncedAt: string | null;
   createdAt: string;
+}
+
+/**
+ * Warning shown wherever a same-day reassignment is refused. Mirrors the API's
+ * message so the client blocks with the same wording the server would.
+ */
+export const SAME_DAY_LOCK_MESSAGE =
+  'This lead has already been assigned today. Reassignment is allowed only from the next day.';
+
+/**
+ * True when the lead changed hands earlier today, which locks it to its current
+ * owner until tomorrow. `assignedAt` is the newest active handover.
+ */
+export function isAssignedToday(lead: { assignedAt?: string | null }): boolean {
+  if (!lead.assignedAt) return false;
+  const at = new Date(lead.assignedAt);
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  return at >= start;
+}
+
+/**
+ * One entry in a lead's comment trail. Manual edits and call notes share the same
+ * feed; `source` says which one it came from.
+ */
+export interface LeadComment {
+  id: string;
+  text: string;
+  at: string;
+  user: string;
+  source: 'Manual Update' | 'Call Notes';
 }
 
 export interface LeadActivity {
@@ -119,10 +153,14 @@ export const leadsApi = {
   // Management module). `closed` splits the two lead modules: false lists the
   // active book, true the Closed Leads module (scoped for employees to the
   // leads they closed). Omit both to list every record.
-  list: async (opts?: { mine?: boolean; closed?: boolean }): Promise<Lead[]> => {
-    const params: Record<string, boolean> = {};
+  list: async (opts?: { mine?: boolean; closed?: boolean; fromLeadId?: string; toLeadId?: string; limit?: number }): Promise<Lead[]> => {
+    const params: Record<string, boolean | string | number> = {};
     if (opts?.mine) params.mine = true;
     if (opts?.closed !== undefined) params.closed = opts.closed;
+    // Assign-by-range: an inclusive lead-id window, resolved server-side.
+    if (opts?.fromLeadId) params.fromLeadId = opts.fromLeadId;
+    if (opts?.toLeadId) params.toLeadId = opts.toLeadId;
+    if (opts?.limit) params.limit = opts.limit;
     return (await api.get('/leads', { params: Object.keys(params).length ? params : undefined })).data;
   },
   get: async (id: string): Promise<Lead> => (await api.get(`/leads/${id}`)).data,
@@ -131,6 +169,10 @@ export const leadsApi = {
   // Managers-only edit. Any subset of fields; `status` and `caller` (reassign)
   // are accepted in addition to the create fields.
   update: async (id: string, input: UpdateLeadInput): Promise<Lead> => (await api.patch(`/leads/${id}`, input)).data,
+  /** Comment trail (manual edits + call notes), newest first. */
+  commentHistory: async (id: string): Promise<LeadComment[]> => (await api.get(`/leads/${id}/comments`)).data,
+  /** Delete many leads in one transaction. Import rollback posts the import's createdIds here. */
+  bulkDelete: async (ids: string[]): Promise<{ deleted: number }> => (await api.post('/leads/bulk-delete', { ids })).data,
   remove: async (id: string) => (await api.delete(`/leads/${id}`)).data,
   syncToQuo: async (id: string) => (await api.post(`/leads/${id}/quo-sync`)).data,
   syncAllToQuo: async (): Promise<{ total: number; synced: number; failed: number; sandbox: boolean }> =>

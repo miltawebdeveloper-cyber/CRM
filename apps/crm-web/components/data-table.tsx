@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { SlidersHorizontal, GripVertical, X, RotateCcw, Pencil, Trash2 } from 'lucide-react';
-import { useColumnPrefs, type ColumnDef, type ColumnPrefs } from '@/lib/use-column-prefs';
+import { SlidersHorizontal, GripVertical, X, RotateCcw, Pencil, Trash2, ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react';
+import { useColumnPrefs, type ColumnDef, type ColumnPrefs, type SortState } from '@/lib/use-column-prefs';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 
 export type { ColumnDef } from '@/lib/use-column-prefs';
 export { useColumnPrefs } from '@/lib/use-column-prefs';
@@ -64,6 +65,35 @@ interface DataTableProps<T> {
    * fit its rows, which is fine for short ones.
    */
   fillViewport?: boolean;
+  /**
+   * Click-and-drag across rows to select a run of them, instead of ticking each
+   * checkbox. Opt-in, because on a table whose rows are primarily click-to-open
+   * it would fight the row click. Dragging from an unselected row selects the
+   * run; dragging from a selected one clears it. Requires checkbox selection.
+   */
+  dragSelect?: boolean;
+  /**
+   * Rows that can't be picked. Returning false disables that row's checkbox and
+   * keeps it out of select-all and drag sweeps — used for leads that already
+   * belong to an employee, which must never be swept up by a bulk assignment.
+   * `reason` is surfaced as the checkbox tooltip.
+   */
+  isRowSelectable?: (row: T) => boolean;
+  rowNotSelectableReason?: (row: T) => string;
+  /**
+   * Active sort, owned by the page rather than the table. The page sorts `rows`
+   * itself (via `sortRows`) so that exports can reuse exactly the order on screen
+   * — a table that sorted internally would leave the Excel file in a different
+   * sequence from the grid it was exported from.
+   */
+  sort?: SortState | null;
+  onSortChange?: (sort: SortState) => void;
+  /**
+   * Render the header row in capitals. Styling only — `header` keeps its original
+   * casing, so the Column Chooser and CSV/Excel exports still read as proper names
+   * rather than shouting.
+   */
+  uppercaseHeaders?: boolean;
 }
 
 export function DataTable<T>({
@@ -88,6 +118,12 @@ export function DataTable<T>({
   bulkActions,
   prefs: prefsProp,
   fillViewport,
+  dragSelect,
+  isRowSelectable,
+  rowNotSelectableReason,
+  sort,
+  onSortChange,
+  uppercaseHeaders,
 }: DataTableProps<T>) {
   // Always create an instance (hooks can't be conditional); prefer the page's
   // shared prefs when provided so config stays in sync with the page's data.
@@ -106,7 +142,14 @@ export function DataTable<T>({
   // selectedRows filters against the current rows, so keys for rows that have
   // been filtered out simply don't count — no separate pruning needed.
   const selectedRows = useMemo(() => rows.filter((r) => selected.has(getRowKey(r))), [rows, selected, getRowKey]);
-  const allSelected = rows.length > 0 && selectedRows.length === rows.length;
+  // Rows the caller allows picking. Select-all and drag operate on these only, so
+  // a locked row can never be swept into a bulk action by accident.
+  const canSelectRow = (row: T) => (isRowSelectable ? isRowSelectable(row) : true);
+  const pickableRows = useMemo(
+    () => (isRowSelectable ? rows.filter(isRowSelectable) : rows),
+    [rows, isRowSelectable],
+  );
+  const allSelected = pickableRows.length > 0 && selectedRows.length === pickableRows.length;
   const someSelected = selectedRows.length > 0 && !allSelected;
   const clearSelection = () => setSelected(new Set());
   const toggleRow = (key: string) =>
@@ -115,23 +158,85 @@ export function DataTable<T>({
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
-  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(rows.map(getRowKey)));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(pickableRows.map(getRowKey)));
+
+  // ── Drag-to-select ──
+  // Every extension of the drag is applied against the selection as it was when
+  // the drag STARTED, not the previous frame, so sweeping past a row and back
+  // again leaves it as it was rather than latching it on.
+  const dragOn = dragSelect === true && showCheckbox;
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef<{ anchor: number; mode: 'add' | 'remove'; moved: boolean } | null>(null);
+  const dragBaseRef = useRef<Set<string>>(new Set());
+  // A drag ends in a click on the row it finished over; without this that click
+  // would also fire the row's own handler (opening a lead, say).
+  const suppressClickRef = useRef(false);
+
+  const applyDragRange = (index: number) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const [lo, hi] = d.anchor <= index ? [d.anchor, index] : [index, d.anchor];
+    // Locked rows inside the swept span are stepped over, not selected.
+    const keys = rows.slice(lo, hi + 1).filter(canSelectRow).map(getRowKey);
+    setSelected(() => {
+      const next = new Set(dragBaseRef.current);
+      for (const k of keys) (d.mode === 'add' ? next.add(k) : next.delete(k));
+      return next;
+    });
+  };
+
+  const startDrag = (e: React.MouseEvent, index: number, key: string) => {
+    // Left button only, and never when the press landed on something interactive
+    // (the row's own checkbox, action buttons, links).
+    if (!dragOn || e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
+    // Starting on a locked row would set the drag's add/remove mode from a row that
+    // can never change — begin the sweep only from a pickable one.
+    if (!canSelectRow(rows[index])) return;
+    dragBaseRef.current = new Set(selected);
+    dragRef.current = { anchor: index, mode: selected.has(key) ? 'remove' : 'add', moved: false };
+    setDragging(true);
+    applyDragRange(index);
+    e.preventDefault(); // stops the browser text-selecting across rows
+  };
+
+  const extendDrag = (index: number) => {
+    if (!dragRef.current) return;
+    dragRef.current.moved = true;
+    applyDragRange(index);
+  };
+
+  // Release anywhere ends the drag — including outside the table, which is where
+  // a fast sweep usually lets go.
+  useEffect(() => {
+    if (!dragging) return;
+    const onUp = () => {
+      suppressClickRef.current = !!dragRef.current?.moved;
+      dragRef.current = null;
+      setDragging(false);
+      if (suppressClickRef.current) setTimeout(() => (suppressClickRef.current = false), 0);
+    };
+    window.addEventListener('mouseup', onUp);
+    return () => window.removeEventListener('mouseup', onUp);
+  }, [dragging]);
 
   const selectAllRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (selectAllRef.current) selectAllRef.current.indeterminate = someSelected;
   }, [someSelected]);
 
-  const runDelete = async () => {
+  // Delete opens the styled confirm dialog rather than window.confirm — same flow,
+  // but in the product's own voice and with a busy state while it runs.
+  const [confirmDelete, setConfirmDelete] = useState<T[] | null>(null);
+  const runDelete = () => {
     if (!onDeleteSelected || selectedRows.length === 0) return;
-    const n = selectedRows.length;
-    const msg = deleteConfirm
-      ? deleteConfirm(selectedRows)
-      : `Delete ${n} selected record${n > 1 ? 's' : ''}? This can’t be undone.`;
-    if (typeof window !== 'undefined' && !window.confirm(msg)) return;
+    setConfirmDelete(selectedRows);
+  };
+  const doDelete = async () => {
+    if (!onDeleteSelected || !confirmDelete) return;
     setDeleting(true);
     try {
-      await onDeleteSelected(selectedRows);
+      await onDeleteSelected(confirmDelete);
       clearSelection();
     } finally {
       setDeleting(false);
@@ -204,6 +309,20 @@ export function DataTable<T>({
   // until `maxHeight` makes the viewport scrollable.
   const stickyHeadCls = 'sticky top-0 bg-background shadow-[inset_0_-1px_0_hsl(var(--border))]';
 
+  // ── Sorting ──
+  // Controlled by the page (it owns the ordering so exports match the grid).
+  const sortOn = !!sort && !!onSortChange;
+  const sortedColLabel = sortOn ? (columns.find((c) => c.key === sort!.key)?.header ?? sort!.key) : '';
+  // Clicking a sortable header sorts by it; clicking the one already active flips
+  // direction. A newly picked column always starts ascending.
+  const toggleSort = (key: string) => {
+    if (!onSortChange) return;
+    onSortChange(sort?.key === key ? { key, dir: sort.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+  };
+
+  // Header casing, applied to BOTH the th and the sort button inside it.
+  const headCaseCls = uppercaseHeaders ? 'uppercase tracking-[.06em]' : '';
+
   // Effective width for a column: user-set override → column default → auto.
   const widthOf = (c: ColumnDef<T>): number | undefined => prefs.widths[c.key] ?? c.width;
 
@@ -269,6 +388,34 @@ export function DataTable<T>({
               </div>
             )}
             {toolbar}
+            {/* Sort direction — sits immediately left of the Column Chooser. Shows
+                which column is ordering the grid and flips asc/desc; the active
+                arrow is the highlighted one. */}
+            {sortOn && (
+              <div className="flex items-center gap-1 rounded-md border bg-card px-1.5 py-1">
+                <span className="max-w-[110px] truncate pl-1 pr-0.5 text-[11.5px] text-muted-foreground" title={sortedColLabel}>
+                  {sortedColLabel}
+                </span>
+                <button
+                  onClick={() => onSortChange?.({ key: sort!.key, dir: 'asc' })}
+                  title="Sort ascending"
+                  aria-label="Sort ascending"
+                  aria-pressed={sort!.dir === 'asc'}
+                  className={`grid h-6 w-6 place-items-center rounded ${sort!.dir === 'asc' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}
+                >
+                  <ArrowUp className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => onSortChange?.({ key: sort!.key, dir: 'desc' })}
+                  title="Sort descending"
+                  aria-label="Sort descending"
+                  aria-pressed={sort!.dir === 'desc'}
+                  className={`grid h-6 w-6 place-items-center rounded ${sort!.dir === 'desc' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`}
+                >
+                  <ArrowDown className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
             <ColumnsButton onClick={() => setPanelOpen(true)} customized={prefs.customized} />
           </div>
         </div>
@@ -299,9 +446,36 @@ export function DataTable<T>({
                   <th
                     key={c.key}
                     style={w ? { width: w, minWidth: w, maxWidth: w } : undefined}
-                    className={`group/th relative px-4 py-[11px] font-semibold ${stickyHeadCls} ${c.headerClassName ?? ''}`}
+                    className={`group/th relative px-4 py-[11px] font-semibold ${headCaseCls} ${stickyHeadCls} ${c.headerClassName ?? ''}`}
                   >
-                    <span className={w ? 'block truncate' : undefined}>{c.header}</span>
+                    {sortOn && c.sortable ? (
+                      // Click the header to order by that column; the active one
+                      // carries the direction arrow, the rest a muted hint.
+                      <button
+                        onClick={() => toggleSort(c.key)}
+                        title={`Sort by ${c.header}`}
+                        // The uppercase class is repeated here on purpose: the
+                        // browser reset sets `text-transform: none` on <button>,
+                        // which would otherwise cancel the casing inherited from
+                        // the <th> and leave only the unsortable headers in caps.
+                        className={`flex w-full items-center gap-1 font-semibold ${headCaseCls} ${c.headerClassName?.includes('text-right') ? 'justify-end' : ''} ${
+                          sort!.key === c.key ? 'text-foreground' : 'hover:text-foreground'
+                        }`}
+                      >
+                        <span className={w ? 'truncate' : undefined}>{c.header}</span>
+                        {sort!.key === c.key ? (
+                          sort!.dir === 'asc' ? (
+                            <ArrowUp className="h-3 w-3 shrink-0 text-primary" />
+                          ) : (
+                            <ArrowDown className="h-3 w-3 shrink-0 text-primary" />
+                          )
+                        ) : (
+                          <ChevronsUpDown className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover/th:opacity-40" />
+                        )}
+                      </button>
+                    ) : (
+                      <span className={w ? 'block truncate' : undefined}>{c.header}</span>
+                    )}
                     <span
                       onMouseDown={(e) => startResize(e, c.key)}
                       title="Drag to resize"
@@ -322,25 +496,38 @@ export function DataTable<T>({
             {!loading && rows.map((row, i) => {
               const key = getRowKey(row);
               const isSel = selected.has(key);
+              const pickable = canSelectRow(row);
               // In 'row' selection mode a row click toggles selection; otherwise
               // it falls back to the caller's onRowClick (if any).
               const rowMode = selectionOn && selectionMode === 'row';
-              const handleRowClick = rowMode ? () => toggleRow(key) : onRowClick ? () => onRowClick(row) : undefined;
+              const baseRowClick = rowMode ? () => toggleRow(key) : onRowClick ? () => onRowClick(row) : undefined;
+              // Swallow the click that ends a drag, so finishing a sweep on a row
+              // doesn't also trigger that row's action.
+              const handleRowClick = baseRowClick
+                ? () => {
+                    if (suppressClickRef.current) return;
+                    baseRowClick();
+                  }
+                : undefined;
               return (
               <tr
                 key={key}
                 onClick={handleRowClick}
+                onMouseDown={dragOn ? (e) => startDrag(e, i, key) : undefined}
+                onMouseEnter={dragOn ? () => extendDrag(i) : undefined}
                 aria-selected={rowMode ? isSel : undefined}
-                className={`group border-b last:border-0 hover:bg-muted/50 ${isSel ? 'bg-primary/5' : ''} ${handleRowClick ? 'cursor-pointer' : ''} ${rowClassName}`}
+                className={`group border-b last:border-0 hover:bg-muted/50 ${isSel ? 'bg-primary/5' : ''} ${handleRowClick ? 'cursor-pointer' : ''} ${dragging ? 'select-none' : ''} ${rowClassName}`}
               >
                 {showCheckbox && (
                   <td className="w-10 px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={isSel}
-                      onChange={() => toggleRow(key)}
+                      disabled={!pickable}
+                      title={pickable ? undefined : rowNotSelectableReason?.(row)}
+                      onChange={() => pickable && toggleRow(key)}
                       aria-label="Select row"
-                      className="h-4 w-4 cursor-pointer accent-[#266929] align-middle"
+                      className={`h-4 w-4 accent-[#266929] align-middle ${pickable ? 'cursor-pointer' : 'cursor-not-allowed opacity-40'}`}
                     />
                   </td>
                 )}
@@ -371,6 +558,20 @@ export function DataTable<T>({
       </div>
 
       <CustomizePanel open={panelOpen} onClose={() => setPanelOpen(false)} prefs={prefs} />
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Confirm Delete"
+          message={
+            deleteConfirm
+              ? deleteConfirm(confirmDelete)
+              : `Are you sure you want to delete the selected ${confirmDelete.length === 1 ? 'record' : `${confirmDelete.length} records`}? This action cannot be undone.`
+          }
+          confirmLabel={deleteLabel}
+          onConfirm={doDelete}
+          onClose={() => setConfirmDelete(null)}
+        />
+      )}
     </div>
   );
 }

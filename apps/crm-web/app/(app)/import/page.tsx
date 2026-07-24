@@ -1,10 +1,13 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
-import { Upload, Check, AlertTriangle } from 'lucide-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Upload, Check, AlertTriangle, Undo2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { importApi, type LeadRow } from '@/lib/crm';
+import { leadsApi } from '@/lib/leads';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ImportDuplicatesDialog } from '@/components/import-duplicates-dialog';
 import { PageHead } from '@/components/page-head';
 
 /** Server message if there is one, else the transport error. A 413 here means the
@@ -30,7 +33,9 @@ const COLUMNS: { key: keyof LeadRow; label: string; aliases: string[] }[] = [
   { key: 'leadSource', label: 'Lead Source', aliases: ['lead source', 'leadsource'] },
   { key: 'businessName', label: 'Company Name', aliases: ['company name', 'company', 'business name', 'businessname', 'business'] },
   { key: 'contactName', label: 'Contact Person', aliases: ['contact person', 'contactname', 'contact person 1', 'primary contact'] },
-  { key: 'contactName2', label: 'Contact Person 2', aliases: ['contact person 2', 'contactname2', 'secondary contact'] },
+  // Renamed from "Contact Person 2" — the old spellings stay as aliases so sheets
+  // already in circulation keep importing into the same column.
+  { key: 'contactName2', label: 'Designation', aliases: ['designation', 'contact person 2', 'contactname2', 'secondary contact'] },
   { key: 'phone', label: 'Phone', aliases: ['phone', 'phone number', 'mobile'] },
   { key: 'altPhone', label: 'Alt Phone', aliases: ['alt phone', 'altphone', 'alternate phone'] },
   { key: 'email', label: 'Email', aliases: ['email', 'e-mail'] },
@@ -173,10 +178,11 @@ function buildRows(file: ParsedFile, mapping: Mapping): LeadRow[] {
 }
 
 const SAMPLE = `${COLUMNS.map((c) => c.label).join(',')}
-L-99001,GEN-8802,2026-07-01,Google Ads,Acme Tax LLC,John Carter,Jane Doe,+13055551234,+13055555678,john@acme.com,https://acmetax.com,@acmetax,USA,Florida,Miami,EST,Accounting,10-50,2010,"123 Main St",caller1@crm.local,Contacted,2026-06-01,2026-07-01,2026-07-15,3,2026-07-10,
-L-99002,GEN-8803,2026-07-02,Referral,Bay Books Inc,Mia Wong,Alex Smith,+14155559876,,mia@baybooks.com,https://baybooks.com,,USA,California,San Francisco,PST,Bookkeeping,50-200,1995,"456 Market St",caller2@crm.local,In Progress,2026-06-05,2026-07-02,2026-07-20,5,2026-07-12,`;
+L-99001,GEN-8802,2026-07-01,Google Ads,Acme Tax LLC,John Carter,Finance Manager,+13055551234,+13055555678,john@acme.com,https://acmetax.com,@acmetax,USA,Florida,Miami,EST,Accounting,10-50,2010,"123 Main St",Lisa - MAS21072,Contacted,2026-06-01,2026-07-01,2026-07-15,3,2026-07-10,
+L-99002,GEN-8803,2026-07-02,Referral,Bay Books Inc,Mia Wong,Operations Head,+14155559876,,mia@baybooks.com,https://baybooks.com,,USA,California,San Francisco,PST,Bookkeeping,50-200,1995,"456 Market St",caller2@crm.local,In Progress,2026-06-05,2026-07-02,2026-07-20,5,2026-07-12,`;
 
 export default function ImportPage() {
+  const qc = useQueryClient();
   const [file, setFile] = useState<ParsedFile>({ headers: [], cells: [] });
   const [mapping, setMapping] = useState<Mapping>({});
   const [raw, setRaw] = useState('');
@@ -184,7 +190,33 @@ export default function ImportPage() {
   // Rows are derived from the mapping, so re-pointing a field updates the preview
   // (and what gets imported) immediately — no need to re-upload the file.
   const rows = useMemo(() => (file.headers.length ? buildRows(file, mapping) : []), [file, mapping]);
-  const importMut = useMutation({ mutationFn: () => importApi.bulk(rows) });
+  const importMut = useMutation({ mutationFn: (skipDuplicates: boolean) => importApi.bulk(rows, skipDuplicates) });
+
+  // Duplicate gate (requirement 15). Clicking Import first scans the rows against
+  // the CRM (and against each other); only if duplicates are found do we stop to
+  // ask. A clean file imports straight through with no extra click.
+  const [dupResult, setDupResult] = useState<import('@/lib/crm').ImportCheckResult | null>(null);
+  const check = useMutation({
+    mutationFn: () => importApi.check(rows),
+    onSuccess: (res) => {
+      if (res.duplicateRecords > 0) setDupResult(res);
+      else importMut.mutate(false); // nothing to warn about — import as-is
+    },
+  });
+  const startImport = () => { importMut.reset(); check.mutate(); };
+  const importing = check.isPending || importMut.isPending;
+
+  // Import rollback: delete exactly the leads this import created, and refresh the
+  // lead lists + dashboard counts so the removal shows everywhere at once.
+  const [confirmRollback, setConfirmRollback] = useState(false);
+  const rollback = useMutation({
+    mutationFn: (ids: string[]) => leadsApi.bulkDelete(ids),
+    meta: { successMessage: 'Imported leads removed' },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leads'] });
+      qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
+    },
+  });
 
   // File columns nobody is reading yet — surfaced so it's obvious what's going
   // unused, and which of them you might want to point a field at.
@@ -199,6 +231,9 @@ export default function ImportPage() {
     setFile(parsed);
     setMapping(autoMap(parsed.headers));
     importMut.reset();
+    rollback.reset();
+    setConfirmRollback(false);
+    setDupResult(null);
   }
 
   const setField = (key: string, idx: number) => setMapping((m) => ({ ...m, [key]: idx }));
@@ -297,19 +332,23 @@ export default function ImportPage() {
         <div className="mt-[18px] overflow-hidden rounded-2xl border bg-card shadow-sm">
           <div className="flex items-center justify-between border-b px-[18px] py-4">
             <div><h3 className="font-display text-[15px] font-semibold">Preview</h3><div className="text-xs text-muted-foreground">{rows.length} rows · first 10 shown</div></div>
-            <button onClick={() => importMut.mutate()} disabled={importMut.isPending} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground disabled:opacity-60">
-              <Check className="h-4 w-4" /> {importMut.isPending ? 'Importing…' : `Import ${rows.length}`}
+            <button onClick={startImport} disabled={importing} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground disabled:opacity-60">
+              <Check className="h-4 w-4" /> {check.isPending ? 'Checking…' : importMut.isPending ? 'Importing…' : `Import ${rows.length}`}
             </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full whitespace-nowrap text-[13px]">
               <thead><tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">{COLUMNS.map((c) => <th key={c.key} className="px-4 py-2.5 font-semibold">{c.label}</th>)}</tr></thead>
               <tbody>
-                {rows.slice(0, 10).map((r, i) => (
-                  <tr key={i} className="border-b last:border-0">
+                {rows.slice(0, 10).map((r, i) => {
+                  // Highlight rows the last scan flagged as duplicates.
+                  const dup = dupResult?.duplicateRows.some((d) => d.index === i);
+                  return (
+                  <tr key={i} className={`border-b last:border-0 ${dup ? 'bg-[#fbf3e2]/50' : ''}`}>
                     {COLUMNS.map((c) => <td key={c.key} className="px-4 py-2 text-muted-foreground">{(r as unknown as Record<string, string | undefined>)[c.key] ?? '—'}</td>)}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -318,9 +357,65 @@ export default function ImportPage() {
 
       {importMut.isSuccess && (
         <div className="mt-4 rounded-md bg-[#e4f2e4] px-4 py-3 text-sm text-[#317d34]">
-          Created {importMut.data.imported} · updated {importMut.data.updated} (existing) · {importMut.data.errors.length} errors
+          {/* Requirement 15 summary: Total / New / Duplicate / Imported / Skipped. */}
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-medium">
+            <span>Total: <b className="tabular-nums">{importMut.data.totalRows}</b></span>
+            <span>New: <b className="tabular-nums">{importMut.data.newRecords}</b></span>
+            <span>Duplicates: <b className="tabular-nums">{importMut.data.duplicateRecords}</b></span>
+            <span>Imported: <b className="tabular-nums">{importMut.data.imported + importMut.data.updated}</b> (created {importMut.data.imported} · updated {importMut.data.updated})</span>
+            <span>Skipped: <b className="tabular-nums">{importMut.data.skipped}</b></span>
+          </div>
+          {/* Assignment is reported separately from the row counts: a sheet can
+              import every row cleanly and still fail to hand the leads to anyone,
+              which would otherwise look like a completely successful import. */}
+          <div className="mt-1 text-xs">
+            Assigned successfully: <b>{importMut.data.assignedSuccessfully}</b>
+            {importMut.data.assignmentFailed > 0 && (
+              <> · <span className="font-semibold text-[#a8431f]">Assignment failed: {importMut.data.assignmentFailed}</span></>
+            )}
+          </div>
           {importMut.data.errors.length > 0 && <ul className="mt-1 list-inside list-disc text-xs">{importMut.data.errors.slice(0, 5).map((e) => <li key={e.row}>Row {e.row}: {e.reason}</li>)}</ul>}
+
+          {/* Undo Import — removes ONLY the leads this import created (never the
+              pre-existing ones it merely updated), so a wrong file can be pulled
+              back in one click. Gone once the batch is rolled back. */}
+          {importMut.data.createdIds.length > 0 && !rollback.isSuccess && (
+            <div className="mt-2 border-t border-[#bfe0c0] pt-2">
+              <button
+                onClick={() => setConfirmRollback(true)}
+                disabled={rollback.isPending}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#e0b4ae] bg-card px-3 py-1.5 text-[12.5px] font-semibold text-[#9e2b21] hover:bg-[#fdf3f1] disabled:opacity-60"
+              >
+                <Undo2 className="h-3.5 w-3.5" /> Undo import ({importMut.data.createdIds.length} added)
+              </button>
+            </div>
+          )}
+          {rollback.isSuccess && (
+            <div className="mt-2 border-t border-[#bfe0c0] pt-2 text-xs text-[#a8431f]">
+              Removed {rollback.data.deleted} imported lead(s). Existing leads were left unchanged.
+            </div>
+          )}
         </div>
+      )}
+
+      {confirmRollback && importMut.data && (
+        <ConfirmDialog
+          title="Cancel Imported Leads"
+          message="Are you sure you want to remove all leads imported in this batch? This action cannot be undone."
+          confirmLabel="Remove Imported Leads"
+          onConfirm={async () => { await rollback.mutateAsync(importMut.data!.createdIds); }}
+          onClose={() => setConfirmRollback(false)}
+        />
+      )}
+
+      {dupResult && (
+        <ImportDuplicatesDialog
+          result={dupResult}
+          busy={importMut.isPending}
+          onSkip={() => { setDupResult(null); importMut.mutate(true); }}
+          onImportAnyway={() => { setDupResult(null); importMut.mutate(false); }}
+          onCancel={() => setDupResult(null)}
+        />
       )}
 
       {/* A failed import only raised a toast before, which is easy to miss and gone

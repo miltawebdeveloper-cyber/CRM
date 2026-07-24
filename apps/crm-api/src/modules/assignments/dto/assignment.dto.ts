@@ -1,9 +1,27 @@
-import { ArrayNotEmpty, IsArray, IsEnum, IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsBoolean, IsEnum, IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Timezone } from '@crm/database';
 
-export class ManualAssignDto {
+/**
+ * A lead has exactly one owner, so bulk assignment refuses to take a lead off the
+ * employee already holding it. These two flags are the only ways past that, and
+ * they're deliberately separate: `skipAssigned` means "assign the free ones, leave
+ * the rest alone", `allowReassign` means "move ownership on purpose" (transfer).
+ */
+class AssignOwnershipFlags {
+  @ApiPropertyOptional({ description: 'Assign the unowned leads and skip any already assigned elsewhere' })
+  @IsOptional()
+  @IsBoolean()
+  skipAssigned?: boolean;
+
+  @ApiPropertyOptional({ description: 'Deliberate transfer: move leads already owned by another employee' })
+  @IsOptional()
+  @IsBoolean()
+  allowReassign?: boolean;
+}
+
+export class ManualAssignDto extends AssignOwnershipFlags {
   @ApiProperty({ type: [String] })
   @IsArray()
   @ArrayNotEmpty()
@@ -37,7 +55,7 @@ export class AssignAllocationDto {
  * Manual multi-employee distribution: each allocation names a caller and the
  * exact set of leads they receive. Leads must be unique across allocations.
  */
-export class BatchAssignDto {
+export class BatchAssignDto extends AssignOwnershipFlags {
   @ApiProperty({ type: [AssignAllocationDto] })
   @IsArray()
   @ArrayNotEmpty()

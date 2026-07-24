@@ -29,6 +29,48 @@ export interface ColumnDef<T> {
   searchable?: boolean;
   /** Plain-text value used for global search over this column (falls back to none). */
   searchValue?: (row: T) => string | number | null | undefined;
+  /**
+   * Column can be sorted by clicking its header. Opt-in, because a column whose
+   * cell is a button or a chart has nothing meaningful to order by.
+   */
+  sortable?: boolean;
+  /**
+   * Value used to order this column. Falls back to `searchValue`, so a column
+   * that already declares one gets sorting for free. Numbers and dates compare
+   * naturally; strings compare case-insensitively.
+   */
+  sortValue?: (row: T) => string | number | Date | null | undefined;
+}
+
+/** Which column a table is ordered by, and in which direction. */
+export interface SortState {
+  key: string;
+  dir: 'asc' | 'desc';
+}
+
+/**
+ * Order rows by the active sort. Blank values always sink to the bottom whichever
+ * way the sort runs — an empty cell isn't "smallest", it's just missing, and
+ * floating them to the top of an ascending sort buries the real data.
+ */
+export function sortRows<T>(rows: T[], sort: SortState | null, columns: ColumnDef<T>[]): T[] {
+  if (!sort) return rows;
+  const col = columns.find((c) => c.key === sort.key);
+  const read = col?.sortValue ?? col?.searchValue;
+  if (!read) return rows;
+  const dir = sort.dir === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const av = read(a);
+    const bv = read(b);
+    const aEmpty = av === null || av === undefined || av === '';
+    const bEmpty = bv === null || bv === undefined || bv === '';
+    if (aEmpty || bEmpty) return aEmpty && bEmpty ? 0 : aEmpty ? 1 : -1;
+    if (av instanceof Date || bv instanceof Date) {
+      return (new Date(av as Date).getTime() - new Date(bv as Date).getTime()) * dir;
+    }
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+    return String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' }) * dir;
+  });
 }
 
 interface StoredPrefs {

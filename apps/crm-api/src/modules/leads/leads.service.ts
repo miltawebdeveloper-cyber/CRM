@@ -1,9 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Timezone, LeadStatus, Role, Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto';
 import { closureCreateFields, closureFields } from './lead-closure';
+
+/**
+ * Shown wherever a same-day reassignment is refused. A lead keeps one owner for
+ * the whole day it was handed over, so the work isn't pulled out from under
+ * whoever started on it; the next calendar day it's free again.
+ */
+export const SAME_DAY_LOCK_MESSAGE =
+  'This lead has already been assigned today. Reassignment is allowed only from the next day.';
 
 @Injectable()
 export class LeadsService {
@@ -33,14 +41,61 @@ export class LeadsService {
 
   /** Resolve a free-text CALLER value (name or email) to a user id, if it
    * matches an existing user; otherwise undefined. Case-insensitive. */
+  /**
+   * Resolve an "Assigned To" cell to a user.
+   *
+   * Sheets write the owner as `Lisa - MAS21072` — a display name followed by the
+   * employee code used on the floor. That code isn't stored against users, so the
+   * name in front of the separator is what identifies them: try the cell verbatim
+   * first (plain name or email), then fall back to the part before the dash.
+   */
+  /** Start of the current day — the boundary the same-day assignment lock uses. */
+  static startOfToday(): Date {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  /**
+   * Write an assignment row for a lead that just changed hands.
+   *
+   * Only the assignments module used to do this, so a lead assigned while being
+   * created, edited or imported left no trace in `assignments` — an incomplete
+   * ownership history, and no timestamp for the same-day reassignment lock to
+   * read. Every path that sets `assignedToId` records one now, so "was this
+   * assigned today?" has the same answer however it happened.
+   */
+  private async recordAssignment(leadId: string, callerId: string, assignedById: string, batchName?: string) {
+    await this.prisma.assignment.updateMany({ where: { leadId, isActive: true }, data: { isActive: false } });
+    await this.prisma.assignment.create({ data: { leadId, callerId, assignedById, batchName } });
+  }
+
+  /** Was this lead handed to someone today? If so it's locked until tomorrow. */
+  private async assignedToday(leadId: string): Promise<boolean> {
+    const since = LeadsService.startOfToday();
+    const n = await this.prisma.assignment.count({
+      where: { leadId, isActive: true, assignedAt: { gte: since } },
+    });
+    return n > 0;
+  }
+
   private async resolveCaller(caller?: string): Promise<string | undefined> {
     const q = caller?.trim();
     if (!q) return undefined;
-    const user = await this.prisma.user.findFirst({
+    const byExact = await this.prisma.user.findFirst({
       where: { OR: [{ email: { equals: q, mode: 'insensitive' } }, { name: { equals: q, mode: 'insensitive' } }] },
       select: { id: true },
     });
-    return user?.id;
+    if (byExact) return byExact.id;
+
+    // "Lisa - MAS21072" → "Lisa". Handles hyphen, en dash and em dash.
+    const namePart = q.split(/\s[-–—]\s/)[0]?.trim();
+    if (!namePart || namePart === q) return undefined;
+    const byName = await this.prisma.user.findFirst({
+      where: { OR: [{ email: { equals: namePart, mode: 'insensitive' } }, { name: { equals: namePart, mode: 'insensitive' } }] },
+      select: { id: true },
+    });
+    return byName?.id;
   }
 
   /** Generate next lead id in the format L-YYYY-N (e.g. L-2026-1, L-2026-2). */
@@ -145,7 +200,10 @@ export class LeadsService {
     );
     if (userId) {
       await this.log(lead.id, userId, 'lead_created', null, lead.status, `Lead ${lead.leadId} created`);
-      if (assignedToId) await this.log(lead.id, userId, 'lead_assigned', null, assignedToId, 'Initial assignment');
+      if (assignedToId) {
+        await this.log(lead.id, userId, 'lead_assigned', null, assignedToId, 'Initial assignment');
+        await this.recordAssignment(lead.id, assignedToId, userId);
+      }
     }
     return lead;
   }
@@ -158,12 +216,99 @@ export class LeadsService {
    * when no match exists (core fields required only then). Per-row validation
    * — a single bad row never rejects the whole file.
    */
+  /**
+   * Flag which import rows duplicate an existing lead or an earlier row in the
+   * same file, matched on Company Name, Phone (last 10 digits) or Email — any one
+   * hit counts. Used both by the pre-import check (so the user is warned before
+   * anything is written) and by the import itself when "skip duplicates" is chosen,
+   * so the two can never disagree about what a duplicate is.
+   */
+  async analyzeImport(rows: CreateLeadDto[]) {
+    const nameKey = (v?: string | null) => (v ?? '').trim().toLowerCase();
+    const phoneKey = (v?: string | null) => (v ?? '').replace(/\D/g, '').slice(-10);
+    const emailKey = (v?: string | null) => (v ?? '').trim().toLowerCase();
+
+    // Existing leads, loaded once and indexed by each match key → the lead itself,
+    // so a flagged row can carry the record it clashed with (for the preview grid),
+    // not just a boolean. Bounded so a huge book can't turn a check into an
+    // unbounded scan; beyond the cap, matches past it just aren't flagged.
+    const existing = await this.prisma.lead.findMany({
+      where: { deletedAt: null },
+      select: { leadId: true, businessName: true, phone: true, email: true, createdAt: true, assignedTo: { select: { name: true } } },
+      take: 50_000,
+    });
+    type Match = { leadId: string; businessName: string; phone: string; email: string | null; assignedTo: string | null; createdAt: Date };
+    const toMatch = (l: (typeof existing)[number]): Match => ({
+      leadId: l.leadId,
+      businessName: l.businessName,
+      phone: l.phone,
+      email: l.email,
+      assignedTo: l.assignedTo?.name ?? null,
+      createdAt: l.createdAt,
+    });
+    const exName = new Map<string, Match>();
+    const exPhone = new Map<string, Match>();
+    const exEmail = new Map<string, Match>();
+    for (const l of existing) {
+      const m = toMatch(l);
+      const nm = nameKey(l.businessName), ph = phoneKey(l.phone), em = emailKey(l.email);
+      if (nm && !exName.has(nm)) exName.set(nm, m);
+      if (ph && !exPhone.has(ph)) exPhone.set(ph, m);
+      if (em && !exEmail.has(em)) exEmail.set(em, m);
+    }
+
+    // Within-file repeats: a key already seen in an EARLIER row of the same upload.
+    const seenName = new Set<string>();
+    const seenPhone = new Set<string>();
+    const seenEmail = new Set<string>();
+    const perRow = rows.map((r, index) => {
+      const nm = nameKey(r.businessName);
+      const ph = phoneKey(r.phone);
+      const em = emailKey(r.email);
+      const on: string[] = [];
+      let existingMatch: Match | null = null;
+      if (nm && (exName.has(nm) || seenName.has(nm))) { on.push('Company Name'); existingMatch ??= exName.get(nm) ?? null; }
+      if (ph && (exPhone.has(ph) || seenPhone.has(ph))) { on.push('Phone'); existingMatch ??= exPhone.get(ph) ?? null; }
+      if (em && (exEmail.has(em) || seenEmail.has(em))) { on.push('Email'); existingMatch ??= exEmail.get(em) ?? null; }
+      if (nm) seenName.add(nm);
+      if (ph) seenPhone.add(ph);
+      if (em) seenEmail.add(em);
+      return {
+        index,
+        duplicate: on.length > 0,
+        matchedOn: on,
+        // The import row's own key fields, for the left side of the preview grid.
+        row: { businessName: r.businessName ?? '', phone: r.phone ?? '', email: r.email ?? '' },
+        // The CRM lead it clashed with, when the clash is against an existing lead
+        // (null when it only repeats an earlier row in the same file).
+        existing: existingMatch,
+      };
+    });
+
+    const duplicateRecords = perRow.filter((r) => r.duplicate).length;
+    return {
+      total: rows.length,
+      duplicateRecords,
+      newRecords: rows.length - duplicateRecords,
+      rows: perRow,
+    };
+  }
+
   async bulkImport(dto: ImportLeadsDto, userId?: string) {
     const errors: Array<{ row: number; reason: string }> = [];
     const seenInFile = new Set<string>();
     const callerCache = new Map<string, string | undefined>();
     let imported = 0;
     let updated = 0;
+    // Assignment outcome per row, reported alongside the create/update counts so a
+    // batch that imported cleanly but failed to assign is visible rather than
+    // looking like a success.
+    let assignOk = 0;
+    let assignFailed = 0;
+    // Ids of leads this import CREATED (not ones it merely updated). Returned so
+    // the import can be rolled back to exactly this batch — deleting these leaves
+    // every pre-existing lead the import touched untouched.
+    const createdIds: string[] = [];
 
     const resolveAssigned = async (caller?: string) => {
       const key = caller?.trim().toLowerCase();
@@ -172,14 +317,35 @@ export class LeadsService {
       return callerCache.get(key);
     };
 
+    // Duplicate flags (Company Name / Phone / Email) for the whole file, computed
+    // once up front. `skipDuplicates` uses them to leave duplicates out; when the
+    // user chose "import anyway" they're counted but still imported.
+    const analysis = await this.analyzeImport(dto.rows);
+    const dupByIndex = analysis.rows;
+    let duplicateRecords = 0;
+    let skipped = 0;
+
     for (let i = 0; i < dto.rows.length; i++) {
       const row = dto.rows[i];
       const n = i + 1;
       const phoneKey = (row.phone ?? '').replace(/\D/g, '');
-      // No required fields — only skip duplicate phones within the same file.
-      if (phoneKey) {
+
+      const isDuplicate = dupByIndex[i]?.duplicate ?? false;
+      if (isDuplicate) {
+        duplicateRecords++;
+        if (dto.skipDuplicates) {
+          skipped++;
+          errors.push({ row: n, reason: `Skipped duplicate (matched on ${dupByIndex[i].matchedOn.join(', ')})` });
+          continue;
+        }
+      }
+      // A same-file phone repeat is already a flagged duplicate above; this second
+      // guard only matters when the user imported anyway, where writing the same
+      // phone twice in one run would otherwise collide.
+      if (phoneKey && !isDuplicate) {
         if (seenInFile.has(phoneKey)) {
           errors.push({ row: n, reason: 'Duplicate phone within file' });
+          skipped++;
           continue;
         }
         seenInFile.add(phoneKey);
@@ -232,7 +398,16 @@ export class LeadsService {
       // Skip completely empty rows (nothing provided at all).
       if (Object.keys(data).length === 0 && !row.caller?.trim()) continue;
 
+      // ── Auto-assignment from the sheet's "Assigned To" column ──
+      // A named employee that can't be matched is a data error worth surfacing:
+      // silently importing the lead unassigned is how a whole batch ends up
+      // needing manual assignment afterwards, which is exactly what this avoids.
+      const callerCell = row.caller?.trim();
       const assignedToId = await resolveAssigned(row.caller);
+      if (callerCell && !assignedToId) {
+        errors.push({ row: n, reason: `Employee '${callerCell}' was not found. Please verify the Assigned To value.` });
+        assignFailed++;
+      }
       const assignRel = assignedToId ? { assignedTo: { connect: { id: assignedToId } } } : {};
 
       // Match an existing lead by leadId or phone (last 10 digits), if any.
@@ -243,17 +418,42 @@ export class LeadsService {
               deletedAt: null,
               OR: [...(row.leadId ? [{ leadId: row.leadId }] : []), ...(last10 ? [{ phone: { contains: last10 } }] : [])],
             },
-            select: { id: true, status: true },
+            select: { id: true, status: true, assignedToId: true, assignedTo: { select: { name: true } } },
           })
         : null;
 
       if (existing) {
+        // A lead has exactly one owner, so an import must not take one off the
+        // employee already holding it — the sheet updates the lead's fields, but
+        // ownership stays put and the clash is reported.
+        const ownedByOther = !!existing.assignedToId && !!assignedToId && existing.assignedToId !== assignedToId;
+        if (ownedByOther) {
+          errors.push({
+            row: n,
+            reason: `Already assigned to ${existing.assignedTo?.name ?? 'another employee'} — ownership left unchanged.`,
+          });
+          assignFailed++;
+        } else if (assignedToId) {
+          assignOk++;
+        }
+        // Same-day lock: a lead handed over earlier today stays with its owner even
+        // if the sheet names someone else, so a re-import can't shuffle ownership
+        // mid-day.
+        const lockedToday = !ownedByOther && !!assignedToId && existing.assignedToId !== assignedToId && (await this.assignedToday(existing.id));
+        if (lockedToday) {
+          errors.push({ row: n, reason: SAME_DAY_LOCK_MESSAGE });
+          assignFailed++;
+        }
+        const keepOwner = ownedByOther || lockedToday ? {} : assignRel;
+        const changedOwner = !ownedByOther && !lockedToday && !!assignedToId && existing.assignedToId !== assignedToId;
         // An imported row that closes (or reopens) a lead is credited to the
         // row's CALLER — the rep the sheet names — never to whoever ran the
         // import.
         const closure = closureFields(data.status as LeadStatus | undefined, existing.status, assignedToId ?? null);
-        const updatedLead = await this.prisma.lead.update({ where: { id: existing.id }, data: { ...data, ...assignRel, ...closure } });
+        const updatedLead = await this.prisma.lead.update({ where: { id: existing.id }, data: { ...data, ...keepOwner, ...closure } });
         if (userId) await this.log(updatedLead.id, userId, 'lead_updated', null, null, 'Imported row updated lead');
+        // Record the handover so the lock applies to it from here on.
+        if (changedOwner && userId) await this.recordAssignment(existing.id, assignedToId!, userId, 'Excel import');
         updated++;
       } else {
         // No required columns: missing core fields default to empty (fill later).
@@ -275,6 +475,12 @@ export class LeadsService {
         );
         if (userId) await this.log(created.id, userId, 'lead_created', null, created.status, 'Imported row created lead');
         imported++;
+        createdIds.push(created.id);
+        // A brand-new lead has no prior owner, so the sheet's employee always wins.
+        if (assignedToId) {
+          assignOk++;
+          if (userId) await this.recordAssignment(created.id, assignedToId, userId, 'Excel import');
+        }
       }
     }
 
@@ -287,7 +493,35 @@ export class LeadsService {
       );
     }
 
-    return { imported, updated, skipped: 0, errors, totalRows: dto.rows.length };
+    return {
+      imported,
+      updated,
+      skipped,
+      errors,
+      totalRows: dto.rows.length,
+      // Duplicate summary (requirement 15): Total / New / Duplicate / Imported /
+      // Skipped. "Imported" is create + update; "duplicateRecords" is what matched
+      // an existing lead or an earlier row, whether or not they were skipped.
+      newRecords: dto.rows.length - duplicateRecords,
+      duplicateRecords,
+      successfullyImported: imported + updated,
+      createdIds,
+      assignedSuccessfully: assignOk,
+      assignmentFailed: assignFailed,
+    };
+  }
+
+  /** Pre-import scan: how many rows are new vs duplicate, and which rows. */
+  async checkImport(rows: CreateLeadDto[]) {
+    const a = await this.analyzeImport(rows);
+    return {
+      total: a.total,
+      newRecords: a.newRecords,
+      duplicateRecords: a.duplicateRecords,
+      // Only the duplicate rows, so the client can highlight them without shipping
+      // a flag for every single row.
+      duplicateRows: a.rows.filter((r) => r.duplicate),
+    };
   }
 
   async findAll(query: ListLeadsQueryDto, user?: { id: string; role: Role }) {
@@ -309,9 +543,57 @@ export class LeadsService {
           ? { closedById: user.id }
           : { assignedToId: user.id }
         : {};
-    return this.prisma.lead.findMany({
-      where: { deletedAt: null, status: query.status, state: query.state, ...closedFilter, ...scope },
-      orderBy: query.closed === true ? { closedAt: 'desc' } : { createdAt: 'desc' },
+    // Inclusive lead-id window for range assignment.
+    //
+    // Lead ids are `L-<year>-<n>` with NO zero padding, so comparing them as
+    // strings is wrong: "L-2026-10" sorts before "L-2026-2", and a 1→5 range would
+    // drag in 10-21. The trailing sequence number is what has to be compared, so
+    // the matching ids are resolved numerically first and the list is then scoped
+    // to them.
+    const ranged = !!(query.fromLeadId || query.toLeadId);
+    let rangeFilter: Prisma.LeadWhereInput = {};
+    if (ranged) {
+      const parse = (v?: string) => {
+        const m = v?.trim().match(/^(.*?)(\d+)$/);
+        return m ? { prefix: m[1], num: Number(m[2]) } : null;
+      };
+      const from = parse(query.fromLeadId);
+      const to = parse(query.toLeadId);
+      const prefix = from?.prefix ?? to?.prefix;
+
+      if (prefix !== undefined && (from || to)) {
+        const lo = from?.num ?? Number.NEGATIVE_INFINITY;
+        const hi = to?.num ?? Number.POSITIVE_INFINITY;
+        const candidates = await this.prisma.lead.findMany({
+          where: { deletedAt: null, leadId: { startsWith: prefix } },
+          select: { id: true, leadId: true },
+        });
+        const ids = candidates
+          .filter((c) => {
+            const m = c.leadId.slice(prefix.length).match(/^(\d+)$/);
+            if (!m) return false; // ids that don't fit the sequence shape aren't in any range
+            const n = Number(m[1]);
+            return n >= lo && n <= hi;
+          })
+          .map((c) => c.id);
+        rangeFilter = { id: { in: ids } };
+      } else {
+        // Endpoints that carry no trailing number (an id imported in some other
+        // shape) fall back to a plain string window.
+        rangeFilter = {
+          leadId: {
+            ...(query.fromLeadId ? { gte: query.fromLeadId } : {}),
+            ...(query.toLeadId ? { lte: query.toLeadId } : {}),
+          },
+        };
+      }
+    }
+    const rows = await this.prisma.lead.findMany({
+      where: { deletedAt: null, status: query.status, state: query.state, ...closedFilter, ...scope, ...rangeFilter },
+      // A ranged read is listed oldest-first: lead ids are handed out in creation
+      // order, so that IS ascending sequence order — and unlike `leadId: 'asc'` it
+      // doesn't put L-2026-10 ahead of L-2026-2.
+      orderBy: ranged ? { createdAt: 'asc' } : query.closed === true ? { closedAt: 'desc' } : { createdAt: 'desc' },
       // Was a hardcoded 100, which quietly truncated the list: importing 300 leads
       // showed only 100, so "select all" could never reach the rest to bulk-assign
       // them. Caller-controlled, with a generous default and a hard ceiling in the
@@ -320,8 +602,18 @@ export class LeadsService {
       include: {
         assignedTo: { select: { id: true, name: true, email: true } },
         closedBy: { select: { id: true, name: true, email: true } },
+        // Newest active handover, used to expose `assignedAt` below.
+        assignments: { where: { isActive: true }, orderBy: { assignedAt: 'desc' }, take: 1, select: { assignedAt: true } },
       },
     });
+
+    // Flatten the handover date onto the lead and drop the relation — the client
+    // only needs "when did this change hands", which is what the same-day lock
+    // keys off, not the assignment rows themselves.
+    return rows.map(({ assignments, ...lead }) => ({
+      ...lead,
+      assignedAt: assignments[0]?.assignedAt ?? null,
+    }));
   }
 
   async findOne(id: string, user?: { id: string; role: Role }) {
@@ -439,10 +731,17 @@ export class LeadsService {
     }
 
     // Reassignment: resolve the free-text caller (name/email) to a user.
+    let reassignedTo: string | null = null;
     if (dto.caller !== undefined) {
       const assignedToId = (await this.resolveCaller(dto.caller)) ?? null;
       if (assignedToId !== (existing.assignedToId ?? null)) {
+        // A lead assigned earlier today is held by its owner for the rest of the
+        // day, whichever route the reassignment comes through.
+        if (assignedToId && (await this.assignedToday(id))) {
+          throw new BadRequestException(SAME_DAY_LOCK_MESSAGE);
+        }
         data.assignedTo = assignedToId ? { connect: { id: assignedToId } } : { disconnect: true };
+        reassignedTo = assignedToId;
         logs.push({ action: 'lead_reassigned', field: 'Assigned to', oldValue: existing.assignedTo?.name ?? null, newValue: assignedToId ? dto.caller?.trim() ?? null : null });
       }
     }
@@ -455,7 +754,42 @@ export class LeadsService {
       include: { assignedTo: { select: { id: true, name: true, email: true } } },
     });
     for (const l of logs) await this.log(id, user.id, l.action, l.oldValue, l.newValue, l.field);
+    // Stamp the handover so the same-day lock can see it tomorrow morning.
+    if (reassignedTo) await this.recordAssignment(id, reassignedTo, user.id);
+
+    // Comment history. `Lead.comments` only ever holds the LATEST remark (it's what
+    // the Lead Management column reads), so each edit is also appended to `notes` —
+    // the same table call notes land in. That keeps one chronological trail of both
+    // sources instead of overwriting the previous remark with no record of it. A
+    // null callId is what marks this entry as a manual update rather than a call.
+    if (dto.comments !== undefined) {
+      const text = (dto.comments ?? '').trim();
+      if (text && text !== (existing.comments ?? '').trim()) {
+        await this.prisma.note.create({ data: { leadId: id, callId: null, noteText: text, createdById: user.id } });
+      }
+    }
     return updated;
+  }
+
+  /**
+   * Chronological comment history for a lead — manual edits and call notes in one
+   * feed. Source is derived from `callId` rather than a stored flag: a note tied to
+   * a call came from the Call Panel, one without came from a manual edit.
+   */
+  async commentHistory(id: string, limit = 100) {
+    const notes = await this.prisma.note.findMany({
+      where: { leadId: id },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: { id: true, noteText: true, createdAt: true, callId: true, createdBy: { select: { name: true } } },
+    });
+    return notes.map((n) => ({
+      id: n.id,
+      text: n.noteText,
+      at: n.createdAt,
+      user: n.createdBy?.name ?? 'Unknown',
+      source: n.callId ? ('Call Notes' as const) : ('Manual Update' as const),
+    }));
   }
 
   /** Permanently delete a lead and every dependent record (hard delete).
@@ -486,5 +820,56 @@ export class LeadsService {
     });
 
     return { id, deleted: true };
+  }
+
+  /**
+   * Delete many leads in ONE transaction.
+   *
+   * Deleting a selection used to mean one HTTP round-trip and one transaction per
+   * lead, so removing a few hundred crawled and could fail half-way, leaving the
+   * selection partly deleted. This removes the whole set atomically — it either
+   * all goes or none of it does — which is also what makes an import rollback
+   * safe to offer.
+   *
+   * Employees may only delete their own leads; ids they don't own are silently
+   * excluded rather than failing the batch, matching how `remove` hides them.
+   */
+  async removeMany(ids: string[], user?: { id: string; role: Role }) {
+    if (ids.length === 0) return { deleted: 0 };
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        id: { in: ids },
+        deletedAt: null,
+        ...(user?.role === Role.employee ? { assignedToId: user.id } : {}),
+      },
+      select: { id: true, leadId: true, businessName: true },
+    });
+    if (leads.length === 0) return { deleted: 0 };
+    const found = leads.map((l) => l.id);
+
+    await this.prisma.$transaction(async (tx) => {
+      // No FK on this denormalized feed — clear its lead references by hand.
+      await tx.workReassignment.deleteMany({ where: { leadId: { in: found } } });
+      // Cascades to every dependent module via ON DELETE CASCADE.
+      await tx.lead.deleteMany({ where: { id: { in: found } } });
+      // Audit trail: leadId is null so the row survives the cascade it describes.
+      if (user) {
+        await tx.activity.create({
+          data: {
+            leadId: null,
+            userId: user.id,
+            action: 'lead_deleted',
+            oldValue: null,
+            newValue: null,
+            remarks: `Permanently deleted ${found.length} lead(s) and all associated records: ${leads
+              .slice(0, 20)
+              .map((l) => l.leadId)
+              .join(', ')}${found.length > 20 ? ` +${found.length - 20} more` : ''}`,
+          },
+        });
+      }
+    });
+
+    return { deleted: found.length };
   }
 }
