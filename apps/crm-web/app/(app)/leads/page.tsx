@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, X, Hourglass, Lock } from 'lucide-react';
-import { leadsApi, isAssignedToday, SAME_DAY_LOCK_MESSAGE, type CreateLeadInput, type Lead } from '@/lib/leads';
+import { leadsApi, type CreateLeadInput, type Lead } from '@/lib/leads';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { LeadAssignDialog } from '@/components/lead-assign-dialog';
 import { LeadCommentCell } from '@/components/lead-comment-cell';
@@ -572,15 +572,12 @@ export default function LeadsPage() {
         // Lead Management headings read as capitals; the underlying column names stay
         // mixed-case for the Column Chooser and the CSV/Excel export.
         uppercaseHeaders
-        // Two separate locks. A lead handed over TODAY is held for the rest of the
-        // day whoever owns it; after that it's only blocked while it belongs to
-        // someone else, and becomes freely reassignable again from tomorrow.
-        isRowSelectable={(l) => !isAssignedToday(l) && !l.assignedTo}
-        rowNotSelectableReason={(l) =>
-          isAssignedToday(l)
-            ? SAME_DAY_LOCK_MESSAGE
-            : `Already assigned to ${l.assignedTo?.name ?? 'another employee'}. A lead can only be assigned to one employee.`
-        }
+        // Every row stays selectable, because the checkbox serves DELETE as well as
+        // assignment — locking owned leads out of it also made them impossible to
+        // bulk-delete. Ownership is protected where it actually matters instead: the
+        // Assign popup drops owned and same-day-locked leads from the pool and says
+        // so, and the API refuses them regardless of what the client sends. The
+        // "Assigned" badge on each row still shows which leads those are.
         onDeleteSelected={canManage ? async (rows) => { await removeLeads.mutateAsync(rows); } : undefined}
         deleteConfirm={() => 'Are you sure you want to delete the selected lead(s)? This action cannot be undone.'}
         bulkActions={canManage ? (rows, clear) => (
