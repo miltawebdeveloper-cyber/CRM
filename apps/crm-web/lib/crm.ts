@@ -60,10 +60,10 @@ export interface MetricsRange {
 }
 export const metricsApi = {
   summary: async (params?: MetricsRange): Promise<MetricsSummary> => (await api.get('/metrics/summary', { params })).data,
-  byTimezone: async (): Promise<TimezoneCount[]> => (await api.get('/metrics/by-timezone')).data,
-  byState: async (): Promise<StateMetric[]> => (await api.get('/metrics/by-state')).data,
-  daily: async (): Promise<DailyPoint[]> => (await api.get('/metrics/daily')).data,
-  bar: async (): Promise<BarPoint[]> => (await api.get('/metrics/bar')).data,
+  byTimezone: async (params?: MetricsRange): Promise<TimezoneCount[]> => (await api.get('/metrics/by-timezone', { params })).data,
+  byState: async (params?: MetricsRange): Promise<StateMetric[]> => (await api.get('/metrics/by-state', { params })).data,
+  daily: async (params?: MetricsRange): Promise<DailyPoint[]> => (await api.get('/metrics/daily', { params })).data,
+  bar: async (params?: MetricsRange): Promise<BarPoint[]> => (await api.get('/metrics/bar', { params })).data,
   pivot: async (): Promise<PivotTimezone[]> => (await api.get('/metrics/pivot')).data,
 };
 
@@ -433,15 +433,31 @@ export const tasksApi = {
 };
 
 // ────────────────────────── Calendar ───────────────────────────
+/** The three kinds of scheduled activity the calendar consolidates. */
+export type ActivityType = 'call' | 'callback' | 'zoom';
+
 export interface CalendarEvent {
+  id: string;
   day: number;
+  /** Scheduled date & time. */
   date: string;
-  type: 'call' | 'fu' | 'task';
+  type: ActivityType;
+  /** Contact person at the company. */
+  leadName: string | null;
+  companyName: string;
+  leadId: string;
+  assignedTo: string | null;
+  status: string;
   label: string;
 }
+export interface CalendarResult {
+  events: CalendarEvent[];
+  summary: { calls: number; callbacks: number; zooms: number; total: number };
+}
 export const calendarApi = {
-  events: async (year: number, month: number): Promise<CalendarEvent[]> =>
-    (await api.get('/calendar/events', { params: { year, month } })).data,
+  /** Scheduled activities in a window. `userId` is honoured for managers only. */
+  events: async (params: { from?: string; to?: string; userId?: string } = {}): Promise<CalendarResult> =>
+    (await api.get('/calendar/events', { params: clean(params) })).data,
 };
 
 // ─────────────────────────── Config ────────────────────────────
@@ -599,7 +615,7 @@ export const communicationsApi = {
 };
 
 /** Drop empty filter values so they aren't sent as `?search=` and rejected. */
-const clean = (o: HistoryFilters) =>
+const clean = <T extends object>(o: T) =>
   Object.fromEntries(Object.entries(o).filter(([, v]) => v !== '' && v != null));
 
 export interface HistoryFilters {
@@ -843,10 +859,11 @@ export interface LeadRow {
 }
 export const importApi = {
   /** Import. `skipDuplicates` leaves out rows matching an existing lead (or an earlier file row). */
-  bulk: async (rows: LeadRow[], skipDuplicates = false): Promise<ImportResult> =>
-    (await api.post('/leads/import', { rows, skipDuplicates })).data,
-  /** Pre-import scan — no writes. Flags rows duplicating an existing lead by Company / Phone / Email. */
-  check: async (rows: LeadRow[]): Promise<ImportCheckResult> => (await api.post('/leads/import/check', { rows })).data,
+  bulk: async (rows: LeadRow[], skipDuplicates = false, skipRowIndexes?: number[], checkFields?: string[]): Promise<ImportResult> =>
+    (await api.post('/leads/import', { rows, skipDuplicates, skipRowIndexes, checkFields })).data,
+  /** Pre-import scan — no writes. Flags rows duplicating an existing lead by selected fields. */
+  check: async (rows: LeadRow[], checkFields?: string[]): Promise<ImportCheckResult> =>
+    (await api.post('/leads/import/check', { rows, checkFields })).data,
 };
 
 /** Format seconds as "5h 10m" / "2m 40s". */

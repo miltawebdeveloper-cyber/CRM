@@ -9,11 +9,22 @@ import { CurrentUser, AuthUser } from '../../common/decorators/current-user.deco
 export class CalendarController {
   constructor(private readonly calendar: CalendarService) {}
 
+  /**
+   * Scheduled calls, callbacks and Zoom meetings in a date window, plus the counts
+   * behind the summary cards.
+   *
+   * `from`/`to` are plain days from the shared date-range filter; omitting them
+   * falls back to the current month. `userId` narrows to one employee and is
+   * honoured for managers only — the service ignores it for an employee, who is
+   * always scoped to their own schedule.
+   */
   @Get('events')
-  events(@Query('year') year: string, @Query('month') month: string, @CurrentUser() user: AuthUser) {
-    const now = new Date();
-    const y = year ? Number(year) : now.getFullYear();
-    const m = month ? Number(month) : now.getMonth() + 1;
-    return this.calendar.events(y, m, user.id);
+  events(
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('userId') userId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.calendar.events({ from: from || undefined, to: to || undefined }, user, userId || undefined);
   }
 }

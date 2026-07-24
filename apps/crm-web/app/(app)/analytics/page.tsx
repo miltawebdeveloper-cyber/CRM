@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ResponsiveContainer,
@@ -17,6 +18,8 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { metricsApi, type StateMetric } from '@/lib/crm';
+import { DateFilter } from '@/components/filter-controls';
+import { EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 
 // Emerald + brown palette
 const BAR_COLORS = ['#16a34a', '#8a5a2b', '#b08d57'];
@@ -41,13 +44,29 @@ function stateColor(p: number): string {
 }
 
 export default function AnalyticsPage() {
-  const { data: bar = [] } = useQuery({ queryKey: ['m-bar'], queryFn: metricsApi.bar });
-  const { data: tz = [] } = useQuery({ queryKey: ['m-tz'], queryFn: metricsApi.byTimezone });
-  const { data: daily = [] } = useQuery({ queryKey: ['m-daily'], queryFn: metricsApi.daily });
-  const { data: states = [] } = useQuery({ queryKey: ['m-states'], queryFn: metricsApi.byState });
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
+
+  // Build the ISO range expected by metricsApi — identical pattern to the Dashboard.
+  const range = useMemo(() => {
+    if (!dateFilter.from && !dateFilter.to) return {};
+    return {
+      from: dateFilter.from ? new Date(dateFilter.from).toISOString() : undefined,
+      to: dateFilter.to ? new Date(dateFilter.to + 'T23:59:59.999Z').toISOString() : undefined,
+    };
+  }, [dateFilter]);
+
+  const { data: bar = [] } = useQuery({ queryKey: ['m-bar', range], queryFn: () => metricsApi.bar(range) });
+  const { data: tz = [] } = useQuery({ queryKey: ['m-tz', range], queryFn: () => metricsApi.byTimezone(range) });
+  const { data: daily = [] } = useQuery({ queryKey: ['m-daily', range], queryFn: () => metricsApi.daily(range) });
+  const { data: states = [] } = useQuery({ queryKey: ['m-states', range], queryFn: () => metricsApi.byState(range) });
 
   return (
     <div className="space-y-5">
+      {/* Date filter bar — same pattern as every other data page */}
+      <div className="flex flex-wrap items-center justify-end gap-2.5">
+        <DateFilter value={dateFilter} onChange={setDateFilter} />
+      </div>
+
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <ChartCard title="Lead Metrics (CHT-001)">
           <ResponsiveContainer width="100%" height="100%">
@@ -127,3 +146,4 @@ export default function AnalyticsPage() {
     </div>
   );
 }
+

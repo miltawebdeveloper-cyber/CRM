@@ -2,47 +2,24 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Phone, Users, NotebookPen, CheckCircle2, Download, Calendar } from 'lucide-react';
+import { Phone, Users, NotebookPen, CheckCircle2, Download } from 'lucide-react';
 import { activitiesApi, type Activity } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
 import { StatusPill } from '@/components/status-pill';
-import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
+import { DateFilter, SearchInput } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { downloadCsv } from '@/lib/export';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 
-const RANGE_OPTS = [
-  { label: 'All Time', value: '' },
-  { label: 'Today', value: 'today' },
-  { label: 'Yesterday', value: 'yesterday' },
-  { label: 'Last 7 Days', value: '7d' },
-];
-
-function inRange(iso: string, range: string): boolean {
-  if (!range) return true;
-  const d = new Date(iso);
-  const now = new Date();
-  if (range === 'today') return d.toDateString() === now.toDateString();
-  if (range === 'yesterday') {
-    const y = new Date(now);
-    y.setDate(now.getDate() - 1);
-    return d.toDateString() === y.toDateString();
-  }
-  if (range === '7d') return (now.getTime() - d.getTime()) / 86400000 <= 7;
-  return true;
-}
-
 export default function ActivityPage() {
   const { data: allActivities = [] } = useQuery({ queryKey: ['activities'], queryFn: activitiesApi.list, retry: false });
-  const [range, setRange] = useState('');
   const [dateRange, setDateRange] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
 
   const term = q.trim().toLowerCase();
   const activities = allActivities.filter(
     (a) =>
-      inRange(a.createdAt, range) &&
       inDateBounds(a.createdAt, dateRange) &&
       (!term ||
         (a.lead?.businessName ?? '').toLowerCase().includes(term) ||
@@ -80,7 +57,6 @@ export default function ActivityPage() {
     <div>
       <PageHead>
         <SearchInput value={q} onChange={setQ} placeholder="Search lead, user, outcome…" className="min-w-[220px]" />
-        <FilterSelect icon={Calendar} value={range} onChange={setRange} options={RANGE_OPTS} />
         <DateFilter value={dateRange} onChange={setDateRange} />
         <button
           onClick={() => downloadCsv('activity-log', ['Time', 'Lead', 'By', 'Action', 'Outcome'], activities.map((a) => [new Date(a.createdAt).toLocaleString(), a.lead?.businessName ?? '', a.user?.name ?? '', a.action, a.newValue ?? '']))}

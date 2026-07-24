@@ -13,16 +13,11 @@ import { KpiCard } from '@/components/dashboard/kpi-card';
 import { AnimatedNumber } from '@/components/animated-number';
 import { LiveIndicator } from '@/components/live-indicator';
 import { StatusPill } from '@/components/status-pill';
-import { Segmented } from '@/components/segmented';
+import { DateFilter } from '@/components/filter-controls';
+import { EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { downloadCsv } from '@/lib/export';
 
 const LIVE_MS = 15_000;
-type Period = 'today' | 'week' | 'month';
-const PERIODS = [
-  { label: 'Today', value: 'today' as Period },
-  { label: 'Week', value: 'week' as Period },
-  { label: 'Month', value: 'month' as Period },
-];
 
 const PRI_STYLE: Record<string, string> = { high: 'text-[#a8431f]', medium: 'text-[#c98a18]', low: 'text-muted-foreground' };
 const TASK_LABEL: Record<string, string> = { todo: 'To Do', in_progress: 'In Progress', review: 'Review', done: 'Done' };
@@ -57,19 +52,21 @@ const missedColumns: Column<MissedCall>[] = [
 
 export default function DashboardPage() {
   const qc = useQueryClient();
-  const [period, setPeriod] = useState<Period>('today');
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
 
   const range = useMemo(() => {
-    if (period === 'today') { const d = new Date(); d.setHours(0, 0, 0, 0); return { from: d.toISOString() }; }
-    const days = period === 'week' ? 7 : 30;
-    return { from: new Date(Date.now() - days * 86_400_000).toISOString() };
-  }, [period]);
+    if (!dateFilter.from && !dateFilter.to) return {};
+    return {
+      from: dateFilter.from ? new Date(dateFilter.from).toISOString() : undefined,
+      to: dateFilter.to ? new Date(dateFilter.to + 'T23:59:59.999Z').toISOString() : undefined,
+    };
+  }, [dateFilter]);
 
   const { data: leads = [] } = useQuery({ queryKey: ['leads', 'today'], queryFn: () => leadsApi.list(), retry: false, refetchInterval: LIVE_MS });
   const { data: tasks = [] } = useQuery({ queryKey: ['tasks'], queryFn: tasksApi.list, retry: false });
   const { data: followups = [] } = useQuery({ queryKey: ['followups'], queryFn: () => callsApi.followups(), retry: false });
   const { data: missed = [] } = useQuery({ queryKey: ['missed-calls'], queryFn: communicationsApi.missedCalls, retry: false, refetchInterval: LIVE_MS });
-  const summaryQ = useQuery({ queryKey: ['metrics', 'summary', period], queryFn: () => metricsApi.summary(range), retry: false, refetchInterval: LIVE_MS, refetchOnWindowFocus: true });
+  const summaryQ = useQuery({ queryKey: ['metrics', 'summary', dateFilter], queryFn: () => metricsApi.summary(range), retry: false, refetchInterval: LIVE_MS, refetchOnWindowFocus: true });
   const s = summaryQ.data;
 
   function refreshNow() {
@@ -97,7 +94,7 @@ export default function DashboardPage() {
           <div className="mt-2"><LiveIndicator updatedAt={summaryQ.dataUpdatedAt || Date.now()} fetching={summaryQ.isFetching} /></div>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
-          <Segmented options={PERIODS} value={period} onChange={setPeriod} />
+          <DateFilter value={dateFilter} onChange={setDateFilter} />
           <button onClick={refreshNow} aria-label="Refresh" className="grid h-9 w-9 place-items-center rounded-md border bg-card text-muted-foreground hover:text-foreground">
             <RefreshCw className={`h-4 w-4 ${summaryQ.isFetching ? 'animate-spin' : ''}`} />
           </button>

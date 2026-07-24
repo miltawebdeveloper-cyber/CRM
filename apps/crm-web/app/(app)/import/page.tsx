@@ -2,17 +2,15 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, Check, AlertTriangle, Undo2 } from 'lucide-react';
+import { Upload, Check, AlertTriangle, Undo2, Filter, Loader2, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { importApi, type LeadRow } from '@/lib/crm';
+import { importApi, type LeadRow, type ImportCheckResult } from '@/lib/crm';
 import { leadsApi } from '@/lib/leads';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { ImportDuplicatesDialog } from '@/components/import-duplicates-dialog';
+import { ImportDuplicatesDialog, type CheckFieldsState } from '@/components/import-duplicates-dialog';
 import { PageHead } from '@/components/page-head';
 
-/** Server message if there is one, else the transport error. A 413 here means the
- *  sheet exceeded the API's request-body limit — worth naming, since the fix is a
- *  smaller batch rather than anything about the data itself. */
+/** Server message if there is one, else the transport error. */
 function errorText(err: unknown): string {
   const res = (err as { response?: { status?: number; data?: { message?: string | string[] } } })?.response;
   if (res?.status === 413) return 'The file is too large to send in one request. Split it into smaller batches and import again.';
@@ -22,9 +20,7 @@ function errorText(err: unknown): string {
 }
 
 /**
- * Canonical lead column order (matches the upload sheet). Drives parsing,
- * the preview header, and the sample. `aliases` are matched case-insensitively
- * against the file header so minor naming differences still map.
+ * Canonical lead column order (matches the upload sheet).
  */
 const COLUMNS: { key: keyof LeadRow; label: string; aliases: string[] }[] = [
   { key: 'leadId', label: 'Lead ID', aliases: ['lead id', 'leadid'] },
@@ -33,8 +29,6 @@ const COLUMNS: { key: keyof LeadRow; label: string; aliases: string[] }[] = [
   { key: 'leadSource', label: 'Lead Source', aliases: ['lead source', 'leadsource'] },
   { key: 'businessName', label: 'Company Name', aliases: ['company name', 'company', 'business name', 'businessname', 'business'] },
   { key: 'contactName', label: 'Contact Person', aliases: ['contact person', 'contactname', 'contact person 1', 'primary contact'] },
-  // Renamed from "Contact Person 2" — the old spellings stay as aliases so sheets
-  // already in circulation keep importing into the same column.
   { key: 'contactName2', label: 'Designation', aliases: ['designation', 'contact person 2', 'contactname2', 'secondary contact'] },
   { key: 'phone', label: 'Phone', aliases: ['phone', 'phone number', 'mobile'] },
   { key: 'altPhone', label: 'Alt Phone', aliases: ['alt phone', 'altphone', 'alternate phone'] },
@@ -71,8 +65,6 @@ const STATUS_MAP: Record<string, string> = {
 };
 const TIMEZONES = ['EST', 'CST', 'MST', 'PST'];
 
-/** Split one CSV line, respecting double-quoted fields (so commas inside
- * COMMENTS don't break the row). Doubled quotes ("") become a literal quote. */
 function splitCsvLine(line: string): string[] {
   const out: string[] = [];
   let cur = '';
@@ -99,20 +91,13 @@ function normalize(key: keyof LeadRow, raw: string): string | undefined {
   return v;
 }
 
-// Header matching is by NAME, not position — columns can be in any order.
-// Normalize away case, spaces, and separators so "COMPANY NAME", "company_name",
-// "Company-Name" and "companyname" all map to the same column.
 const normHeader = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-/** The uploaded file, kept raw so the mapping can be changed without re-reading it. */
 interface ParsedFile {
-  /** Header labels exactly as they appear in the file. */
   headers: string[];
-  /** Data rows, still as raw strings. */
   cells: string[][];
 }
 
-/** CRM field key → index into `headers`. NOT_MAPPED means "don't import this field". */
 export const NOT_MAPPED = -1;
 type Mapping = Record<string, number>;
 
@@ -122,11 +107,6 @@ function parseFile(text: string): ParsedFile {
   return { headers: splitCsvLine(lines[0]), cells: lines.slice(1).map(splitCsvLine) };
 }
 
-/**
- * Best-guess mapping from the file's headers, matched by NAME (not position) so
- * any column order works. It's only a starting point — every field can be
- * re-pointed by hand afterwards, which is what makes an arbitrary sheet importable.
- */
 function autoMap(headers: string[]): Mapping {
   const norm = headers.map(normHeader);
   const mapping: Mapping = {};
@@ -187,27 +167,57 @@ export default function ImportPage() {
   const [mapping, setMapping] = useState<Mapping>({});
   const [raw, setRaw] = useState('');
 
-  // Rows are derived from the mapping, so re-pointing a field updates the preview
-  // (and what gets imported) immediately — no need to re-upload the file.
-  const rows = useMemo(() => (file.headers.length ? buildRows(file, mapping) : []), [file, mapping]);
-  const importMut = useMutation({ mutationFn: (skipDuplicates: boolean) => importApi.bulk(rows, skipDuplicates) });
+  // Duplicate detection configuration fields
+  const [dupCheckFields, setDupCheckFields] = useState<CheckFieldsState>({
+    businessName: true,
+    phone: true,
+    email: true,
+  });
 
-  // Duplicate gate (requirement 15). Clicking Import first scans the rows against
-  // the CRM (and against each other); only if duplicates are found do we stop to
-  // ask. A clean file imports straight through with no extra click.
-  const [dupResult, setDupResult] = useState<import('@/lib/crm').ImportCheckResult | null>(null);
+  const activeCheckFields = useMemo(() => {
+    const fields: string[] = [];
+    if (dupCheckFields.businessName) fields.push('businessName');
+    if (dupCheckFields.phone) fields.push('phone');
+    if (dupCheckFields.email) fields.push('email');
+    return fields;
+  }, [dupCheckFields]);
+
+  // Per-row decisions for duplicate rows: row index -> 'import' | 'skip'
+  const [dupDecisions, setDupDecisions] = useState<Record<number, 'import' | 'skip'>>({});
+
+  const rows = useMemo(() => (file.headers.length ? buildRows(file, mapping) : []), [file, mapping]);
+
+  const importMut = useMutation({
+    mutationFn: (params: { skipDuplicates?: boolean; skipRowIndexes?: number[] }) =>
+      importApi.bulk(rows, params.skipDuplicates, params.skipRowIndexes, activeCheckFields),
+  });
+
+  const [dupResult, setDupResult] = useState<ImportCheckResult | null>(null);
+
   const check = useMutation({
-    mutationFn: () => importApi.check(rows),
+    mutationFn: () => importApi.check(rows, activeCheckFields),
     onSuccess: (res) => {
-      if (res.duplicateRecords > 0) setDupResult(res);
-      else importMut.mutate(false); // nothing to warn about — import as-is
+      setDupResult(res);
+      if (res.duplicateRecords > 0) {
+        // Initialize all duplicate rows to 'skip' decision by default
+        const initialDecisions: Record<number, 'import' | 'skip'> = {};
+        for (const d of res.duplicateRows) {
+          initialDecisions[d.index] = 'skip';
+        }
+        setDupDecisions(initialDecisions);
+      } else {
+        // No duplicates found - proceed directly to import all
+        importMut.mutate({ skipDuplicates: false });
+      }
     },
   });
-  const startImport = () => { importMut.reset(); check.mutate(); };
+
+  const startImport = () => {
+    importMut.reset();
+    check.mutate();
+  };
   const importing = check.isPending || importMut.isPending;
 
-  // Import rollback: delete exactly the leads this import created, and refresh the
-  // lead lists + dashboard counts so the removal shows everywhere at once.
   const [confirmRollback, setConfirmRollback] = useState(false);
   const rollback = useMutation({
     mutationFn: (ids: string[]) => leadsApi.bulkDelete(ids),
@@ -218,8 +228,6 @@ export default function ImportPage() {
     },
   });
 
-  // File columns nobody is reading yet — surfaced so it's obvious what's going
-  // unused, and which of them you might want to point a field at.
   const unmapped = useMemo(() => {
     const used = new Set(Object.values(mapping).filter((i) => i >= 0));
     return file.headers.filter((h, i) => h.trim() !== '' && !used.has(i));
@@ -234,12 +242,11 @@ export default function ImportPage() {
     rollback.reset();
     setConfirmRollback(false);
     setDupResult(null);
+    setDupDecisions({});
   }
 
   const setField = (key: string, idx: number) => setMapping((m) => ({ ...m, [key]: idx }));
 
-  // Accept CSV or Excel (.xlsx/.xls) — Excel sheets are converted to CSV and
-  // run through the same quote-aware parser + column-alias mapping.
   function loadFile(file: File) {
     const isExcel = /\.(xlsx|xls)$/i.test(file.name);
     if (!isExcel) { file.text().then(load); return; }
@@ -250,9 +257,53 @@ export default function ImportPage() {
     });
   }
 
+  const toggleCheckField = (field: keyof CheckFieldsState) => {
+    setDupCheckFields((prev) => ({ ...prev, [field]: !prev[field] }));
+    setDupResult(null);
+  };
+
+  const toggleDupDecision = (index: number, action: 'import' | 'skip') => {
+    setDupDecisions((prev) => ({ ...prev, [index]: action }));
+  };
+
+  // Bulk Actions
+  const handleImportAllDuplicates = () => {
+    if (!dupResult) return;
+    const decisions: Record<number, 'import' | 'skip'> = {};
+    for (const d of dupResult.duplicateRows) {
+      decisions[d.index] = 'import';
+    }
+    setDupDecisions(decisions);
+    setDupResult(null);
+    importMut.mutate({ skipDuplicates: false });
+  };
+
+  const handleSkipAllDuplicates = () => {
+    if (!dupResult) return;
+    const decisions: Record<number, 'import' | 'skip'> = {};
+    for (const d of dupResult.duplicateRows) {
+      decisions[d.index] = 'skip';
+    }
+    setDupDecisions(decisions);
+    setDupResult(null);
+    importMut.mutate({ skipDuplicates: true });
+  };
+
+  const handleCustomImport = (skipRowIndexes: number[]) => {
+    setDupResult(null);
+    importMut.mutate({ skipDuplicates: false, skipRowIndexes });
+  };
+
+  const handleApplyCurrentDecisions = () => {
+    if (!dupResult) return;
+    const skipIndexes = dupResult.duplicateRows
+      .filter((d) => (dupDecisions[d.index] ?? 'skip') === 'skip')
+      .map((d) => d.index);
+    handleCustomImport(skipIndexes);
+  };
+
   return (
     <div>
-
       <div className="grid gap-[18px] lg:grid-cols-2">
         <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#bbd3bc] bg-background p-[34px] text-center transition-colors hover:border-[#a6c74d]">
           <div className="mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-[#d8eed9] text-[#266929]"><Upload className="h-6 w-6" /></div>
@@ -272,6 +323,49 @@ export default function ImportPage() {
         </div>
       </div>
 
+      {/* Duplicate Validation Settings */}
+      {file.headers.length > 0 && (
+        <div className="mt-[18px] rounded-2xl border bg-card p-[18px] shadow-sm">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-primary" />
+              <h3 className="font-display text-[15px] font-semibold">Duplicate Validation Settings</h3>
+            </div>
+            <span className="text-[12px] text-muted-foreground">Configure validation fields for duplicate detection</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-6 pt-1 text-[13px]">
+            <label className="flex cursor-pointer items-center gap-2 font-medium">
+              <input
+                type="checkbox"
+                checked={dupCheckFields.businessName}
+                onChange={() => toggleCheckField('businessName')}
+                className="h-4 w-4 rounded border-muted-foreground/30 accent-primary"
+              />
+              <span>Company / Business Name</span>
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 font-medium">
+              <input
+                type="checkbox"
+                checked={dupCheckFields.phone}
+                onChange={() => toggleCheckField('phone')}
+                className="h-4 w-4 rounded border-muted-foreground/30 accent-primary"
+              />
+              <span>Phone Number</span>
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 font-medium">
+              <input
+                type="checkbox"
+                checked={dupCheckFields.email}
+                onChange={() => toggleCheckField('email')}
+                className="h-4 w-4 rounded border-muted-foreground/30 accent-primary"
+              />
+              <span>Email Address</span>
+            </label>
+          </div>
+        </div>
+      )}
+
+      {/* Column Mapping Section */}
       {file.headers.length > 0 && (
         <div className="mt-[18px] rounded-2xl border bg-card p-[18px] shadow-sm">
           <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
@@ -283,8 +377,6 @@ export default function ImportPage() {
               Reset to auto-detected
             </button>
           </div>
-          {/* Every field is optional: nothing here is marked Required, and leaving
-              a field (including any date) unmapped simply skips it on import. */}
           <p className="mb-3 text-[12px] text-muted-foreground">
             Matched by column name, so your file&apos;s column order doesn&apos;t matter. Change any
             row to point a CRM field at a different column. All fields are optional — leave anything
@@ -328,12 +420,14 @@ export default function ImportPage() {
         </div>
       )}
 
+      {/* File Preview */}
       {rows.length > 0 && (
         <div className="mt-[18px] overflow-hidden rounded-2xl border bg-card shadow-sm">
           <div className="flex items-center justify-between border-b px-[18px] py-4">
             <div><h3 className="font-display text-[15px] font-semibold">Preview</h3><div className="text-xs text-muted-foreground">{rows.length} rows · first 10 shown</div></div>
             <button onClick={startImport} disabled={importing} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground disabled:opacity-60">
-              <Check className="h-4 w-4" /> {check.isPending ? 'Checking…' : importMut.isPending ? 'Importing…' : `Import ${rows.length}`}
+              {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              {check.isPending ? 'Checking Duplicates…' : importMut.isPending ? 'Importing…' : `Import ${rows.length} Leads`}
             </button>
           </div>
           <div className="overflow-x-auto">
@@ -341,7 +435,6 @@ export default function ImportPage() {
               <thead><tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">{COLUMNS.map((c) => <th key={c.key} className="px-4 py-2.5 font-semibold">{c.label}</th>)}</tr></thead>
               <tbody>
                 {rows.slice(0, 10).map((r, i) => {
-                  // Highlight rows the last scan flagged as duplicates.
                   const dup = dupResult?.duplicateRows.some((d) => d.index === i);
                   return (
                   <tr key={i} className={`border-b last:border-0 ${dup ? 'bg-[#fbf3e2]/50' : ''}`}>
@@ -355,9 +448,141 @@ export default function ImportPage() {
         </div>
       )}
 
+      {/* DEDICATED DUPLICATE RECORDS REVIEW SECTION AT THE BOTTOM OF THE SCREEN */}
+      {dupResult && dupResult.duplicateRows.length > 0 && (
+        <div className="mt-[24px] overflow-hidden rounded-2xl border border-[#e8c68a] bg-card shadow-md">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e8c68a] bg-[#fbf3e2]/60 px-6 py-4">
+            <div className="flex items-center gap-3">
+              <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#f5dfb8] text-[#8a5d0a]">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="font-display text-[16px] font-semibold text-[#664304]">Duplicate Records Review & Comparison</h3>
+                <p className="text-[12.5px] text-[#8a5d0a]">
+                  Review detected duplicates below. Compare imported file records with existing CRM leads, and choose bulk or individual actions before completing import.
+                </p>
+              </div>
+            </div>
+
+            {/* Bulk Action Controls in Dedicated Section */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleImportAllDuplicates}
+                disabled={importing}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#a6c74d] bg-[#f4f9e8] px-3.5 py-2 text-[12.5px] font-semibold text-[#266929] shadow-2xs hover:bg-[#e6f2d2] disabled:opacity-50"
+              >
+                <Check className="h-4 w-4" /> Import All Duplicates
+              </button>
+              <button
+                type="button"
+                onClick={handleSkipAllDuplicates}
+                disabled={importing}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#e0b4ae] bg-[#fdf3f1] px-3.5 py-2 text-[12.5px] font-semibold text-[#9e2b21] shadow-2xs hover:bg-[#fae4e1] disabled:opacity-50"
+              >
+                Skip All Duplicates
+              </button>
+            </div>
+          </div>
+
+          {/* Comparison Grid */}
+          <div className="overflow-x-auto p-6">
+            <table className="w-full border-collapse text-[12.5px]">
+              <thead>
+                <tr className="border-b text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <th className="pb-2.5 pr-4 font-semibold">Imported Record (File Row)</th>
+                  <th className="pb-2.5 pr-4 font-semibold">Matched On</th>
+                  <th className="pb-2.5 pr-4 font-semibold">Existing CRM Lead</th>
+                  <th className="pb-2.5 text-right font-semibold">Row Action Decision</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {dupResult.duplicateRows.map((d) => {
+                  const decision = dupDecisions[d.index] ?? 'skip';
+                  return (
+                    <tr key={d.index} className={`transition-colors ${decision === 'import' ? 'bg-[#f4f9e8]/60' : 'bg-[#fbf3e2]/30'}`}>
+                      <td className="py-3 pr-4">
+                        <div className="font-semibold text-foreground">{d.row.businessName || '—'}</div>
+                        <div className="font-mono text-[11.5px] text-muted-foreground">
+                          {d.row.phone || '—'} {d.row.email ? `· ${d.row.email}` : ''}
+                        </div>
+                      </td>
+                      <td className="py-3 pr-4">
+                        <span className="inline-flex rounded-full bg-[#f4e4c1] px-2.5 py-0.5 text-[11px] font-semibold text-[#8a5d0a]">
+                          {d.matchedOn.join(', ')}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4">
+                        {d.existing ? (
+                          <div>
+                            <div className="flex items-center gap-1.5 font-semibold">
+                              <span className="font-mono text-[11.5px] text-primary">{d.existing.leadId}</span>
+                              <span>{d.existing.businessName}</span>
+                            </div>
+                            <div className="text-[11.5px] text-muted-foreground">
+                              {d.existing.phone} {d.existing.email ? `· ${d.existing.email}` : ''} · Assigned: {d.existing.assignedTo ?? 'Unassigned'}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="italic text-muted-foreground">Duplicate within file (earlier row)</span>
+                        )}
+                      </td>
+                      <td className="py-3 text-right">
+                        <div className="inline-flex rounded-lg border bg-background p-0.5 shadow-2xs">
+                          <button
+                            type="button"
+                            onClick={() => toggleDupDecision(d.index, 'import')}
+                            className={`rounded-md px-3 py-1.5 text-[12px] font-semibold transition-all ${
+                              decision === 'import'
+                                ? 'bg-[#266929] text-white shadow-2xs'
+                                : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                          >
+                            Import
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleDupDecision(d.index, 'skip')}
+                            className={`rounded-md px-3 py-1.5 text-[12px] font-semibold transition-all ${
+                              decision === 'skip'
+                                ? 'bg-[#9e2b21] text-white shadow-2xs'
+                                : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                          >
+                            Skip
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Footer Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-muted/40 px-6 py-4">
+            <div className="text-xs text-muted-foreground">
+              Selected decisions: <b className="text-foreground">{dupResult.duplicateRows.filter((d) => dupDecisions[d.index] === 'import').length}</b> to import, <b className="text-foreground">{dupResult.duplicateRows.filter((d) => (dupDecisions[d.index] ?? 'skip') === 'skip').length}</b> to skip.
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleApplyCurrentDecisions}
+                disabled={importing}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-[13px] font-semibold text-primary-foreground shadow-sm hover:opacity-90 disabled:opacity-60"
+              >
+                {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                Complete Import Based on Review Choices
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {importMut.isSuccess && (
         <div className="mt-4 rounded-md bg-[#e4f2e4] px-4 py-3 text-sm text-[#317d34]">
-          {/* Requirement 15 summary: Total / New / Duplicate / Imported / Skipped. */}
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-medium">
             <span>Total: <b className="tabular-nums">{importMut.data.totalRows}</b></span>
             <span>New: <b className="tabular-nums">{importMut.data.newRecords}</b></span>
@@ -365,9 +590,6 @@ export default function ImportPage() {
             <span>Imported: <b className="tabular-nums">{importMut.data.imported + importMut.data.updated}</b> (created {importMut.data.imported} · updated {importMut.data.updated})</span>
             <span>Skipped: <b className="tabular-nums">{importMut.data.skipped}</b></span>
           </div>
-          {/* Assignment is reported separately from the row counts: a sheet can
-              import every row cleanly and still fail to hand the leads to anyone,
-              which would otherwise look like a completely successful import. */}
           <div className="mt-1 text-xs">
             Assigned successfully: <b>{importMut.data.assignedSuccessfully}</b>
             {importMut.data.assignmentFailed > 0 && (
@@ -376,9 +598,6 @@ export default function ImportPage() {
           </div>
           {importMut.data.errors.length > 0 && <ul className="mt-1 list-inside list-disc text-xs">{importMut.data.errors.slice(0, 5).map((e) => <li key={e.row}>Row {e.row}: {e.reason}</li>)}</ul>}
 
-          {/* Undo Import — removes ONLY the leads this import created (never the
-              pre-existing ones it merely updated), so a wrong file can be pulled
-              back in one click. Gone once the batch is rolled back. */}
           {importMut.data.createdIds.length > 0 && !rollback.isSuccess && (
             <div className="mt-2 border-t border-[#bfe0c0] pt-2">
               <button
@@ -411,16 +630,18 @@ export default function ImportPage() {
       {dupResult && (
         <ImportDuplicatesDialog
           result={dupResult}
-          busy={importMut.isPending}
-          onSkip={() => { setDupResult(null); importMut.mutate(true); }}
-          onImportAnyway={() => { setDupResult(null); importMut.mutate(false); }}
+          busy={importing}
+          decisions={dupDecisions}
+          onToggleDecision={toggleDupDecision}
+          onImportAll={handleImportAllDuplicates}
+          onSkipAll={handleSkipAllDuplicates}
+          onCustomImport={handleCustomImport}
           onCancel={() => setDupResult(null)}
+          checkFields={dupCheckFields}
+          onToggleCheckField={toggleCheckField}
         />
       )}
 
-      {/* A failed import only raised a toast before, which is easy to miss and gone
-          by the time you look — so the whole upload appeared to do nothing. Show it
-          in place, next to the Import button that triggered it. */}
       {importMut.isError && (
         <div className="mt-4 rounded-md bg-[#fbeeec] px-4 py-3 text-sm text-[#a8431f]">
           Import failed — nothing was saved. {errorText(importMut.error)}

@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { CommDirection, LeadStatus, OutcomeCategory, Prisma, Role, Timezone } from '@crm/database';
+import { CommDirection, LeadStatus, OutcomeCategory, Prisma, Role, Timezone, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OutcomesService } from '../outcomes/outcomes.service';
@@ -929,10 +929,12 @@ export class CallsService {
 
   // CAL-006 — caller's assigned lead queue.
   // Single queue ordering:
-  //   0 — today's PENDING callbacks (pinned, stay until completed/rescheduled)
-  //   1 — active/ongoing calls (newest first — a new/received call jumps to top)
-  //   2 — backlog: leads not yet called/handled (waiting)
-  //   3 — completed/closed (pushed to the bottom, kept with their outcome/status)
+  //   0 — Callback leads due today (sorted by scheduled time callbackAt asc)
+  //   1 — Zoom meetings scheduled for today (sorted by meeting time scheduledAt asc)
+  //   2 — active/ongoing calls (newest first)
+  //   3 — regular calling queue (backlog, ascending lead sequence order)
+  //   4 — future scheduled Callbacks and Zoom meetings (sorted by scheduled date asc)
+  //   5 — completed calls / closed leads (bottom)
   async myLeads(callerId: string) {
     const startOfDay = startOfToday();
     const endOfToday = new Date();
@@ -941,9 +943,64 @@ export class CallsService {
 
     const leads = await this.prisma.lead.findMany({
       where: { assignedToId: callerId, deletedAt: null },
+      include: {
+        zoomMeetings: {
+          where: {
+            status: { in: [ZoomMeetingStatus.scheduled, ZoomMeetingStatus.in_progress, ZoomMeetingStatus.rescheduled] },
+          },
+          orderBy: { scheduledAt: 'asc' },
+          take: 1,
+          select: {
+            id: true,
+            title: true,
+            scheduledAt: true,
+            durationMins: true,
+            status: true,
+            joinUrl: true,
+            meetingId: true,
+          },
+        },
+      },
       orderBy: { leadId: 'asc' },
       take: 200,
     });
+
+    // Also fetch Zoom meetings where callerId is organizerId, in case the lead is assigned elsewhere
+    const extraZoomMeetings = await this.prisma.zoomMeeting.findMany({
+      where: {
+        organizerId: callerId,
+        status: { in: [ZoomMeetingStatus.scheduled, ZoomMeetingStatus.in_progress, ZoomMeetingStatus.rescheduled] },
+        lead: { deletedAt: null },
+      },
+      include: {
+        lead: true,
+      },
+      orderBy: { scheduledAt: 'asc' },
+      take: 50,
+    });
+
+    const leadMap = new Map<string, typeof leads[number]>();
+    for (const l of leads) {
+      leadMap.set(l.id, l);
+    }
+    for (const zm of extraZoomMeetings) {
+      if (zm.lead && !leadMap.has(zm.lead.id)) {
+        leadMap.set(zm.lead.id, {
+          ...zm.lead,
+          zoomMeetings: [{
+            id: zm.id,
+            title: zm.title,
+            scheduledAt: zm.scheduledAt,
+            durationMins: zm.durationMins,
+            status: zm.status,
+            joinUrl: zm.joinUrl,
+            meetingId: zm.meetingId,
+          }],
+        });
+      }
+    }
+
+    const allLeads = Array.from(leadMap.values());
 
     // Most recent call per lead made today, to derive each lead's call state.
     const calls = await this.prisma.call.findMany({
@@ -953,26 +1010,40 @@ export class CallsService {
     });
     const latestByLead = new Map<string, { startTime: Date; endTime: Date | null; outcome: string | null }>();
     for (const c of calls) {
-      if (!latestByLead.has(c.leadId)) latestByLead.set(c.leadId, c); // desc order → first seen is newest
+      if (!latestByLead.has(c.leadId)) latestByLead.set(c.leadId, c);
     }
 
-    const enriched = leads.map((l) => {
+    const enriched = allLeads.map((l) => {
       const call = latestByLead.get(l.id) ?? null;
+      const nextZoom = l.zoomMeetings?.[0] ?? null;
       return {
         ...l,
         lastCallAt: call?.startTime ?? null,
         lastCallEndedAt: call?.endTime ?? null,
         lastOutcome: call?.outcome ?? null,
+        nextZoomMeeting: nextZoom,
       };
     });
     type Row = (typeof enriched)[number];
 
     const rank = (l: Row) => {
       const closed = l.status === 'closed' || l.status === 'rejected';
-      if (!l.callbackCompletedAt && isToday(l.callbackAt)) return 0; // today's pending callback (pinned)
-      if (l.lastCallAt && !l.lastCallEndedAt) return 1; // call in progress / ongoing
-      if (l.lastCallEndedAt || closed) return 3; // completed call or closed lead → bottom
-      return 2; // backlog: waiting / not yet handled
+      if (closed || l.lastCallEndedAt) return 5; // completed call or closed lead → bottom
+
+      const isCallbackDueToday = !l.callbackCompletedAt && l.callbackAt && (isToday(l.callbackAt) || l.callbackAt < startOfDay);
+      if (isCallbackDueToday) return 0; // 1. Callback leads due today (or overdue)
+
+      const isZoomDueToday = l.nextZoomMeeting && (isToday(l.nextZoomMeeting.scheduledAt) || l.nextZoomMeeting.scheduledAt < startOfDay);
+      if (isZoomDueToday) return 1; // 2. Zoom meetings scheduled for today (or overdue)
+
+      if (l.lastCallAt && !l.lastCallEndedAt) return 2; // call in progress
+
+      const isFutureCallback = !l.callbackCompletedAt && l.callbackAt && l.callbackAt > endOfToday;
+      const isFutureZoom = l.nextZoomMeeting && l.nextZoomMeeting.scheduledAt > endOfToday;
+
+      if (isFutureCallback || isFutureZoom) return 4; // future scheduled items
+
+      return 3; // regular calling queue (backlog)
     };
 
     return enriched.sort((a, b) => {
@@ -980,8 +1051,20 @@ export class CallsService {
       const rb = rank(b);
       if (ra !== rb) return ra - rb;
       if (ra === 0) return (a.callbackAt?.getTime() ?? 0) - (b.callbackAt?.getTime() ?? 0);
-      if (ra === 1) return (b.lastCallAt?.getTime() ?? 0) - (a.lastCallAt?.getTime() ?? 0);
-      if (ra === 3) return (b.lastCallEndedAt?.getTime() ?? 0) - (a.lastCallEndedAt?.getTime() ?? 0);
+      if (ra === 1) return (a.nextZoomMeeting?.scheduledAt.getTime() ?? 0) - (b.nextZoomMeeting?.scheduledAt.getTime() ?? 0);
+      if (ra === 2) return (b.lastCallAt?.getTime() ?? 0) - (a.lastCallAt?.getTime() ?? 0);
+      if (ra === 4) {
+        const timeA = Math.min(
+          a.callbackAt && !a.callbackCompletedAt ? a.callbackAt.getTime() : Infinity,
+          a.nextZoomMeeting ? a.nextZoomMeeting.scheduledAt.getTime() : Infinity,
+        );
+        const timeB = Math.min(
+          b.callbackAt && !b.callbackCompletedAt ? b.callbackAt.getTime() : Infinity,
+          b.nextZoomMeeting ? b.nextZoomMeeting.scheduledAt.getTime() : Infinity,
+        );
+        return timeA - timeB;
+      }
+      if (ra === 5) return (b.lastCallEndedAt?.getTime() ?? 0) - (a.lastCallEndedAt?.getTime() ?? 0);
       return a.leadId.localeCompare(b.leadId);
     });
   }

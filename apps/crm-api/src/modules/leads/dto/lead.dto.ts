@@ -201,14 +201,32 @@ export class ImportLeadsDto {
   @IsOptional()
   @IsBoolean()
   skipDuplicates?: boolean;
+
+  /** Row indexes in `rows` to explicitly skip during import. */
+  @ApiPropertyOptional({ type: [Number] })
+  @IsOptional()
+  @IsArray()
+  skipRowIndexes?: number[];
+
+  /** Validation fields to use for duplicate check: businessName, phone, email. */
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  checkFields?: string[];
 }
 
-/** Body for the pre-import duplicate check — just the parsed rows. */
+/** Body for the pre-import duplicate check — parsed rows and optional duplicate validation fields. */
 export class CheckImportDto {
   @ApiProperty({ type: [CreateLeadDto] })
   @IsArray()
   @ArrayNotEmpty()
   rows: CreateLeadDto[];
+
+  /** Validation fields to use for duplicate check: businessName, phone, email. */
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  checkFields?: string[];
 }
 
 export class ListLeadsQueryDto {

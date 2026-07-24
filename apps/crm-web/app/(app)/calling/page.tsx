@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Phone, Check, Target, CheckCircle2, Clock, Percent, Video, ExternalLink } from 'lucide-react';
+import { Phone, Check, Target, CheckCircle2, Clock, Percent, Video, ExternalLink, MessageSquare, Mail, Briefcase, UserRound, Send, X, Loader2 } from 'lucide-react';
+import { useMutation } from '@tanstack/react-query';
 import { callsApi, communicationsApi, outcomesApi, formatDuration, type CallPhase } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
@@ -43,11 +44,47 @@ const PHASE_LABEL: Record<CallPhase, string> = {
   ended: 'Call ended',
 };
 
+// Format ISO date string into readable scheduled date & time
+function formatScheduledTime(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const today = new Date();
+  if (d.toDateString() === today.toDateString()) {
+    return `Today, ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  }
+  return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function getQueueItemType(l: Lead) {
+  const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
+
+  const isCbToday = !l.callbackCompletedAt && l.callbackAt && new Date(l.callbackAt) <= endOfDay;
+  const isZmToday = l.nextZoomMeeting && new Date(l.nextZoomMeeting.scheduledAt) <= endOfDay;
+  const isCbFuture = !l.callbackCompletedAt && l.callbackAt && new Date(l.callbackAt) > endOfDay;
+  const isZmFuture = l.nextZoomMeeting && new Date(l.nextZoomMeeting.scheduledAt) > endOfDay;
+
+  if (isCbToday) {
+    return { type: 'callback' as const, label: 'Callback Queue', badge: 'Callback Today', scheduledAt: l.callbackAt, isToday: true };
+  }
+  if (isZmToday) {
+    return { type: 'zoom' as const, label: 'Zoom Scheduled Queue', badge: 'Zoom Today', scheduledAt: l.nextZoomMeeting?.scheduledAt, isToday: true };
+  }
+  if (isCbFuture) {
+    return { type: 'callback' as const, label: 'Callback Queue', badge: 'Callback Scheduled', scheduledAt: l.callbackAt, isToday: false };
+  }
+  if (isZmFuture) {
+    return { type: 'zoom' as const, label: 'Zoom Scheduled Queue', badge: 'Zoom Scheduled', scheduledAt: l.nextZoomMeeting?.scheduledAt, isToday: false };
+  }
+  return { type: 'new_call' as const, label: 'New Calling Queue', badge: 'New Call', scheduledAt: null, isToday: false };
+}
+
 export default function CallingPage() {
   const qc = useQueryClient();
   // Which view is showing. The dialer's state lives here, so switching tabs and
   // back doesn't disturb an in-progress call.
   const [tab, setTab] = useState<'panel' | 'made' | 'analytics' | 'recordings' | 'sms'>('panel');
+  const [queueFilter, setQueueFilter] = useState<'all' | 'callback' | 'zoom' | 'new_call'>('all');
   const [active, setActive] = useState<{ callId: string; lead: Lead; startedAt: number; from?: string; callerName?: string } | null>(null);
   const [live, setLive] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -131,12 +168,32 @@ export default function CallingPage() {
     enabled: !!selectedId,
   });
 
-  // User may call ANY record: an explicit selection wins, else the next open lead.
+  // ── Queue ordering (requirement) ──
+  // The queue always reads in ASCENDING lead-id order, with anything already dealt
+  // with today (closed, rejected, or a call finished) pushed to the END — so a
+  // completed lead drops to the back and the next pending one rises to the top and
+  // becomes the active card. Lead ids are `L-YYYY-N` with no padding, so the
+  // trailing number is compared numerically (L-2026-2 before L-2026-10).
+  const leadSeq = (id: string) => {
+    const m = id.match(/(\d+)\s*$/);
+    return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+  };
+  const isDone = (l: Lead) => l.status === 'closed' || l.status === 'rejected' || !!l.lastCallEndedAt;
+  const queue = leads;
+  const filteredQueue = queue.filter((q) => {
+    if (queueFilter === 'all') return true;
+    return getQueueItemType(q).type === queueFilter;
+  });
+  // The next lead to work: first not-yet-done in ascending queue order.
+  const nextPending = queue.find((l) => !isDone(l));
+
+  // User may call ANY record: an explicit selection wins, else the next pending
+  // lead (top of the queue). Falls back to the first row if everything's done.
   const current =
     active?.lead ??
     (selectedId ? leads.find((l) => l.id === selectedId) ?? selectedLead : undefined) ??
-    leads.find((l) => l.status !== 'closed' && l.status !== 'rejected') ??
-    leads[0];
+    nextPending ??
+    queue[0];
 
   // No live timer during the call: we don't tick a running clock while `live`.
   // The total duration is computed once, from `startedAt`, when the call ends.
@@ -248,6 +305,23 @@ export default function CallingPage() {
 
   const remaining = leads.filter((l) => l.status !== 'closed' && l.status !== 'rejected').length;
 
+  // ── Quick message ── send an SMS to the current lead without leaving the panel.
+  const [msgOpen, setMsgOpen] = useState(false);
+  const [msgBody, setMsgBody] = useState('');
+  const sendMsg = useMutation({
+    mutationFn: () => communicationsApi.sendSms(current!.id, msgBody.trim()),
+    onSuccess: (r) => {
+      if (r.success) {
+        toast.success('Message sent');
+        setMsgOpen(false);
+        setMsgBody('');
+      } else {
+        toast.error(r.error ?? 'Could not send the message.');
+      }
+    },
+    onError: (err) => toast.error(apiError(err, 'Could not send the message.')),
+  });
+
   return (
     <div>
       <PageHead>
@@ -292,10 +366,135 @@ export default function CallingPage() {
         <KpiCard icon={Percent} iconBg="#e7f0f8" iconColor="#2c5d8f" value={formatDuration(dash?.avgCallSecs ?? 0)} label="Avg Call" />
       </div>
 
-      <div className="grid gap-[18px] lg:grid-cols-[1fr_360px]">
-        {/* Left: call card + notes */}
+      {/* Queue (left) · Green lead card + notes (centre) · Dial pad (right). */}
+      <div className="grid gap-[18px] xl:grid-cols-[300px_minmax(0,1fr)_360px]">
+        {/* Left: Your Queue section (New Calling Queue, Callback Queue, Zoom Scheduled Queue) */}
         <div className="space-y-[18px]">
-          <div className="relative overflow-hidden rounded-[22px] p-6 text-white shadow-md" style={{ background: 'linear-gradient(165deg,#163618,#112712)' }}>
+          <div className="rounded-2xl border bg-card shadow-sm">
+            <div className="border-b px-[18px] py-3.5">
+              <div className="flex items-center justify-between">
+                <h3 className="font-display text-[15px] font-semibold">Your Queue</h3>
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
+                  {queue.length} leads
+                </span>
+              </div>
+              <div className="mt-2.5 flex items-center gap-1 overflow-x-auto text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setQueueFilter('all')}
+                  className={`rounded-md px-2 py-1 font-semibold transition-colors ${queueFilter === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
+                >
+                  All ({queue.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQueueFilter('callback')}
+                  className={`rounded-md px-2 py-1 font-semibold transition-colors ${queueFilter === 'callback' ? 'bg-[#9e2b21] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
+                >
+                  Callback ({queue.filter((l) => getQueueItemType(l).type === 'callback').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQueueFilter('zoom')}
+                  className={`rounded-md px-2 py-1 font-semibold transition-colors ${queueFilter === 'zoom' ? 'bg-[#2c5d8f] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
+                >
+                  Zoom ({queue.filter((l) => getQueueItemType(l).type === 'zoom').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setQueueFilter('new_call')}
+                  className={`rounded-md px-2 py-1 font-semibold transition-colors ${queueFilter === 'new_call' ? 'bg-[#266929] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
+                >
+                  New ({queue.filter((l) => getQueueItemType(l).type === 'new_call').length})
+                </button>
+              </div>
+            </div>
+            <div className="max-h-[620px] overflow-y-auto p-[14px]">
+              {filteredQueue.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">No items in this queue.</p>}
+              {filteredQueue.map((q) => {
+                const closed = q.status === 'closed' || q.status === 'rejected';
+                const activeCall = !!q.lastCallAt && !q.lastCallEndedAt;
+                const completedToday = !!q.lastCallEndedAt;
+                const isCurrent = current?.id === q.id && !closed;
+                const done = closed || completedToday;
+                const meta = outcomeMeta(q.lastOutcome);
+                const qType = getQueueItemType(q);
+                const priorityIndex = queue.findIndex((item) => item.id === q.id) + 1;
+
+                return (
+                  <div
+                    key={q.id}
+                    onClick={() => { if (!live && !closed) setSelectedId(q.id); }}
+                    className={`mb-[9px] flex flex-col gap-1.5 rounded-[11px] border p-3 transition-colors ${
+                      isCurrent ? 'border-[#2b732f] bg-muted shadow-[inset_3px_0_0_#266929]' : 'hover:bg-muted/50'
+                    } ${!live && !closed ? 'cursor-pointer' : ''} ${
+                      qType.type === 'callback'
+                        ? 'border-[#e8c9bf] bg-[#fdf6f4]'
+                        : qType.type === 'zoom'
+                        ? 'border-[#bfe3e8] bg-[#f4fbfd]'
+                        : ''
+                    } ${completedToday && !qType.isToday ? 'opacity-70' : ''}`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div className="grid h-6 w-6 shrink-0 place-items-center rounded-[7px] bg-[#d8eed9] text-[11px] font-bold text-[#266929]">
+                          {done ? '✓' : `#${priorityIndex}`}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-[13px] font-semibold text-foreground">
+                            {q.contactName ? q.contactName : q.businessName}
+                          </div>
+                          {q.contactName && (
+                            <div className="truncate text-[11px] text-muted-foreground">{q.businessName}</div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Queue Type Badge */}
+                      {qType.type === 'callback' ? (
+                        <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-[#9e2b21] px-2 py-[2px] text-[10px] font-semibold text-white">
+                          <Clock className="h-3 w-3" />
+                          {qType.badge}
+                        </span>
+                      ) : qType.type === 'zoom' ? (
+                        <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-[#2c5d8f] px-2 py-[2px] text-[10px] font-semibold text-white">
+                          <Video className="h-3 w-3" />
+                          {qType.badge}
+                        </span>
+                      ) : (isCurrent || activeCall) ? (
+                        <StatusPill status="in_progress" />
+                      ) : completedToday && q.lastOutcome ? (
+                        <OutcomePill name={meta?.name ?? q.lastOutcome} color={meta?.color} />
+                      ) : closed ? (
+                        <StatusPill status={q.status} />
+                      ) : (
+                        <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-[#266929]/15 px-2 py-[2px] text-[10px] font-semibold text-[#266929]">
+                          <Phone className="h-3 w-3" />
+                          New Call
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11.5px] text-muted-foreground border-t pt-1.5">
+                      <span className="font-mono">{q.phone}</span>
+                      {qType.scheduledAt ? (
+                        <span className="font-medium text-foreground">
+                          📅 {formatScheduledTime(qType.scheduledAt)}
+                        </span>
+                      ) : (
+                        <span>{q.timezone}</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Centre: call card + notes */}
+        <div className="space-y-[18px]">
+          <div className="relative overflow-hidden rounded-[18px] p-4 text-white shadow-md" style={{ background: 'linear-gradient(165deg,#163618,#112712)' }}>
             <svg className="pointer-events-none absolute inset-0 opacity-[.13]" viewBox="0 0 600 400" preserveAspectRatio="xMidYMid slice">
               <g fill="none" stroke="#a6c15c" strokeWidth="1">
                 <path d="M-50 80 Q150 30 350 90 T780 80" /><path d="M-50 160 Q180 100 360 180 T800 160" />
@@ -305,14 +504,39 @@ export default function CallingPage() {
             <div className="relative z-[2]">
               {current ? (
                 <>
-                  <div className="mb-[18px] flex items-center gap-[14px]">
-                    <Avatar name={current.businessName} size="lg" />
-                    <div>
+                  <div className="mb-2.5 flex items-start gap-[12px]">
+                    <Avatar name={current.businessName} size="md" />
+                    <div className="min-w-0 flex-1">
                       <div className="font-display text-[20px] font-semibold">{current.businessName}</div>
                       <div className="text-[13px] text-[#a6c74d]">{current.leadId}</div>
                     </div>
+                    {/* Quick message — SMS the current lead without leaving the panel. */}
+                    <button
+                      onClick={() => { setMsgBody(''); setMsgOpen(true); }}
+                      title="Send a message"
+                      aria-label="Send a message"
+                      className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-white/10 text-white transition-colors hover:bg-white/20"
+                    >
+                      <MessageSquare className="h-[18px] w-[18px]" />
+                    </button>
                   </div>
                   <div className="mb-1 font-mono text-[15px] tracking-[.02em] text-[#d8eed9]">{current.phone}</div>
+                  {/* Complete lead information — the person, their role, how to reach
+                      them, and who owns the record. Only what's present is shown. */}
+                  <div className="mt-2.5 flex flex-wrap gap-x-6 gap-y-2 text-[12.5px]">
+                    {current.contactName && (
+                      <span className="inline-flex items-center gap-1.5 text-[#d8eed9]"><UserRound className="h-3.5 w-3.5 text-[#a6c74d]" /> {current.contactName}</span>
+                    )}
+                    {current.contactName2 && (
+                      <span className="inline-flex items-center gap-1.5 text-[#d8eed9]"><Briefcase className="h-3.5 w-3.5 text-[#a6c74d]" /> {current.contactName2}</span>
+                    )}
+                    {current.email && (
+                      <a href={`mailto:${current.email}`} className="inline-flex items-center gap-1.5 text-[#d8eed9] hover:underline"><Mail className="h-3.5 w-3.5 text-[#a6c74d]" /> {current.email}</a>
+                    )}
+                    {current.assignedTo && (
+                      <span className="inline-flex items-center gap-1.5 text-[#d8eed9]"><Check className="h-3.5 w-3.5 text-[#a6c74d]" /> {current.assignedTo.name}</span>
+                    )}
+                  </div>
                   {/* Caller identity the customer will see. During a call it's the
                       identity the API stamped on this call; otherwise the rep's own
                       assigned line. An unassigned rep is warned they can't call yet. */}
@@ -331,41 +555,91 @@ export default function CallingPage() {
                       </div>
                     );
                   })()}
-                  <div className="my-[18px] flex flex-wrap gap-5">
-                    <div><div className="text-[11px] uppercase tracking-[.1em] text-[#7e9933]">Location</div><div className="mt-0.5 font-display text-[16px] font-semibold">{current.city}, {current.state}</div></div>
-                    <div><div className="text-[11px] uppercase tracking-[.1em] text-[#7e9933]">Timezone</div><div className="mt-0.5 font-display text-[16px] font-semibold">{current.timezone}</div></div>
-                    <div><div className="text-[11px] uppercase tracking-[.1em] text-[#7e9933]">Status</div><div className="mt-0.5 font-display text-[16px] font-semibold capitalize">{current.status.replace('_', ' ')}</div></div>
+                  <div className="my-3 flex flex-wrap gap-x-5 gap-y-2">
+                    <div><div className="text-[10px] uppercase tracking-[.1em] text-[#7e9933]">Location</div><div className="mt-0.5 font-display text-[14px] font-semibold">{current.city}, {current.state}</div></div>
+                    <div><div className="text-[10px] uppercase tracking-[.1em] text-[#7e9933]">Timezone</div><div className="mt-0.5 font-display text-[14px] font-semibold">{current.timezone}</div></div>
+                    <div><div className="text-[10px] uppercase tracking-[.1em] text-[#7e9933]">Status</div><div className="mt-0.5 font-display text-[14px] font-semibold capitalize">{current.status.replace('_', ' ')}</div></div>
                   </div>
+
+                  {/* Scheduled Zoom Meeting indicator & controls */}
+                  {current.nextZoomMeeting && (
+                    <div className="my-3 rounded-xl border border-[#7dd3fc]/30 bg-[#0c4a6e]/40 p-3 text-white backdrop-blur-sm">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Video className="h-4 w-4 text-[#7dd3fc]" />
+                          <span className="text-[13.5px] font-semibold text-[#f0f9ff]">
+                            {current.nextZoomMeeting.title || 'Scheduled Zoom Meeting'}
+                          </span>
+                        </div>
+                        <span className="rounded-full bg-[#7dd3fc]/20 px-2 py-0.5 text-[10.5px] font-medium text-[#7dd3fc]">
+                          {current.nextZoomMeeting.durationMins} mins
+                        </span>
+                      </div>
+                      <div className="mt-1.5 text-[12px] text-[#e0f2fe]">
+                        Scheduled: <span className="font-semibold">{formatScheduledTime(current.nextZoomMeeting.scheduledAt)}</span>
+                      </div>
+                      <div className="mt-2.5 flex items-center gap-2">
+                        {current.nextZoomMeeting.joinUrl && (
+                          <a
+                            href={current.nextZoomMeeting.joinUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-[#0284c7] px-3 py-1.5 text-[12px] font-semibold text-white shadow hover:bg-[#0369a1]"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            Join Zoom
+                          </a>
+                        )}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              await zoomApi.start(current.nextZoomMeeting!.id);
+                              toast.success('Zoom meeting started');
+                              qc.invalidateQueries({ queryKey: ['caller-leads'] });
+                              qc.invalidateQueries({ queryKey: ['zoom-due'] });
+                            } catch (err) {
+                              toast.error(apiError(err, 'Could not start Zoom meeting'));
+                            }
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-white/20 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-white/30"
+                        >
+                          <Video className="h-3.5 w-3.5" />
+                          Start Meeting
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {/* No live timer during the call — but the live phase (Calling →
                       Ringing → Connected) is shown while live, then only the final
                       duration once ended. */}
-                  <div className="my-2 text-center">
+                  <div className="my-1.5 text-center">
                     {live ? (
-                      <div className={`font-display text-[26px] font-semibold text-[#d0e29c] ${livePhase === 'initiated' || livePhase === 'ringing' ? 'animate-pulse' : ''}`}>
+                      <div className={`font-display text-[22px] font-semibold text-[#d0e29c] ${livePhase === 'initiated' || livePhase === 'ringing' ? 'animate-pulse' : ''}`}>
                         {PHASE_LABEL[livePhase]}
                       </div>
                     ) : active ? (
                       <>
                         <div className="text-[11px] uppercase tracking-[.1em] text-[#7e9933]">Call Duration</div>
-                        <div className="font-mono text-[42px] font-semibold text-[#d0e29c]">
+                        <div className="font-mono text-[34px] font-semibold text-[#d0e29c]">
                           {String(Math.floor(elapsed / 60)).padStart(2, '0')}:{String(elapsed % 60).padStart(2, '0')}
                         </div>
                       </>
                     ) : (
-                      <div className="font-mono text-[42px] font-semibold text-white/70">00:00</div>
+                      <div className="font-mono text-[34px] font-semibold text-white/70">00:00</div>
                     )}
                   </div>
                   <div className="flex flex-wrap justify-center gap-2.5">
                     {!live ? (
-                      <button onClick={() => startCall(true)} disabled={busy || widgetCall || (!!me && !me.openphoneNumber)} title={widgetCall ? 'Finish the dial-pad call first' : me && !me.openphoneNumber ? 'No caller ID assigned to your account' : 'Start call'} className="grid h-16 w-16 place-items-center rounded-[20px] bg-[#317d34] text-white shadow-[0_8px_20px_rgba(63,122,50,.5)] disabled:opacity-60">
-                        <Phone className="h-[26px] w-[26px]" />
+                      <button onClick={() => startCall(true)} disabled={busy || widgetCall || (!!me && !me.openphoneNumber)} title={widgetCall ? 'Finish the dial-pad call first' : me && !me.openphoneNumber ? 'No caller ID assigned to your account' : 'Start call'} className="grid h-14 w-14 place-items-center rounded-[18px] bg-[#317d34] text-white shadow-[0_8px_20px_rgba(63,122,50,.5)] disabled:opacity-60">
+                        <Phone className="h-[22px] w-[22px]" />
                       </button>
                     ) : (
                       // Mute/hold live in the OpenPhone dialer (the CRM can't control
                       // the audio), so the panel offers only End Call — the one control
                       // it can honour by closing out and logging the call.
-                      <button onClick={() => { if (active) setElapsed(Math.floor((Date.now() - active.startedAt) / 1000)); setLive(false); }} title="End call" className="grid h-16 w-16 place-items-center rounded-[20px] bg-[#9e2b21] text-white shadow-[0_8px_20px_rgba(158,43,33,.5)]">
-                        <Phone className="h-[26px] w-[26px] rotate-[135deg]" />
+                      <button onClick={() => { if (active) setElapsed(Math.floor((Date.now() - active.startedAt) / 1000)); setLive(false); }} title="End call" className="grid h-14 w-14 place-items-center rounded-[18px] bg-[#9e2b21] text-white shadow-[0_8px_20px_rgba(158,43,33,.5)]">
+                        <Phone className="h-[22px] w-[22px] rotate-[135deg]" />
                       </button>
                     )}
                   </div>
@@ -383,17 +657,17 @@ export default function CallingPage() {
 
           {/* Notes */}
           <div className="rounded-2xl border bg-card shadow-sm">
-            <div className="border-b px-[18px] py-4"><h3 className="font-display text-[15px] font-semibold">Call Notes</h3><div className="text-xs text-muted-foreground">Saved automatically with outcome</div></div>
-            <div className="p-[18px]">
+            <div className="border-b px-4 py-2.5"><h3 className="font-display text-[14px] font-semibold">Call Notes</h3><div className="text-[11px] text-muted-foreground">Saved automatically with outcome</div></div>
+            <div className="p-4">
               <div className="mb-1.5 text-[11px] uppercase tracking-[.08em] text-muted-foreground">Outcome</div>
-              <div className="mb-3.5 flex flex-wrap gap-2">
+              <div className="mb-3 flex flex-wrap gap-1.5">
                 {outcomes.map((o) => {
                   const sel = outcome === o.slug;
                   return (
                     <button
                       key={o.id}
                       onClick={() => setOutcome(o.slug)}
-                      className="rounded-full border-[1.5px] px-[13px] py-[7px] text-[12.5px] font-semibold transition-colors"
+                      className="rounded-full border-[1.5px] px-2.5 py-[4px] text-[12px] font-semibold transition-colors"
                       style={
                         sel
                           ? { borderColor: o.color, background: o.color, color: '#fff' }
@@ -458,7 +732,7 @@ export default function CallingPage() {
               <textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                rows={3}
+                rows={2}
                 placeholder="e.g. Client requested callback tomorrow at 4 PM. Interested in bookkeeping. Send pricing email."
                 className="w-full resize-y rounded-md border bg-background px-3 py-2 text-sm"
               />
@@ -466,8 +740,8 @@ export default function CallingPage() {
                   no state binding, so every selection was silently discarded. Callbacks
                   are scheduled by the date/time fields above, which the chosen outcome
                   requires, so there is one real path rather than a decorative second one. */}
-              <div className="mt-3 flex items-center gap-2.5">
-                <button onClick={saveAndNext} disabled={!active || !outcome || busy || (schedules && !callbackAt) || (schedulesZoom && !zoomAt)} className="ml-auto inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground disabled:opacity-50">
+              <div className="mt-2.5 flex items-center gap-2.5">
+                <button onClick={saveAndNext} disabled={!active || !outcome || busy || (schedules && !callbackAt) || (schedulesZoom && !zoomAt)} className="ml-auto inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[8px] text-[13px] font-semibold text-primary-foreground disabled:opacity-50">
                   <Check className="h-4 w-4" /> Save &amp; next lead
                 </button>
               </div>
@@ -475,7 +749,7 @@ export default function CallingPage() {
           </div>
         </div>
 
-        {/* Right: dial pad + queue */}
+        {/* Right: dial pad + zoom + stats */}
         <div className="space-y-[18px]">
           {/* Dial pad — call any number directly from the CRM (live status in the docked
               widget). Blocked while THIS panel has a call in flight: the two run separate
@@ -512,46 +786,6 @@ export default function CallingPage() {
             </div>
           )}
 
-          <div className="rounded-2xl border bg-card shadow-sm">
-            <div className="border-b px-[18px] py-4"><h3 className="font-display text-[15px] font-semibold">Your Queue</h3><div className="text-xs text-muted-foreground">{remaining} remaining</div></div>
-            <div className="max-h-[560px] overflow-y-auto p-[18px]">
-              {leads.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">No leads assigned.</p>}
-              {leads.map((q, i) => {
-                const closed = q.status === 'closed' || q.status === 'rejected';
-                const pinned = !q.callbackCompletedAt && isToday(q.callbackAt);
-                // Call state derived from today's most recent call on this lead.
-                const activeCall = !!q.lastCallAt && !q.lastCallEndedAt;
-                const completedToday = !!q.lastCallEndedAt;
-                const isCurrent = current?.id === q.id && !closed;
-                const done = closed || completedToday;
-                const meta = outcomeMeta(q.lastOutcome);
-                return (
-                  <div
-                    key={q.id}
-                    onClick={() => { if (!live && !closed) setSelectedId(q.id); }}
-                    className={`mb-[9px] flex items-center gap-[11px] rounded-[11px] border p-3 ${isCurrent ? 'border-[#2b732f] bg-muted shadow-[inset_3px_0_0_#266929]' : 'hover:bg-muted/50'} ${!live && !closed ? 'cursor-pointer' : ''} ${pinned ? 'border-[#e8c9bf] bg-[#fdf6f4]' : ''} ${completedToday && !pinned ? 'opacity-70' : ''}`}
-                  >
-                    <div className="grid h-6 w-6 shrink-0 place-items-center rounded-[7px] bg-[#d8eed9] text-[11px] font-bold text-[#266929]">{done ? '✓' : i + 1}</div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-semibold">{q.businessName}</div>
-                      <div className="truncate font-mono text-[11.5px] text-muted-foreground">{q.phone}</div>
-                    </div>
-                    {pinned ? (
-                      <span className="shrink-0 rounded-full bg-[#9e2b21] px-2 py-[3px] text-[10px] font-semibold uppercase tracking-wide text-white">Callback today</span>
-                    ) : (isCurrent || activeCall) ? (
-                      <StatusPill status="in_progress" />
-                    ) : completedToday && q.lastOutcome ? (
-                      <OutcomePill name={meta?.name ?? q.lastOutcome} color={meta?.color} />
-                    ) : closed ? (
-                      <StatusPill status={q.status} />
-                    ) : (
-                      <span className="text-[11px] text-muted-foreground">{q.timezone}</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
           <div className="flex gap-[14px] rounded-2xl border bg-card p-[18px] text-center shadow-sm">
             <div className="flex-1"><div className="font-display text-[20px] font-semibold text-primary">{dash?.callsCompleted ?? 0}</div><div className="text-[11px] text-muted-foreground">Completed</div></div>
             <div className="flex-1 border-x"><div className="font-display text-[20px] font-semibold">{dash?.assignedLeads ?? 0}</div><div className="text-[11px] text-muted-foreground">Assigned</div></div>
@@ -559,6 +793,47 @@ export default function CallingPage() {
           </div>
         </div>
       </div>
+
+      {/* Quick-message composer — SMS the current lead in place, over the panel. */}
+      {msgOpen && current && (
+        <>
+          <div onClick={() => !sendMsg.isPending && setMsgOpen(false)} className="fixed inset-0 z-50 bg-black/30" />
+          <div className="fixed inset-0 z-[51] grid place-items-center p-4" role="dialog" aria-modal="true" aria-label="Send a message">
+            <div onClick={(e) => e.stopPropagation()} className="w-full max-w-[440px] overflow-hidden rounded-2xl border bg-card shadow-2xl">
+              <div className="flex items-start justify-between gap-3 border-b px-5 py-4">
+                <div className="min-w-0">
+                  <h3 className="font-display text-[15px] font-semibold">Send a message</h3>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {current.businessName} · <span className="font-mono">{current.phone}</span>
+                  </p>
+                </div>
+                <button onClick={() => setMsgOpen(false)} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
+              </div>
+              <div className="p-4">
+                <textarea
+                  autoFocus
+                  value={msgBody}
+                  onChange={(e) => setMsgBody(e.target.value)}
+                  rows={4}
+                  placeholder="Type your message…"
+                  className="w-full resize-y rounded-md border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2 border-t bg-muted/30 px-5 py-3">
+                <button onClick={() => setMsgOpen(false)} disabled={sendMsg.isPending} className="rounded-md border bg-card px-3.5 py-2 text-[13px] font-medium hover:bg-muted disabled:opacity-50">Cancel</button>
+                <button
+                  onClick={() => sendMsg.mutate()}
+                  disabled={!msgBody.trim() || sendMsg.isPending}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
+                >
+                  {sendMsg.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  {sendMsg.isPending ? 'Sending…' : 'Send'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
       </>
       )}
     </div>

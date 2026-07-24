@@ -45,6 +45,15 @@ export interface Lead {
   lastCallAt?: string | null;
   lastCallEndedAt?: string | null;
   lastOutcome?: string | null;
+  nextZoomMeeting?: {
+    id: string;
+    title: string | null;
+    scheduledAt: string;
+    durationMins: number;
+    status: string;
+    joinUrl: string | null;
+    meetingId: string | null;
+  } | null;
   assignedTo: { id: string; name: string; email: string } | null;
   // ── Closure (Closed Leads module) ── set while status is 'closed'.
   closedAt: string | null;

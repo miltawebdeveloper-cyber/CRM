@@ -38,9 +38,9 @@ const EMPTY = (state: string): StateMetric => ({
 });
 
 export default function TerritoriesPage() {
-  const { data: states = [] } = useQuery({
+  const { data: states = [] } = useQuery<StateMetric[]>({
     queryKey: ['m-states'],
-    queryFn: metricsApi.byState,
+    queryFn: () => metricsApi.byState(),
     refetchInterval: LIVE_MS,
     refetchOnWindowFocus: true,
   });

@@ -223,7 +223,12 @@ export class LeadsService {
    * anything is written) and by the import itself when "skip duplicates" is chosen,
    * so the two can never disagree about what a duplicate is.
    */
-  async analyzeImport(rows: CreateLeadDto[]) {
+  async analyzeImport(rows: CreateLeadDto[], checkFields?: string[]) {
+    const checkAll = !checkFields || checkFields.length === 0;
+    const checkName = checkAll || checkFields.includes('businessName') || checkFields.includes('companyName');
+    const checkPhone = checkAll || checkFields.includes('phone');
+    const checkEmail = checkAll || checkFields.includes('email');
+
     const nameKey = (v?: string | null) => (v ?? '').trim().toLowerCase();
     const phoneKey = (v?: string | null) => (v ?? '').replace(/\D/g, '').slice(-10);
     const emailKey = (v?: string | null) => (v ?? '').trim().toLowerCase();
@@ -267,9 +272,9 @@ export class LeadsService {
       const em = emailKey(r.email);
       const on: string[] = [];
       let existingMatch: Match | null = null;
-      if (nm && (exName.has(nm) || seenName.has(nm))) { on.push('Company Name'); existingMatch ??= exName.get(nm) ?? null; }
-      if (ph && (exPhone.has(ph) || seenPhone.has(ph))) { on.push('Phone'); existingMatch ??= exPhone.get(ph) ?? null; }
-      if (em && (exEmail.has(em) || seenEmail.has(em))) { on.push('Email'); existingMatch ??= exEmail.get(em) ?? null; }
+      if (checkName && nm && (exName.has(nm) || seenName.has(nm))) { on.push('Company Name'); existingMatch ??= exName.get(nm) ?? null; }
+      if (checkPhone && ph && (exPhone.has(ph) || seenPhone.has(ph))) { on.push('Phone'); existingMatch ??= exPhone.get(ph) ?? null; }
+      if (checkEmail && em && (exEmail.has(em) || seenEmail.has(em))) { on.push('Email'); existingMatch ??= exEmail.get(em) ?? null; }
       if (nm) seenName.add(nm);
       if (ph) seenPhone.add(ph);
       if (em) seenEmail.add(em);
@@ -317,11 +322,10 @@ export class LeadsService {
       return callerCache.get(key);
     };
 
-    // Duplicate flags (Company Name / Phone / Email) for the whole file, computed
-    // once up front. `skipDuplicates` uses them to leave duplicates out; when the
-    // user chose "import anyway" they're counted but still imported.
-    const analysis = await this.analyzeImport(dto.rows);
+    // Duplicate flags for the whole file based on checkFields
+    const analysis = await this.analyzeImport(dto.rows, dto.checkFields);
     const dupByIndex = analysis.rows;
+    const skipRowSet = new Set(dto.skipRowIndexes ?? []);
     let duplicateRecords = 0;
     let skipped = 0;
 
@@ -333,11 +337,16 @@ export class LeadsService {
       const isDuplicate = dupByIndex[i]?.duplicate ?? false;
       if (isDuplicate) {
         duplicateRecords++;
-        if (dto.skipDuplicates) {
+        const shouldSkip = dto.skipDuplicates || skipRowSet.has(i);
+        if (shouldSkip) {
           skipped++;
           errors.push({ row: n, reason: `Skipped duplicate (matched on ${dupByIndex[i].matchedOn.join(', ')})` });
           continue;
         }
+      } else if (skipRowSet.has(i)) {
+        skipped++;
+        errors.push({ row: n, reason: 'Skipped by user choice' });
+        continue;
       }
       // A same-file phone repeat is already a flagged duplicate above; this second
       // guard only matters when the user imported anyway, where writing the same
@@ -512,8 +521,8 @@ export class LeadsService {
   }
 
   /** Pre-import scan: how many rows are new vs duplicate, and which rows. */
-  async checkImport(rows: CreateLeadDto[]) {
-    const a = await this.analyzeImport(rows);
+  async checkImport(rows: CreateLeadDto[], checkFields?: string[]) {
+    const a = await this.analyzeImport(rows, checkFields);
     return {
       total: a.total,
       newRecords: a.newRecords,

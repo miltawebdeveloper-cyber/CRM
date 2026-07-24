@@ -38,7 +38,7 @@ export class LeadsController {
   @Post('import/check')
   @HttpCode(200)
   checkImport(@Body() dto: CheckImportDto) {
-    return this.leads.checkImport(dto.rows);
+    return this.leads.checkImport(dto.rows, dto.checkFields);
   }
 
   // Employees see only their assigned leads; admins/leaders see all.
