@@ -13,8 +13,8 @@ function msgOf(err: unknown, fallback: string): string {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('admin@crm.local');
-  const [password, setPassword] = useState('Passw0rd!');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
   const [mfaToken, setMfaToken] = useState('');
   const [mfaRequired, setMfaRequired] = useState(false);
@@ -264,10 +264,6 @@ export default function LoginPage() {
           <button type="button" className="w-full rounded-[11px] border-[1.5px] border-[#bbd3bc] bg-white py-3 font-semibold text-[#163618] hover:bg-[#eef6ef]">
             Single Sign-On (SSO)
           </button>
-
-          <div className="mt-[22px] rounded-[11px] border border-dashed border-[#a6c74d] bg-[#eef6ef] px-[14px] py-[11px] text-xs text-[#1d491f]">
-            ▸ Prototype mode — credentials are pre-filled with a working demo account. Click <b>Sign in</b> to explore.
-          </div>
         </form>
         )}
       </div>

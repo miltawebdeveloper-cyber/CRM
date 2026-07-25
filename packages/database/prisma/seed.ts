@@ -10,7 +10,17 @@ loadEnv({ path: resolve(process.cwd(), '../../.env') });
 
 const prisma = new PrismaClient({ adapter: new PrismaPg(process.env.DATABASE_URL as string) });
 
-const PASSWORD = 'Passw0rd!';
+// Seed password. The old hardcoded value shipped in the public repo, so anyone
+// could read it and sign in to a seeded account. Any hosted/shared environment
+// MUST set SEED_PASSWORD; the weak default is for throwaway local dev only and
+// warns loudly so it can never be mistaken for production-safe.
+const PASSWORD = process.env.SEED_PASSWORD ?? 'Passw0rd!';
+if (!process.env.SEED_PASSWORD) {
+  console.warn(
+    '⚠️  SEED_PASSWORD not set — seeding accounts with the well-known default password. ' +
+      'Set SEED_PASSWORD for any non-local environment, and change existing account passwords now if this ran against a live DB.',
+  );
+}
 
 // Representative US cities grouped by timezone (state, city).
 const GEO: Record<Timezone, Array<[string, string]>> = {
