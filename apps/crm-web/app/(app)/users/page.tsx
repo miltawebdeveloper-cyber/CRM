@@ -2,8 +2,9 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Users, Shield, UserCheck, Phone, Check, Pencil, Filter, X, Ban, RotateCcw } from 'lucide-react';
+import { Plus, Users, Shield, UserCheck, Phone, Check, Pencil, Filter, X, Ban, RotateCcw, Wifi, WifiOff } from 'lucide-react';
 import { usersApi, type User, type UserRole } from '@/lib/users';
+import { availabilityApi } from '@/lib/availability';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
@@ -49,11 +50,24 @@ export default function UsersPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
   });
 
+  // Admin availability override (Online/Offline). Offline reassigns the user's
+  // pending work, so it's confirmed before firing.
+  const setAvail = useMutation({
+    mutationFn: ({ u, online }: { u: User; online: boolean }) => availabilityApi.adminSet(u.id, online),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+
   // Refs keep the column defs stable while still calling the latest handlers.
   const editRef = useRef<(u: User) => void>(() => {});
   const toggleRef = useRef<(u: User) => void>(() => {});
+  const availRef = useRef<(u: User) => void>(() => {});
   editRef.current = (u) => setEditing(u);
   toggleRef.current = (u) => toggleActive.mutate(u);
+  availRef.current = (u) => {
+    const online = (u.availability ?? 'online') === 'online';
+    if (online && !confirm(`Mark ${u.name} offline? Their pending leads, callbacks and tasks will be reassigned to the next available caller.`)) return;
+    setAvail.mutate({ u, online: !online });
+  };
 
   const columns = useMemo<ColumnDef<User>[]>(() => [
     {
@@ -63,6 +77,13 @@ export default function UsersPage() {
     },
     { key: 'role', header: 'Role', trackable: true, render: (u) => <span className={`rounded-full px-2.5 py-[3px] text-[11.5px] font-bold ${ROLE_META[u.role].cls}`}>{ROLE_META[u.role].label}</span> },
     { key: 'status', header: 'Status', trackable: true, render: (u) => <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold ${u.isActive ? 'bg-[#d8eed9] text-[#266929]' : 'bg-[#e7f0f8] text-[#2c5d8f]'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{u.isActive ? 'Active' : 'Inactive'}</span> },
+    {
+      key: 'availability', header: 'Availability', trackable: true,
+      render: (u) => {
+        const online = (u.availability ?? 'online') === 'online';
+        return <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold ${online ? 'bg-[#d8eed9] text-[#266929]' : 'bg-[#fbeeec] text-[#9e2b21]'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{online ? 'Online' : 'Offline'}</span>;
+      },
+    },
     { key: 'shift', header: 'Shift', trackable: true, render: (u) => u.shiftStart ? <span className="font-mono text-[12px]">{u.shiftStart}</span> : <span className="text-muted-foreground">—</span> },
     { key: 'openphone', header: 'OpenPhone #', searchable: true, searchValue: (u) => u.openphoneNumber, render: (u) => u.openphoneNumber ? <span className="font-mono text-[12px]">{u.openphoneNumber}</span> : <span className="text-muted-foreground">—</span> },
     { key: 'created', header: 'Created', cellClassName: 'text-muted-foreground', render: (u) => new Date(u.createdAt).toLocaleDateString() },
@@ -71,6 +92,14 @@ export default function UsersPage() {
       render: (u) => (
         <div className="flex justify-end gap-1.5">
           <button onClick={() => editRef.current(u)} title="Edit user" className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil className="h-4 w-4" /></button>
+          {(() => {
+            const online = (u.availability ?? 'online') === 'online';
+            return (
+              <button onClick={() => availRef.current(u)} title={online ? 'Set offline (reassigns their work)' : 'Set online'} className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-muted ${online ? 'text-muted-foreground hover:text-[#9e2b21]' : 'text-[#317d34]'}`}>
+                {online ? <WifiOff className="h-4 w-4" /> : <Wifi className="h-4 w-4" />}
+              </button>
+            );
+          })()}
           <button onClick={() => toggleRef.current(u)} title={u.isActive ? 'Deactivate' : 'Activate'} className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-muted ${u.isActive ? 'text-muted-foreground hover:text-[#9e2b21]' : 'text-[#317d34]'}`}>
             {u.isActive ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
           </button>

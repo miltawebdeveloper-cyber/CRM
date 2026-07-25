@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   Availability,
@@ -62,6 +62,27 @@ export class AvailabilityService {
       data: { availability: Availability.offline, availabilityReason: null },
     });
     return { availability: Availability.offline };
+  }
+
+  /**
+   * Admin override — flip another user's availability from the Users page.
+   *
+   * Online is a plain status flip; it is NOT a login, so lastLoginAt is left
+   * untouched (stamping it would mask a genuine no-login). Offline goes through
+   * the normal offline path, so the user's pending work is reassigned just as if
+   * they had marked themselves unavailable.
+   */
+  async adminSetAvailability(userId: string, online: boolean, reason?: string) {
+    const target = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!target) throw new NotFoundException('User not found');
+    if (online) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { availability: Availability.online, availabilityReason: null },
+      });
+      return { availability: Availability.online };
+    }
+    return this.setOffline(userId, reason?.trim() || 'Set offline by admin');
   }
 
   /** Reassigned-work feed for the logged-in user's dashboard. */

@@ -42,4 +42,7 @@ export const availabilityApi = {
   signOut: async () => (await api.post('/availability/sign-out')).data,
   inbox: async (): Promise<Reassignment[]> => (await api.get('/availability/inbox')).data,
   ack: async (id: string) => (await api.post(`/availability/inbox/${id}/ack`)).data,
+  /** Admin-only: set another user's availability. Offline reassigns their work. */
+  adminSet: async (userId: string, online: boolean, reason?: string) =>
+    (await api.post(`/availability/user/${userId}`, { online, reason })).data,
 };
