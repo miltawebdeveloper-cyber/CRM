@@ -45,7 +45,14 @@ export class LoginOtpService {
   // ── Settings ──
   async getSettings(): Promise<OtpSettings> {
     const row = await this.prisma.appSetting.findUnique({ where: { key: OTP_SETTINGS_KEY } });
-    return { ...DEFAULTS, ...((row?.value as Partial<OtpSettings> | undefined) ?? {}) };
+    const merged = { ...DEFAULTS, ...((row?.value as Partial<OtpSettings> | undefined) ?? {}) };
+    // Deployment-level override: when OTP_RECIPIENT_EMAIL is set in the environment
+    // it wins over the stored recipient. This lets an operator point login codes at
+    // a new inbox purely via env config (no DB access) — the escape hatch when the
+    // saved recipient is unreachable and you're locked out of the admin UI.
+    const envRecipient = process.env.OTP_RECIPIENT_EMAIL?.trim();
+    if (envRecipient) merged.recipientEmail = envRecipient;
+    return merged;
   }
 
   async saveSettings(patch: Partial<OtpSettings>): Promise<OtpSettings> {
