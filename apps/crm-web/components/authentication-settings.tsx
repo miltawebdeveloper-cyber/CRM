@@ -1,0 +1,142 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ShieldCheck, AlertTriangle, Loader2 } from 'lucide-react';
+import { authSettingsApi, type OtpSettings } from '@/lib/crm';
+import { toast } from '@/lib/toast';
+
+/** Server message out of an axios error. */
+function msgOf(err: unknown, fallback: string): string {
+  const m = (err as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
+  if (Array.isArray(m)) return String(m[0]);
+  return typeof m === 'string' && m ? m : fallback;
+}
+
+/**
+ * Authentication Settings (admin) — the email-OTP policy applied to every login.
+ *
+ * The switch stays off until a recipient is set, and the panel says plainly when
+ * SMTP isn't configured: turning the gate on without working mail would mean
+ * nobody could ever receive a code, i.e. nobody could sign in.
+ */
+export function AuthenticationSettings() {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({ queryKey: ['auth-otp-settings'], queryFn: authSettingsApi.get });
+  const [form, setForm] = useState<Omit<OtpSettings, 'mailReady'> | null>(null);
+
+  // Seed the form once the saved policy arrives.
+  useEffect(() => {
+    if (data && !form) {
+      const { mailReady: _mailReady, ...rest } = data;
+      setForm(rest);
+    }
+  }, [data, form]);
+
+  const save = useMutation({
+    mutationFn: () => authSettingsApi.save(form!),
+    onSuccess: (next) => {
+      toast.success('Authentication settings saved');
+      qc.setQueryData(['auth-otp-settings'], next);
+    },
+    onError: (err) => toast.error(msgOf(err, 'Could not save the settings.')),
+  });
+
+  if (isLoading || !form) {
+    return <div className="rounded-2xl border bg-card p-[18px] text-sm text-muted-foreground shadow-sm">Loading authentication settings…</div>;
+  }
+
+  const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm({ ...form, [k]: v });
+  const noRecipient = form.enabled && !form.recipientEmail.trim();
+
+  return (
+    <div className="rounded-2xl border bg-card shadow-sm">
+      <div className="flex items-center gap-2 border-b px-[18px] py-4">
+        <ShieldCheck className="h-4 w-4 text-primary" />
+        <div>
+          <h3 className="font-display text-[15px] font-semibold">Authentication Settings</h3>
+          <div className="text-xs text-muted-foreground">Email OTP required after password sign-in</div>
+        </div>
+      </div>
+
+      <div className="space-y-[18px] p-[18px]">
+        {/* Without SMTP the code is only written to the server log, so enabling the
+            gate would lock everyone out. Say so before they flip the switch. */}
+        {data && !data.mailReady && (
+          <div className="flex items-start gap-2 rounded-lg bg-[#fbeeec] px-3 py-2.5 text-[12.5px] text-[#a8431f]">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              <b>SMTP is not configured</b>, so OTP emails cannot be delivered. Enabling this now would prevent everyone from
+              signing in — the code would only appear in the server logs. Configure <code>SMTP_HOST</code> first.
+            </span>
+          </div>
+        )}
+
+        <label className="flex cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={form.enabled}
+            onChange={(e) => set('enabled', e.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-[#266929]"
+          />
+          <span>
+            <span className="block text-[13.5px] font-semibold">OTP Authentication</span>
+            <span className="block text-[12px] text-muted-foreground">
+              Require a one-time code, emailed to the address below, after every successful password sign-in.
+            </span>
+          </span>
+        </label>
+
+        <label className="block space-y-1 text-sm">
+          <span className="text-xs font-semibold">OTP Recipient Email</span>
+          <input
+            type="email"
+            value={form.recipientEmail}
+            onChange={(e) => set('recipientEmail', e.target.value)}
+            placeholder="mfsaccounting@gmail.com"
+            className={`w-full rounded-md border bg-background px-3 py-2 outline-none focus:border-primary ${noRecipient ? 'border-[#e0b4ae]' : ''}`}
+          />
+          <span className="block text-[11.5px] text-muted-foreground">
+            Every user&apos;s login code is sent here — not to the user&apos;s own address.
+          </span>
+        </label>
+
+        <div className="grid gap-3.5 sm:grid-cols-3">
+          <label className="block space-y-1 text-sm">
+            <span className="text-xs font-semibold">OTP Expiry (minutes)</span>
+            <input type="number" min={1} max={60} value={form.expiryMinutes}
+              onChange={(e) => set('expiryMinutes', Number(e.target.value))}
+              className="w-full rounded-md border bg-background px-3 py-2 outline-none focus:border-primary" />
+          </label>
+          <label className="block space-y-1 text-sm">
+            <span className="text-xs font-semibold">Maximum Attempts</span>
+            <input type="number" min={1} max={10} value={form.maxAttempts}
+              onChange={(e) => set('maxAttempts', Number(e.target.value))}
+              className="w-full rounded-md border bg-background px-3 py-2 outline-none focus:border-primary" />
+          </label>
+          <label className="block space-y-1 text-sm">
+            <span className="text-xs font-semibold">Resend Timer (seconds)</span>
+            <input type="number" min={15} max={600} value={form.resendSeconds}
+              onChange={(e) => set('resendSeconds', Number(e.target.value))}
+              className="w-full rounded-md border bg-background px-3 py-2 outline-none focus:border-primary" />
+          </label>
+        </div>
+
+        {noRecipient && (
+          <p className="text-[12.5px] font-medium text-[#a8431f]">Set a recipient email before enabling OTP authentication.</p>
+        )}
+
+        <div className="flex justify-end">
+          <button
+            onClick={() => save.mutate()}
+            disabled={save.isPending || noRecipient}
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground disabled:opacity-50"
+          >
+            {save.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {save.isPending ? 'Saving…' : 'Save settings'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

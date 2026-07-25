@@ -460,6 +460,24 @@ export const calendarApi = {
     (await api.get('/calendar/events', { params: clean(params) })).data,
 };
 
+// ──────────────────── Authentication (login OTP) ────────────────────
+/** Admin-configurable email-OTP policy for logins. */
+export interface OtpSettings {
+  enabled: boolean;
+  /** Address every login code is delivered to. */
+  recipientEmail: string;
+  expiryMinutes: number;
+  maxAttempts: number;
+  resendSeconds: number;
+  /** False when SMTP isn't configured — codes would never actually be delivered. */
+  mailReady: boolean;
+}
+export const authSettingsApi = {
+  get: async (): Promise<OtpSettings> => (await api.get('/auth/otp-settings')).data,
+  save: async (body: Partial<Omit<OtpSettings, 'mailReady'>>): Promise<OtpSettings> =>
+    (await api.put('/auth/otp-settings', body)).data,
+};
+
 // ─────────────────────────── Config ────────────────────────────
 export interface ConfigStatus {
   database: { provider: string; configured: boolean };

@@ -1,8 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, tokenStore } from '@/lib/api';
+
+/** Pull the API's message out of an axios error. */
+function msgOf(err: unknown, fallback: string): string {
+  const m = (err as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
+  if (Array.isArray(m)) return String(m[0]);
+  return typeof m === 'string' && m ? m : fallback;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -14,6 +21,25 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // ── Email-OTP step ──
+  // The password check hands back a challenge instead of tokens; nothing is
+  // granted until the code that was mailed out is exchanged here.
+  const [challenge, setChallenge] = useState<{ id: string; sentTo: string } | null>(null);
+  const [code, setCode] = useState('');
+  const [cooldown, setCooldown] = useState(0);
+
+  // Resend countdown.
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
+
+  function finish(data: { accessToken: string; refreshToken: string }) {
+    tokenStore.set(data.accessToken, data.refreshToken);
+    router.push('/dashboard');
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
@@ -24,10 +50,46 @@ export default function LoginPage() {
         setMfaRequired(true);
         return;
       }
-      tokenStore.set(data.accessToken, data.refreshToken);
-      router.push('/dashboard');
-    } catch (err: any) {
-      setError(err.response?.data?.message ?? 'Login failed');
+      if (data.otpRequired) {
+        setChallenge({ id: data.challengeId, sentTo: data.sentTo });
+        setCooldown(data.resendSeconds ?? 60);
+        setCode('');
+        return;
+      }
+      finish(data);
+    } catch (err: unknown) {
+      setError(msgOf(err, 'Login failed'));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onVerify(e: React.FormEvent) {
+    e.preventDefault();
+    if (!challenge) return;
+    setError('');
+    setLoading(true);
+    try {
+      const { data } = await api.post('/auth/otp/verify', { challengeId: challenge.id, code });
+      finish(data);
+    } catch (err: unknown) {
+      setError(msgOf(err, 'Verification failed'));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onResend() {
+    if (!challenge || cooldown > 0) return;
+    setError('');
+    setLoading(true);
+    try {
+      const { data } = await api.post('/auth/otp/resend', { challengeId: challenge.id });
+      setChallenge({ id: data.challengeId, sentTo: data.sentTo });
+      setCooldown(data.resendSeconds ?? 60);
+      setCode('');
+    } catch (err: unknown) {
+      setError(msgOf(err, 'Could not resend the code'));
     } finally {
       setLoading(false);
     }
@@ -84,6 +146,56 @@ export default function LoginPage() {
 
       {/* Form side */}
       <div className="flex items-center justify-center bg-white p-10">
+        {challenge ? (
+          /* ── OTP verification ── the password has been accepted but no token is
+             issued until the mailed code is exchanged. */
+          <form onSubmit={onVerify} className="w-full max-w-[392px]">
+            <h2 className="mb-1.5 font-display text-[26px] font-semibold tracking-tight text-[#0c120d]">Verification required</h2>
+            <p className="mb-[26px] text-sm text-[#5a725b]">
+              A 6-digit code was sent to <b className="text-[#1d491f]">{challenge.sentTo}</b>. Enter it below to finish signing in.
+            </p>
+
+            <label className="mb-[7px] block text-xs font-semibold text-[#1d491f]">Verification code</label>
+            <input
+              autoFocus
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="000000"
+              className="w-full rounded-[11px] border-[1.5px] border-[#bbd3bc] bg-[#f5faf5] px-[14px] py-3 text-center font-mono text-[22px] tracking-[.4em] text-[#0c120d] outline-none focus:border-[#2b732f] focus:bg-white focus:ring-4 focus:ring-[#d8eed9]"
+            />
+
+            {error && <p className="mt-3 text-sm text-[#9e2b21]">{error}</p>}
+
+            <button
+              type="submit"
+              disabled={loading || code.length !== 6}
+              className="mt-[18px] w-full rounded-[11px] bg-[#266929] py-[13px] text-[14.5px] font-semibold text-white shadow-sm transition hover:bg-[#1d491f] disabled:opacity-60"
+            >
+              {loading ? 'Verifying…' : 'Verify & sign in'}
+            </button>
+
+            <div className="mt-[18px] flex items-center justify-between text-[13px]">
+              <button
+                type="button"
+                onClick={onResend}
+                disabled={loading || cooldown > 0}
+                className="font-semibold text-[#266929] disabled:text-[#93a894]"
+              >
+                {cooldown > 0 ? `Resend code in ${cooldown}s` : 'Resend code'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setChallenge(null); setCode(''); setError(''); }}
+                className="text-[#5a725b] hover:underline"
+              >
+                Back to sign in
+              </button>
+            </div>
+          </form>
+        ) : (
         <form onSubmit={onSubmit} className="w-full max-w-[392px]">
           <h2 className="mb-1.5 font-display text-[26px] font-semibold tracking-tight text-[#0c120d]">Welcome back</h2>
           <p className="mb-[30px] text-sm text-[#5a725b]">Sign in to your operations dashboard.</p>
@@ -157,6 +269,7 @@ export default function LoginPage() {
             ▸ Prototype mode — credentials are pre-filled with a working demo account. Click <b>Sign in</b> to explore.
           </div>
         </form>
+        )}
       </div>
     </main>
   );

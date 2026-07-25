@@ -4,7 +4,16 @@ import * as bcrypt from 'bcrypt';
 import { Availability } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MfaService } from './mfa.service';
+import { LoginOtpService } from './login-otp.service';
 import { LoginDto } from './dto/auth.dto';
+
+/** `jane.doe@example.com` → `ja••••@example.com`, so the UI can say where the code went. */
+function maskEmail(email: string): string {
+  const [local, domain] = email.split('@');
+  if (!domain) return '••••';
+  const head = local.slice(0, 2);
+  return `${head}${'•'.repeat(Math.max(2, local.length - 2))}@${domain}`;
+}
 
 @Injectable()
 export class AuthService {
@@ -12,6 +21,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly mfa: MfaService,
+    private readonly otp: LoginOtpService,
   ) {}
 
   async login(dto: LoginDto) {
@@ -32,14 +42,45 @@ export class AuthService {
       }
     }
 
+    // Email-OTP gate. The password alone no longer completes a login: a code is
+    // mailed to the configured address and exchanged for tokens by /auth/otp/verify.
+    // No tokens are issued here, so a stolen password gets nothing on its own.
+    const otp = await this.otp.getSettings();
+    if (otp.enabled) {
+      const { challengeId, sentTo, resendSeconds } = await this.otp.issue(user);
+      return {
+        otpRequired: true as const,
+        challengeId,
+        // Masked — the client shows where to look without publishing the address.
+        sentTo: maskEmail(sentTo),
+        resendSeconds,
+      };
+    }
+
+    return this.completeLogin(user.id, user.email, user.role);
+  }
+
+  /**
+   * Exchange a verified OTP challenge for tokens. Verification is the OTP
+   * service's job; this only issues once it has passed.
+   */
+  async verifyLoginOtp(challengeId: string, code: string) {
+    const { userId } = await this.otp.verify(challengeId, code);
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.isActive) throw new UnauthorizedException('Account deactivated');
+    return this.completeLogin(user.id, user.email, user.role);
+  }
+
+  /** Shared tail of a successful login, whichever gate it came through. */
+  private async completeLogin(id: string, email: string, role: string) {
     // Login flips the user back to Online and stamps the login time (drives the
     // no-login auto-reassignment cron).
     await this.prisma.user.update({
-      where: { id: user.id },
+      where: { id },
       data: { availability: Availability.online, availabilityReason: null, lastLoginAt: new Date() },
     });
 
-    return this.issueTokens(user.id, user.email, user.role);
+    return this.issueTokens(id, email, role);
   }
 
   /** Current user for /auth/me — includes the caller identity (name + assigned

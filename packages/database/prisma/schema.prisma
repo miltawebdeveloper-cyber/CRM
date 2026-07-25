@@ -158,6 +158,7 @@ model User {
   closedLeads       Lead[]              @relation("LeadClosedBy")
   targetsSet        Target[]            @relation("TargetSetBy")
   activities        Activity[]
+  loginOtps         LoginOtp[]
   activityAssignedTo Activity[]          @relation("ActivityAssignedTo")
   assignmentsMade   Assignment[]        @relation("AssignmentAssignedBy")
   assignmentsTaken  Assignment[]        @relation("AssignmentCaller")
@@ -181,6 +182,30 @@ model User {
 /// System-wide settings (key-value). Used to store integration credentials
 /// (key = "integration:<provider>", value = { ENV_VAR: value, ... }) entered
 /// from the admin UI, applied to runtime config on boot and on save.
+/**
+ * A pending login OTP challenge.
+ *
+ * The code itself is never stored — only a hash — so a leaked database row can't
+ * be used to complete someone's login. Rows are short-lived (minutes) and are
+ * consumed on first successful use; `attempts` caps brute-forcing a 6-digit code.
+ */
+model LoginOtp {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash   String    @map("code_hash")
+  expiresAt  DateTime  @map("expires_at")
+  attempts   Int       @default(0)
+  consumedAt DateTime? @map("consumed_at")
+  /** Address the code was delivered to, for the audit trail. */
+  sentTo     String    @map("sent_to")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("login_otps")
+}
+
 model AppSetting {
   key       String   @id
   value     Json
