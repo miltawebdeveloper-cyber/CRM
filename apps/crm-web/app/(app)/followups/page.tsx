@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Calendar, Plus, Clock, RefreshCw, CheckCircle2, AlertTriangle, Phone, Filter, Pencil, CircleCheckBig, Users } from 'lucide-react';
 import { callsApi, assignmentsApi, type Followup } from '@/lib/crm';
-import { openQuoDialer } from '@/lib/dialer';
 import { useCanCall } from '@/lib/use-can-call';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
@@ -49,7 +48,7 @@ export default function FollowupsPage() {
   const [created, setCreated] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
   // Refuse to dial before the API would reject the call (no assigned caller ID).
-  const { guard } = useCanCall();
+  const { dial, callingEnabled } = useCanCall();
 
   const now = new Date();
   const dueToday = allFus.filter((f) => new Date(f.nextFollowupDate).toDateString() === now.toDateString()).length;
@@ -102,9 +101,12 @@ export default function FollowupsPage() {
       required: true,
       render: (f) => (
         <div className="flex items-center gap-2">
-          <button onClick={() => { if (!f.lead) return router.push('/calling'); if (!guard()) return; openQuoDialer(f.lead.phone); router.push(`/calling?leadId=${f.lead.id}&autocall=1`); }} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-50 transition-opacity hover:bg-primary hover:text-primary-foreground group-hover:opacity-100" title="Call lead">
-            <Phone className="h-[15px] w-[15px]" />
-          </button>
+          {/* Hidden while calling is disabled — see the leads list. */}
+          {callingEnabled && (
+            <button onClick={() => { if (!f.lead) return router.push('/calling'); if (!dial(f.lead.phone)) return; router.push(`/calling?leadId=${f.lead.id}&autocall=1`); }} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-50 transition-opacity hover:bg-primary hover:text-primary-foreground group-hover:opacity-100" title="Call lead">
+              <Phone className="h-[15px] w-[15px]" />
+            </button>
+          )}
           <button onClick={() => void mutateFollowup(f.kind, f.id, 'edit')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-60 transition-opacity hover:bg-muted hover:opacity-100" title="Edit follow-up">
             <Pencil className="h-[15px] w-[15px]" />
           </button>
@@ -114,7 +116,7 @@ export default function FollowupsPage() {
         </div>
       ),
     },
-  ], [router, guard]);
+  ], [router, dial, callingEnabled]);
 
   return (
     <div>

@@ -8,6 +8,7 @@ import { configApi } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
 import { AuthenticationSettings } from '@/components/authentication-settings';
 import { TrustedDevices } from '@/components/trusted-devices';
+import { CallingModeSettings } from '@/components/calling-mode-settings';
 
 function Toggle({ on: initial }: { on: boolean }) {
   const [on, setOn] = useState(initial);
@@ -78,10 +79,14 @@ export default function SettingsPage() {
       )}
 
       {tab === 'Calling' && (
-        <div className="max-w-[760px] rounded-2xl border bg-card p-[18px] shadow-sm">
+        <div className="max-w-[760px] space-y-[18px]">
+        {/* Admin-only: the CRM-wide calling on/off switch. */}
+        {me?.role === 'admin' && <CallingModeSettings />}
+        <div className="rounded-2xl border bg-card p-[18px] shadow-sm">
           {[['Auto next lead', 'Open the next lead automatically after a call ends', true], ['Auto-dialer', 'Automatically dial without manual start', false], ['Call recording', 'Record your outbound calls', true], ['Click-to-call', 'Dial by clicking a phone number anywhere', true]].map((r) => <Row key={r[0] as string} t={r[0] as string} d={r[1] as string} on={r[2] as boolean} />)}
           <div className="mt-[18px] grid gap-3.5 sm:grid-cols-2"><Field label="Caller ID" value="" /><label className="flex flex-col gap-1.5"><span className="text-[12.5px] font-semibold">Wrap-up time</span><select className="rounded-[10px] border bg-background px-3 py-2.5 text-[13.5px]"><option>15 seconds</option><option>30 seconds</option><option>60 seconds</option></select></label></div>
           <div className="mt-[22px] flex justify-end"><button className="rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground">Save Changes</button></div>
+        </div>
         </div>
       )}
 

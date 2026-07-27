@@ -213,6 +213,7 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              autoComplete="email"
               className="w-full rounded-[11px] border-[1.5px] border-[#bbd3bc] bg-[#f5faf5] px-[14px] py-3 text-[#0c120d] outline-none focus:border-[#2b732f] focus:bg-white focus:ring-4 focus:ring-[#d8eed9]"
             />
           </div>
@@ -225,6 +226,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                autoComplete="current-password"
                 className="w-full rounded-[11px] border-[1.5px] border-[#bbd3bc] bg-[#f5faf5] px-[14px] py-3 pr-16 text-[#0c120d] outline-none focus:border-[#2b732f] focus:bg-white focus:ring-4 focus:ring-[#d8eed9]"
               />
               <button type="button" onClick={() => setShowPw((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-[13px] text-[#5a725b]">

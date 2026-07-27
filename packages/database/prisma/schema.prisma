@@ -603,7 +603,12 @@ model Call {
   status         String? // provider call status (completed, missed, no-answer, …)
   transcript     String? // AI call transcript
   aiSummary      String?        @map("ai_summary") // AI call summary
-  quoCallId      String?        @map("quo_call_id") // provider call id
+  /// Provider call id. UNIQUE: Quo delivers the same event more than once (retries,
+  /// and workspaces with more than one webhook subscription), and without this two
+  /// concurrent deliveries could each miss the other's row and log the call twice.
+  /// Postgres allows many NULLs, so CRM-initiated calls waiting to be linked to a
+  /// provider call are unaffected.
+  quoCallId      String?        @unique @map("quo_call_id")
   conversationId String?        @map("conversation_id")
 
   notes           Note[]
@@ -614,7 +619,7 @@ model Call {
   @@index([leadId])
   @@index([callerId])
   @@index([startTime])
-  @@index([quoCallId])
+  // No separate @@index([quoCallId]) — the @unique above already indexes it.
   @@map("calls")
 }
 

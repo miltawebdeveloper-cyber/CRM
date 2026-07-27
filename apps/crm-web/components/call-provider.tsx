@@ -2,8 +2,9 @@
 
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Phone, PhoneOff, X, Loader2, Check } from 'lucide-react';
+import { Phone, PhoneOff, X, Loader2, Check, ExternalLink } from 'lucide-react';
 import { communicationsApi, callsApi, outcomesApi, type CallPhase, type Outcome } from '@/lib/crm';
+import { launchQuoCall } from '@/lib/dialer';
 
 /** Minimal lead shape the Call button needs — any caller can pass this. */
 export interface CallLead {
@@ -66,17 +67,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
     onSuccess: (res, lead) => {
       setActive({ callId: res.callId, lead, identity: { callerName: res.callerName, from: res.from } });
       setEnding(false);
-      // Cockpit model: Quo/OpenPhone has no dial API, so hand the number to the
-      // agent's OpenPhone dialer via a tel: link — the widget stays in the CRM
-      // as the live monitor.
-      if (res.tel && typeof window !== 'undefined') {
-        const a = document.createElement('a');
-        a.href = res.tel;
-        a.click();
-      }
+      // The Quo app is launched at the click site, not here: a custom scheme
+      // handed over from an async callback is dropped by the browser. This
+      // callback only opens the widget that monitors and wraps up the call.
     },
   });
 
+  /**
+   * Log + monitor a call to a known lead. The caller is responsible for having
+   * already launched the Quo app inside the click (see `useCanCall().dial`) —
+   * this is the CRM-side half of that handoff.
+   */
   const placeCall = (lead: CallLead) => { if (!active) place.mutate(lead); };
 
   const placeByNumber = useMutation({
@@ -84,8 +85,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     onSuccess: (res) => {
       setActive({ callId: res.callId, lead: res.lead, identity: { callerName: res.callerName, from: res.from } });
       setEnding(false);
-      // The QUO dial pad is opened at the click site (DialPad) so the browser
-      // doesn't block a tel: handoff fired from this async callback.
+      // The Quo app is opened at the click site (DialPad) so the browser doesn't
+      // drop an app handoff fired from this async callback.
     },
   });
   const placeCallNumber = (phone: string) => { if (!active) placeByNumber.mutate(phone); };
@@ -213,8 +214,19 @@ function CallWidget(props: {
 
         {!props.ending ? (
           <>
-            {/* In-call controls — mute/hold live in the OpenPhone dialer, not here. */}
-            <div className="mt-3.5 flex items-center">
+            {/* In-call controls — mute/hold live in the Quo app, not here. */}
+            <div className="mt-3.5 flex items-center gap-2">
+              {/* A browser cannot tell whether the OS actually handed the call to
+                  the Quo app, so rather than guess, make a miss recoverable: one
+                  click re-sends the same number. It works because it runs inside a
+                  real gesture, which is the condition the handoff needs. */}
+              <button
+                onClick={() => launchQuoCall(props.lead.phone, props.identity?.from)}
+                title="Send this number to the Quo app again"
+                className="inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-[12.5px] font-semibold hover:bg-muted"
+              >
+                <ExternalLink className="h-3.5 w-3.5" /> Open in Quo
+              </button>
               <button
                 onClick={props.onEndCall}
                 className="ml-auto inline-flex items-center gap-2 rounded-full bg-[#9e2b21] px-5 py-2.5 text-[13px] font-semibold text-white hover:opacity-90"
@@ -223,7 +235,8 @@ function CallWidget(props: {
               </button>
             </div>
             <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground">
-              Live status updates automatically. Audio, mute, and hold run through your OpenPhone dialer; this stays your control panel.
+              Live status updates automatically. Audio, mute, and hold run through the Quo app; this stays your control
+              panel. If Quo didn&apos;t come to the front, use <b>Open in Quo</b>.
             </p>
           </>
         ) : (

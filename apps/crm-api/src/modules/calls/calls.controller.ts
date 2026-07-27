@@ -132,4 +132,21 @@ export class CallsController {
   addNote(@Param('id') id: string, @Body() dto: CreateNoteDto, @CurrentUser() user: AuthUser) {
     return this.calls.addNoteToCall(id, dto, user.id);
   }
+
+  // ── Lead-processing mode (calling temporarily disabled) ──
+  // The queue keeps working without a dialler: the agent reviews the lead, picks
+  // an outcome and writes notes, and these two routes record exactly what the
+  // on-call routes above record — minus the call, because none was made.
+
+  /** Log an outcome against a lead with no call attached. */
+  @Post('lead/:leadId/log')
+  logWithoutCall(@Param('leadId') leadId: string, @Body() dto: EndCallDto, @CurrentUser() user: AuthUser) {
+    return this.calls.logWithoutCall(leadId, dto, user.id);
+  }
+
+  /** Note + Comments update against a lead with no call attached. */
+  @Post('lead/:leadId/notes')
+  addLeadNote(@Param('leadId') leadId: string, @Body() dto: CreateNoteDto, @CurrentUser() user: AuthUser) {
+    return this.calls.addNoteToLead(leadId, dto, user.id);
+  }
 }

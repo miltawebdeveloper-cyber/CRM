@@ -21,6 +21,8 @@ import { OutcomePill } from '@/components/outcome-pill';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { DialPad } from '@/components/dial-pad';
 import { useCall } from '@/components/call-provider';
+import { useCanCall } from '@/lib/use-can-call';
+import { launchQuoCall } from '@/lib/dialer';
 
 // True when an ISO timestamp falls on the current calendar day.
 function isToday(iso: string | null | undefined): boolean {
@@ -100,10 +102,18 @@ export default function CallingPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [autoCall, setAutoCall] = useState(false);
   const autoFired = useRef(false);
+  // Leads saved in this sitting. See `isDone` — this is what advances the queue
+  // when no call was placed to stamp `lastCallEndedAt`.
+  const [processed, setProcessed] = useState<Set<string>>(() => new Set());
   // A call placed from the dial pad runs in the global docked widget, not this
   // panel. Knowing about it is what stops the two flows starting a second call
   // over the top of the first.
   const { active: widgetCall } = useCall();
+  // The one call-launch path: guards on caller ID, then hands the number to the
+  // Quo app. Never a browser tab, never a tel: chooser. `callingEnabled` false is
+  // the temporary lead-processing mode — the queue below runs exactly as it does
+  // normally, minus the dialling.
+  const { dial, callingEnabled, disabledReason } = useCanCall();
 
   // Managers get the team-wide Calls Made view plus its per-employee filter;
   // employees see only their own calls (enforced by the API regardless).
@@ -178,7 +188,19 @@ export default function CallingPage() {
     const m = id.match(/(\d+)\s*$/);
     return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
   };
-  const isDone = (l: Lead) => l.status === 'closed' || l.status === 'rejected' || !!l.lastCallEndedAt;
+  /**
+   * A lead is finished for this session once it's closed/rejected, once a call on
+   * it has ended, or once it has been saved here.
+   *
+   * That last clause is what keeps the queue moving with dialling off: `lastCallEndedAt`
+   * is stamped by ending a CALL, so without it a saved lead would stay top of the
+   * queue and the panel would hand the agent the same record again. `processed`
+   * is deliberately session-only — the requirement is "completed for the current
+   * session", and a reload should show the true state from the server rather than
+   * a local memory of what was skipped.
+   */
+  const isDone = (l: Lead) =>
+    l.status === 'closed' || l.status === 'rejected' || !!l.lastCallEndedAt || processed.has(l.id);
   const queue = leads;
   const filteredQueue = queue.filter((q) => {
     if (queueFilter === 'all') return true;
@@ -205,20 +227,28 @@ export default function CallingPage() {
     setZoomJoinUrl('');
   }
 
-  // openDialer: open the QUO dial pad via the tel: link. Only do this when called
-  // from a real user click (the green Call button) — browsers block tel: opened
-  // from an effect. The autocall path passes false because the dialer was already
-  // opened at the originating click in Lead Management.
-  async function startCall(openDialer = true) {
+  /**
+   * Place the call: hand the number to the Quo app, then log it.
+   *
+   * The handoff goes FIRST and synchronously. Browsers only pass a custom scheme
+   * to an app from a real user gesture, so launching after `await` would be
+   * silently dropped — which is what left agents staring at a "live" call that
+   * never dialled. `launchDialer=false` is the autocall path, where the Quo app
+   * was already opened at the originating click in Lead Management.
+   *
+   * Quo places and routes the call; `call.*` webhooks sync status, recording and
+   * transcript back onto this record. The API rejects the call if the agent has
+   * no assigned caller ID, so the customer never sees another employee's identity
+   * — `dial` mirrors that check before anything is dialled.
+   */
+  async function startCall(launchDialer = true) {
     if (!current) return;
+    // Lead-processing mode: no call is placed and none is logged. The panel is a
+    // review-and-record workflow until an admin turns calling back on.
+    if (!callingEnabled) return;
+    if (launchDialer && !dial(current.phone)) return;
     setBusy(true);
     try {
-      // QUO/OpenPhone exposes no dial API, so placing the call is an app-handoff:
-      // log the call, then hand the lead's number to the QUO dial pad. On desktop
-      // this opens QUO only when it's set as the default calling app; on mobile the
-      // QUO app handles it. QUO routes/queues + places the call, and call.* webhooks
-      // sync status back to this record. The API rejects the call if the agent has
-      // no assigned caller ID, so the customer never sees another employee's identity.
       const res = await communicationsApi.startCall(current.id);
       setActive({ callId: res.callId, lead: current, startedAt: Date.now(), from: res.from, callerName: res.callerName });
       setLive(true);
@@ -227,13 +257,6 @@ export default function CallingPage() {
       setOutcome(null);
       setCallbackAt('');
       resetZoom();
-      if (openDialer && res.tel && typeof window !== 'undefined') {
-        const a = document.createElement('a');
-        a.href = res.tel;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      }
     } catch (err) {
       // Most common: no caller ID assigned to this rep — surface the API's guidance
       // instead of failing silently.
@@ -248,29 +271,43 @@ export default function CallingPage() {
   // Require current.id === selectedId so a queue fallback never auto-dials the
   // wrong number (e.g. when the lead isn't in this caller's assigned list).
   useEffect(() => {
-    if (autoCall && current && current.id === selectedId && !active && !busy && !autoFired.current) {
+    // `callingEnabled` gates it too: no automatic call may start from the queue
+    // while dialling is off, however the agent arrived here.
+    if (callingEnabled && autoCall && current && current.id === selectedId && !active && !busy && !autoFired.current) {
       autoFired.current = true;
       void startCall(false); // dialer already opened at the originating click
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoCall, current, selectedId, active, busy]);
+  }, [autoCall, current, selectedId, active, busy, callingEnabled]);
 
   async function saveAndNext() {
-    if (!active || !outcome) return;
+    // A call is no longer required to save. With dialling off there is no call to
+    // end, but the lead still has to be worked: outcome, notes and callback are
+    // recorded against the lead itself and the queue advances just the same.
+    const lead = active?.lead ?? current;
+    if (!lead || !outcome) return;
     if (schedules && !callbackAt) return;
     if (schedulesZoom && !zoomAt) return;
     setBusy(true);
     try {
-      // `elapsed` is only stamped by the End Call button, so saving a still-live
-      // call would have logged a 0s duration. Derive it from the start instead —
-      // saving ends the call either way, so the elapsed time IS the duration.
-      const durationSecs = live ? Math.max(0, Math.round((Date.now() - active.startedAt) / 1000)) : elapsed;
-      await callsApi.end(active.callId, outcome, durationSecs, callbackAt || undefined);
-      if (note.trim()) await callsApi.addNote(active.callId, note.trim(), callbackAt || undefined, callbackAt || undefined);
+      if (active) {
+        // `elapsed` is only stamped by the End Call button, so saving a still-live
+        // call would have logged a 0s duration. Derive it from the start instead —
+        // saving ends the call either way, so the elapsed time IS the duration.
+        const durationSecs = live ? Math.max(0, Math.round((Date.now() - active.startedAt) / 1000)) : elapsed;
+        await callsApi.end(active.callId, outcome, durationSecs, callbackAt || undefined);
+        if (note.trim()) await callsApi.addNote(active.callId, note.trim(), callbackAt || undefined, callbackAt || undefined);
+      } else {
+        // No call was placed — log the same disposition and the same note straight
+        // onto the lead. Nothing is written to the call log, so calls-made figures
+        // stay honest about a session in which nobody dialled.
+        await callsApi.logLead(lead.id, outcome, callbackAt || undefined);
+        if (note.trim()) await callsApi.addLeadNote(lead.id, note.trim(), callbackAt || undefined, callbackAt || undefined);
+      }
       // Selecting a Zoom outcome auto-creates the meeting in the Zoom dashboard.
       if (schedulesZoom && zoomAt) {
         await zoomApi.create({
-          leadId: active.lead.id,
+          leadId: lead.id,
           scheduledAt: new Date(zoomAt).toISOString(),
           durationMins: zoomDuration,
           participants: zoomParticipants || undefined,
@@ -285,6 +322,9 @@ export default function CallingPage() {
       setOutcome(null);
       setCallbackAt('');
       resetZoom();
+      // Mark it done for this session, then clear the selection so `nextPending`
+      // hands over the next lead — no refresh, no manual navigation.
+      setProcessed((done) => new Set(done).add(lead.id));
       setSelectedId(null); // advance to the next open lead after completing this one
       qc.invalidateQueries({ queryKey: ['caller-dash'] });
       qc.invalidateQueries({ queryKey: ['caller-leads'] });
@@ -543,6 +583,9 @@ export default function CallingPage() {
                   {(() => {
                     const callerName = active?.callerName ?? me?.name;
                     const from = active?.from ?? me?.openphoneNumber;
+                    // With calling off, neither the identity nor the "no caller ID"
+                    // warning is actionable — nobody is dialling either way.
+                    if (!callingEnabled) return null;
                     return from ? (
                       <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[11.5px] text-[#d8eed9]">
                         <Phone className="h-3 w-3" />
@@ -612,7 +655,9 @@ export default function CallingPage() {
                   )}
                   {/* No live timer during the call — but the live phase (Calling →
                       Ringing → Connected) is shown while live, then only the final
-                      duration once ended. */}
+                      duration once ended. Hidden entirely in lead-processing mode:
+                      a call timer on a panel that cannot call is just confusing. */}
+                  {callingEnabled && (
                   <div className="my-1.5 text-center">
                     {live ? (
                       <div className={`font-display text-[22px] font-semibold text-[#d0e29c] ${livePhase === 'initiated' || livePhase === 'ringing' ? 'animate-pulse' : ''}`}>
@@ -629,23 +674,44 @@ export default function CallingPage() {
                       <div className="font-mono text-[34px] font-semibold text-white/70">00:00</div>
                     )}
                   </div>
+                  )}
+
+                  {/* Lead-processing mode: the dial controls are not rendered at
+                      all — an agent shouldn't have to work out which buttons are
+                      real — and the panel says what to do instead. The calling
+                      code is untouched; this is a switch, not a removal. */}
+                  {!callingEnabled ? (
+                    <div className="my-2 rounded-xl bg-white/10 px-3.5 py-3 text-center text-[12.5px] leading-relaxed text-[#d8eed9]">
+                      <div className="font-semibold text-white">Calling is temporarily disabled</div>
+                      <div className="mt-0.5">{disabledReason || 'Review the lead, log the outcome and save — the queue moves on as usual.'}</div>
+                    </div>
+                  ) : (
                   <div className="flex flex-wrap justify-center gap-2.5">
                     {!live ? (
                       <button onClick={() => startCall(true)} disabled={busy || widgetCall || (!!me && !me.openphoneNumber)} title={widgetCall ? 'Finish the dial-pad call first' : me && !me.openphoneNumber ? 'No caller ID assigned to your account' : 'Start call'} className="grid h-14 w-14 place-items-center rounded-[18px] bg-[#317d34] text-white shadow-[0_8px_20px_rgba(63,122,50,.5)] disabled:opacity-60">
                         <Phone className="h-[22px] w-[22px]" />
                       </button>
                     ) : (
-                      // Mute/hold live in the OpenPhone dialer (the CRM can't control
-                      // the audio), so the panel offers only End Call — the one control
-                      // it can honour by closing out and logging the call.
-                      <button onClick={() => { if (active) setElapsed(Math.floor((Date.now() - active.startedAt) / 1000)); setLive(false); }} title="End call" className="grid h-14 w-14 place-items-center rounded-[18px] bg-[#9e2b21] text-white shadow-[0_8px_20px_rgba(158,43,33,.5)]">
-                        <Phone className="h-[22px] w-[22px] rotate-[135deg]" />
-                      </button>
+                      // Mute/hold live in the Quo app (the CRM can't control the
+                      // audio), so the panel offers End Call — the one control it can
+                      // honour by closing out and logging the call — plus a way to
+                      // re-send the number if Quo never came to the front. A browser
+                      // can't detect that, so it's a button rather than a guess.
+                      <>
+                        <button onClick={() => launchQuoCall(active?.lead.phone, active?.from)} title="Send this number to the Quo app again" className="grid h-14 w-14 place-items-center rounded-[18px] border border-white/25 text-white hover:bg-white/10">
+                          <ExternalLink className="h-[20px] w-[20px]" />
+                        </button>
+                        <button onClick={() => { if (active) setElapsed(Math.floor((Date.now() - active.startedAt) / 1000)); setLive(false); }} title="End call" className="grid h-14 w-14 place-items-center rounded-[18px] bg-[#9e2b21] text-white shadow-[0_8px_20px_rgba(158,43,33,.5)]">
+                          <Phone className="h-[22px] w-[22px] rotate-[135deg]" />
+                        </button>
+                      </>
                     )}
                   </div>
-                  {live && (
+                  )}
+                  {callingEnabled && live && (
                     <p className="mt-2.5 text-center text-[11px] leading-relaxed text-[#a6c74d]">
-                      Mute, hold &amp; audio are in your OpenPhone dialer — call status updates here automatically.
+                      Mute, hold &amp; audio are in the Quo app — call status updates here automatically. If Quo didn&apos;t
+                      come to the front, tap the arrow to send the number again.
                     </p>
                   )}
                 </>
@@ -741,7 +807,10 @@ export default function CallingPage() {
                   are scheduled by the date/time fields above, which the chosen outcome
                   requires, so there is one real path rather than a decorative second one. */}
               <div className="mt-2.5 flex items-center gap-2.5">
-                <button onClick={saveAndNext} disabled={!active || !outcome || busy || (schedules && !callbackAt) || (schedulesZoom && !zoomAt)} className="ml-auto inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[8px] text-[13px] font-semibold text-primary-foreground disabled:opacity-50">
+                {/* No longer requires a live call: with dialling off the agent
+                    reviews the lead, picks an outcome and saves, which records the
+                    disposition and moves the queue on. */}
+                <button onClick={saveAndNext} disabled={!current || !outcome || busy || (schedules && !callbackAt) || (schedulesZoom && !zoomAt)} className="ml-auto inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[8px] text-[13px] font-semibold text-primary-foreground disabled:opacity-50">
                   <Check className="h-4 w-4" /> Save &amp; next lead
                 </button>
               </div>

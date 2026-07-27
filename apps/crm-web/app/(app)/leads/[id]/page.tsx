@@ -8,7 +8,6 @@ import { motion } from 'framer-motion';
 import { Phone, MessageSquare, Info, Pencil } from 'lucide-react';
 import { leadsApi, type UpdateLeadInput } from '@/lib/leads';
 import { communicationsApi } from '@/lib/crm';
-import { openQuoDialer } from '@/lib/dialer';
 import { useCanCall } from '@/lib/use-can-call';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
 import { ZoomTimeline } from '@/components/zoom-timeline';
@@ -39,7 +38,7 @@ export default function LeadDetailPage() {
   // Current user — the Activity Log is restricted to Admin & Team Lead.
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   // Refuse to dial before the API would reject the call (no assigned caller ID).
-  const { guard } = useCanCall();
+  const { dial, callingEnabled } = useCanCall();
   const canSeeActivity = me?.role === 'admin' || me?.role === 'team_leader';
   const canEdit = canSeeActivity; // managers may edit lead fields
   const [showActivity, setShowActivity] = useState(false);
@@ -152,21 +151,25 @@ export default function LeadDetailPage() {
         </Link>
         <h1 className="text-lg font-semibold">{lead.leadId}</h1>
         <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={() => {
-              // Check first: the tel: handoff can't be taken back, so a rep with no
-              // caller ID would really dial the customer on a call the CRM refuses
-              // to log. Then open the QUO dial pad inside the click gesture
-              // (browsers block a tel: handoff fired from an effect), and go to the
-              // panel to log + monitor (autocall logs only, no second dialer open).
-              if (!guard()) return;
-              openQuoDialer(lead.phone);
-              router.push(`/calling?leadId=${lead.id}&autocall=1`);
-            }}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90"
-          >
-            <Phone className="h-4 w-4" /> Call
-          </button>
+          {/* Not rendered while calling is disabled — the button's only job is to
+              dial, and offering it when nothing can be dialled just misleads. */}
+          {callingEnabled && (
+            <button
+              onClick={() => {
+                // Check first: the app handoff can't be taken back, so a rep with no
+                // caller ID would really dial the customer on a call the CRM refuses
+                // to log. `dial` launches the Quo app inside the click gesture
+                // (browsers only hand a custom scheme to an app from a real click),
+                // then we go to the panel to log + monitor (autocall logs only, it
+                // does not dial a second time).
+                if (!dial(lead.phone)) return;
+                router.push(`/calling?leadId=${lead.id}&autocall=1`);
+              }}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90"
+            >
+              <Phone className="h-4 w-4" /> Call
+            </button>
+          )}
           <button
             onClick={() => setSmsOpen((v) => !v)}
             className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted"

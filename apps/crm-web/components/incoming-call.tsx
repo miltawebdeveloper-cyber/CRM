@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { PhoneIncoming, PhoneOff, CalendarClock, History, ExternalLink, X } from 'lucide-react';
 import { communicationsApi, type IncomingCall } from '@/lib/crm';
 import { tokenStore } from '@/lib/api';
-import { openOpenPhoneApp } from '@/lib/dialer';
+import { openQuoApp } from '@/lib/dialer';
 
 /**
  * Global incoming-callback popup, shown centre-screen.
@@ -65,7 +65,7 @@ export function IncomingCallPopup() {
   // to record must never stop the agent reaching the ringing call.
   const attend = () => {
     void communicationsApi.respondToCall(active.callId, 'attend').catch(() => {});
-    openOpenPhoneApp();
+    openQuoApp();
     close();
   };
 

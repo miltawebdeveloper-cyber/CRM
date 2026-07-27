@@ -25,6 +25,54 @@ const toE164 = (raw: string): string => {
   return `+${d}`;
 };
 
+/**
+ * Quo's documented deep link for placing a call:
+ * `openphone://dial?number=<e164>&from=<line>&action=call`.
+ *
+ * Returned to the client so a call always reaches the Quo app. Deliberately not a
+ * `tel:` URL — `tel:` is handed to whatever the OS registered as the default
+ * calling app, which is routinely a browser page or a "how do you want to open
+ * this?" chooser, and browser redirection is exactly what calling must never do.
+ * The scheme is brand-specific (OpenPhone `openphone://`, Quo `quo://`), hence
+ * the env override.
+ */
+const quoDialUrl = (phone: string, from?: string): string => {
+  const number = toE164(phone);
+  const line = from?.trim() ? toE164(from) : '';
+  // QUO_DIAL_TEMPLATE overrides the whole URL ({number}/{from} placeholders), so a
+  // deployment can adapt to a different app build without a code change — the
+  // vendor documents this scheme for its mobile apps only.
+  const template = process.env.QUO_DIAL_TEMPLATE?.trim();
+  if (template) {
+    return template.replace('{number}', encodeURIComponent(number)).replace('{from}', encodeURIComponent(line));
+  }
+  const scheme = (process.env.QUO_APP_SCHEME ?? 'openphone://').replace(/:\/\/.*$/, '').replace(/:$/, '');
+  const params = new URLSearchParams({ number });
+  if (line) params.set('from', line);
+  params.set('action', 'call');
+  return `${scheme}://dial?${params.toString()}`;
+};
+
+/** AppSetting row holding the calling on/off switch (JSON blob, no migration). */
+const CALLING_MODE_KEY = 'calling:mode';
+
+export interface CallingMode {
+  /**
+   * When false the CRM places NO calls: the Quo handoff, the queue's auto-dial and
+   * every dial button are switched off, while the queue itself — lead card, notes,
+   * outcome, save-and-advance — keeps working. A temporary lead-processing mode,
+   * not a removal: nothing is deleted, and flipping this back restores calling.
+   */
+  callingEnabled: boolean;
+  /** Shown to agents wherever a dial button used to be, so the silence is explained. */
+  disabledReason: string;
+}
+
+const CALLING_MODE_DEFAULT: CallingMode = {
+  callingEnabled: true,
+  disabledReason: 'Calling is temporarily disabled — process the queue and save your notes as usual.',
+};
+
 @Injectable()
 export class CommunicationsService {
   private readonly logger = new Logger(CommunicationsService.name);
@@ -37,6 +85,17 @@ export class CommunicationsService {
   // /communications/webhook/health so it's checkable without server log access.
   private lastWebhook: { at: Date; type: string } | null = null;
   private webhookCount = 0;
+  // Deliveries turned away because the signature matched none of the configured
+  // secrets. A steadily climbing count with deliveries also being accepted is the
+  // signature of a SECOND webhook subscription in Quo signing with a different
+  // secret: half of every event pair 403s and is retried forever. Counted here so
+  // that diagnosis doesn't require server log access.
+  private webhookRejected = 0;
+  private lastRejected: { at: Date; type: string } | null = null;
+  noteRejectedWebhook(type: string) {
+    this.webhookRejected += 1;
+    this.lastRejected = { at: new Date(), type };
+  }
   get webhookHealth() {
     return {
       everReceived: this.webhookCount > 0,
@@ -44,7 +103,19 @@ export class CommunicationsService {
       lastAt: this.lastWebhook?.at ?? null,
       lastType: this.lastWebhook?.type ?? null,
       secondsSinceLast: this.lastWebhook ? Math.round((Date.now() - this.lastWebhook.at.getTime()) / 1000) : null,
-      signatureEnforced: !!this.webhookSecret,
+      signatureEnforced: this.webhookSecrets.length > 0,
+      /** How many signing secrets are configured (a workspace may have several subscriptions). */
+      secretsConfigured: this.webhookSecrets.length,
+      rejected: this.webhookRejected,
+      lastRejectedAt: this.lastRejected?.at ?? null,
+      lastRejectedType: this.lastRejected?.type ?? null,
+      /**
+       * Accepted AND rejected traffic at the same time = another subscription is
+       * posting here with a secret this deployment doesn't know. Fix it by adding
+       * that secret to QUO_WEBHOOK_SECRET (comma-separated) or deleting the
+       * duplicate subscription in Quo.
+       */
+      duplicateSubscriptionSuspected: this.webhookCount > 0 && this.webhookRejected > 0,
     };
   }
 
@@ -54,13 +125,84 @@ export class CommunicationsService {
     private readonly insights: CallInsightsService,
   ) {}
 
-  // ── Webhook signature (HMAC-SHA256 of the raw body) ──
-  get webhookSecret() {
-    return process.env.QUO_WEBHOOK_SECRET || process.env.OPENPHONE_WEBHOOK_SECRET || '';
+  // ── Calling on/off (temporary lead-processing mode) ──
+
+  /**
+   * Whether the CRM may place calls right now.
+   *
+   * Stored in app_settings so it is a switch an admin flips, not a deploy — the
+   * whole point is that calling comes back without any development. `CALLING_DISABLED=true`
+   * in the environment forces it off regardless, as a lever that works even when
+   * the admin UI isn't reachable.
+   */
+  async getCallingMode(): Promise<CallingMode> {
+    const row = await this.prisma.appSetting.findUnique({ where: { key: CALLING_MODE_KEY } });
+    const merged = { ...CALLING_MODE_DEFAULT, ...((row?.value as Partial<CallingMode> | undefined) ?? {}) };
+    if (process.env.CALLING_DISABLED === 'true') merged.callingEnabled = false;
+    return merged;
+  }
+
+  async saveCallingMode(patch: Partial<CallingMode>, userId: string): Promise<CallingMode> {
+    const current = await this.getCallingMode();
+    const next: CallingMode = {
+      callingEnabled: patch.callingEnabled ?? current.callingEnabled,
+      disabledReason: (patch.disabledReason ?? current.disabledReason).trim() || CALLING_MODE_DEFAULT.disabledReason,
+    };
+    await this.prisma.appSetting.upsert({
+      where: { key: CALLING_MODE_KEY },
+      create: { key: CALLING_MODE_KEY, value: { ...next } },
+      update: { value: { ...next } },
+    });
+    // Turning dialling off for a whole team is worth a trail of who and when.
+    await this.prisma.activity
+      .create({
+        data: {
+          leadId: null,
+          userId,
+          action: next.callingEnabled ? 'calling_enabled' : 'calling_disabled',
+          newValue: String(next.callingEnabled),
+          remarks: next.callingEnabled
+            ? 'Calling re-enabled — dialling restored across the CRM.'
+            : `Calling temporarily disabled — queue processing continues without dialling. Reason shown to agents: ${next.disabledReason}`,
+        },
+      })
+      .catch(() => undefined);
+    return next;
   }
 
   /**
-   * Verify a webhook signature.
+   * Refuse to place a call while the CRM is in lead-processing mode. Enforced in
+   * the service, not just hidden in the UI: a stale tab, a queued retry or a
+   * direct API call must not put a real call through when the team has been told
+   * none are being made.
+   */
+  private async assertCallingEnabled() {
+    const mode = await this.getCallingMode();
+    if (!mode.callingEnabled) throw new ForbiddenException(mode.disabledReason);
+  }
+
+  // ── Webhook signature (HMAC-SHA256 of the raw body) ──
+  /**
+   * Every signing secret this deployment will accept.
+   *
+   * A Quo workspace can have MORE THAN ONE webhook subscription pointed at this
+   * URL, and each one signs with its own secret — so a single configured secret
+   * means half the deliveries 403 and are retried indefinitely, which is both
+   * noise and a real risk of a missed event if the accepted subscription is ever
+   * the one that gets deleted. Both env vars therefore take a comma- (or
+   * whitespace-) separated list, and a delivery is accepted if ANY of them
+   * verifies it. Deleting the duplicate subscription in Quo is still the tidier
+   * fix; this makes the CRM correct either way.
+   */
+  get webhookSecrets(): string[] {
+    return [process.env.QUO_WEBHOOK_SECRET, process.env.OPENPHONE_WEBHOOK_SECRET]
+      .flatMap((v) => (v ?? '').split(/[,\s]+/))
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  /**
+   * Verify a webhook signature against each configured secret.
    *
    * OpenPhone/Quo scheme: the `openphone-signature` header is
    * `hmac;<version>;<timestamp>;<digest>`. The digest is base64(HMAC-SHA256)
@@ -69,8 +211,8 @@ export class CommunicationsService {
    * body (secret as a UTF-8 key) for simpler/other providers.
    */
   verifySignature(raw: Buffer | string, signature?: string): boolean {
-    const secret = this.webhookSecret;
-    if (!secret) {
+    const secrets = this.webhookSecrets;
+    if (secrets.length === 0) {
       this.logger.warn('No QUO_WEBHOOK_SECRET set — accepting webhook unverified (dev only)');
       return true;
     }
@@ -86,21 +228,31 @@ export class CommunicationsService {
     if (parts.length >= 4) {
       const timestamp = parts[2];
       const digest = parts[3];
-      const key = Buffer.from(secret, 'base64');
       const signed = Buffer.concat([Buffer.from(`${timestamp}.`), body]);
-      const computed = crypto.createHmac('sha256', key).update(signed).digest('base64');
-      const ok = eq(digest, computed);
-      if (!ok) this.logger.warn('Webhook rejected: OpenPhone signature mismatch');
+      const ok = secrets.some((secret) =>
+        eq(digest, crypto.createHmac('sha256', Buffer.from(secret, 'base64')).update(signed).digest('base64')),
+      );
+      if (!ok) this.warnSignatureMismatch(secrets.length);
       return ok;
     }
 
     // Fallback: plain HMAC of the raw body, secret used as a UTF-8 key.
     const provided = signature.replace(/^sha256=/, '');
-    const hex = crypto.createHmac('sha256', secret).update(body).digest('hex');
-    const b64 = Buffer.from(hex, 'hex').toString('base64');
-    const ok = eq(provided, hex) || eq(provided, b64);
-    if (!ok) this.logger.warn('Webhook rejected: signature mismatch');
+    const ok = secrets.some((secret) => {
+      const hex = crypto.createHmac('sha256', secret).update(body).digest('hex');
+      return eq(provided, hex) || eq(provided, Buffer.from(hex, 'hex').toString('base64'));
+    });
+    if (!ok) this.warnSignatureMismatch(secrets.length);
     return ok;
+  }
+
+  /** One rejection message that names the likely cause instead of just "mismatch". */
+  private warnSignatureMismatch(secretCount: number) {
+    this.logger.warn(
+      `Webhook rejected: signature matched none of the ${secretCount} configured signing secret(s). ` +
+        'If Quo shows more than one webhook subscription for this URL, either delete the duplicate or add its ' +
+        'signing secret to QUO_WEBHOOK_SECRET (comma-separated) — otherwise that subscription 403s and retries forever.',
+    );
   }
 
   // ── Event dispatch ──
@@ -154,18 +306,42 @@ export class CommunicationsService {
   }
 
   /**
-   * Owner of an inbound call: the agent who most recently called this customer
-   * (outbound) before it. That way a missed call is assigned to whoever was
-   * working the lead, not a fallback admin. Falls back to the lead's assignee,
-   * then an admin.
+   * Owner of an inbound call — i.e. whose phone is actually ringing, and therefore
+   * the ONLY user who should see the incoming-call popup.
+   *
+   * Order matters:
+   *  1. The Quo line the customer dialled (`to`). Each user's `openphoneNumber` is
+   *     unique, so that number names exactly one agent — it is the closest thing
+   *     the provider gives us to "this extension rang". Nothing else can override
+   *     it: if the customer called Priya's number, the call is Priya's.
+   *  2. The agent who last called this customer, so a returning caller reaches the
+   *     person who was working them (and a missed call lands with that person).
+   *  3. The lead's assignee, then an admin.
    */
-  private async resolveInboundOwner(leadId: string, assignedToId: string | null): Promise<string> {
+  private async resolveInboundOwner(leadId: string, assignedToId: string | null, toNumber?: string | null): Promise<string> {
+    const dialed = await this.userByLine(toNumber);
+    if (dialed) return dialed;
     const lastOutbound = await this.prisma.call.findFirst({
       where: { leadId, direction: CommDirection.outbound },
       orderBy: { startTime: 'desc' },
       select: { callerId: true },
     });
     return lastOutbound?.callerId ?? (await this.resolveCallerId(assignedToId));
+  }
+
+  /**
+   * The user who owns a Quo line. Matched on the last 10 digits because the same
+   * number is written several ways (+1 555…, (555) …, 555…) between the provider's
+   * payload and what an admin typed into the user record.
+   */
+  private async userByLine(number?: string | null): Promise<string | null> {
+    const last10 = digits(number ?? '').slice(-10);
+    if (last10.length < 10) return null;
+    const user = await this.prisma.user.findFirst({
+      where: { openphoneNumber: { contains: last10 }, isActive: true },
+      select: { id: true },
+    });
+    return user?.id ?? null;
   }
 
   /** Find a lead by phone (last 10 digits) or create a minimal one. */
@@ -397,27 +573,74 @@ export class CommunicationsService {
     }
 
     const lead = await this.findOrCreateLeadByPhone(external);
-    // Inbound calls are owned by whoever last called this customer (so missed
-    // calls land with the right agent); outbound falls back to the assignee.
+    // Inbound calls belong to the agent whose Quo line was dialled (falling back
+    // to whoever last worked the customer); outbound falls back to the assignee.
+    // This is what makes the incoming-call popup reach one agent instead of the
+    // whole floor.
     const callerId =
       direction === CommDirection.inbound
-        ? await this.resolveInboundOwner(lead.id, lead.assignedToId)
-        : await this.resolveCallerId(lead.assignedToId);
+        ? await this.resolveInboundOwner(lead.id, lead.assignedToId, to)
+        : ((await this.userByLine(from)) ?? (await this.resolveCallerId(lead.assignedToId)));
     const startTime = o.createdAt ? new Date(o.createdAt as string) : new Date();
     // For an outbound call the provider's `from` is the line it went out on — that's
     // the caller identity. Inbound `from` is the customer, so it isn't our identity.
     const fromNumber = direction === CommDirection.outbound ? str(o.from) : undefined;
-    const created = await this.prisma.call.create({
-      data: {
-        leadId: lead.id, callerId, direction, status, durationSecs, fromNumber,
-        recordingUrl: rec.url ?? undefined, transcript: transcript ?? undefined, aiSummary: aiSummary ?? undefined,
-        quoCallId, conversationId: str(o.conversationId),
-        startTime,
-        // Derive the end from when the call actually started plus its duration,
-        // rather than "now" — a late-arriving event must not stretch the call.
-        endTime: durationSecs != null ? new Date(startTime.getTime() + durationSecs * 1000) : null,
-      },
-    });
+
+    // The call the CRM already logged when the agent hit Call, if this event is
+    // that same call coming back from Quo. Adopting it keeps ONE record — the
+    // agent's outcome and notes on the same row as the provider's duration and
+    // recording — instead of the duplicate pair this used to leave behind.
+    const adopted = await this.adoptPendingOutboundCall(lead.id, direction, startTime, quoCallId);
+    if (adopted) {
+      await this.prisma.call.update({
+        where: { id: adopted.id },
+        data: {
+          quoCallId,
+          conversationId: str(o.conversationId) ?? undefined,
+          ...(status ? { status } : {}),
+          ...(durationSecs != null ? { durationSecs } : {}),
+          ...(adopted.fromNumber == null && fromNumber ? { fromNumber } : {}),
+          recordingUrl: rec.url ?? undefined,
+          transcript: transcript ?? undefined,
+          aiSummary: aiSummary ?? undefined,
+          // Keep the agent's own wrap-up time if they already ended the call.
+          ...(isFinal && !adopted.endTime
+            ? { endTime: durationSecs != null ? new Date(startTime.getTime() + durationSecs * 1000) : new Date() }
+            : {}),
+        },
+      });
+      await this.linkRecording(adopted.id, rec, durationSecs);
+      await this.touchLead(lead.id);
+      if (isFinal && !adopted.endTime) {
+        await this.logCallCompleted(lead.id, adopted.callerId, direction, status, durationSecs);
+      }
+      return { ok: true, callId: adopted.id, adopted: true as const };
+    }
+
+    let created: { id: string };
+    try {
+      created = await this.prisma.call.create({
+        data: {
+          leadId: lead.id, callerId, direction, status, durationSecs, fromNumber,
+          recordingUrl: rec.url ?? undefined, transcript: transcript ?? undefined, aiSummary: aiSummary ?? undefined,
+          quoCallId, conversationId: str(o.conversationId),
+          startTime,
+          // Derive the end from when the call actually started plus its duration,
+          // rather than "now" — a late-arriving event must not stretch the call.
+          endTime: durationSecs != null ? new Date(startTime.getTime() + durationSecs * 1000) : null,
+        },
+      });
+    } catch (err) {
+      // Two deliveries of the same event can both get past the lookup above and
+      // race here; the unique quoCallId turns that into a constraint error instead
+      // of a duplicate call. Whoever lost simply re-reads the winner's row — the
+      // event is already recorded, which is the outcome that matters.
+      if ((err as { code?: string }).code === 'P2002' && quoCallId) {
+        const winner = await this.prisma.call.findFirst({ where: { quoCallId }, select: { id: true } });
+        if (winner) return { ok: true, callId: winner.id, deduped: true as const };
+      }
+      throw err;
+    }
     await this.linkRecording(created.id, rec, durationSecs);
     await this.touchLead(lead.id);
 
@@ -435,6 +658,44 @@ export class CommunicationsService {
       });
     }
     return { ok: true, callId: created.id, missed };
+  }
+
+  /**
+   * Find the CRM-side row for a call Quo is now telling us about.
+   *
+   * An outbound call is created here the moment the agent clicks Call, before Quo
+   * has any id for it — so the `call.*` events that follow carry a `quoCallId` we
+   * have never seen and used to create a SECOND row for the same conversation.
+   * That is what doubled call counts, split the recording away from the agent's
+   * outcome, and made the Calls Made figures untrustworthy.
+   *
+   * Match conservatively: same lead, outbound, never linked to a provider call,
+   * and started within a couple of hours of the provider's own start time. Most
+   * recent first, so back-to-back attempts adopt the right one. Inbound is
+   * excluded — those rows only ever originate from the provider, so there is
+   * nothing to adopt and a wrong match would misroute the popup.
+   */
+  private async adoptPendingOutboundCall(
+    leadId: string,
+    direction: CommDirection,
+    providerStart: Date,
+    quoCallId: string | undefined,
+  ) {
+    if (direction !== CommDirection.outbound || !quoCallId) return null;
+    const WINDOW_MS = 2 * 60 * 60 * 1000;
+    return this.prisma.call.findFirst({
+      where: {
+        leadId,
+        direction: CommDirection.outbound,
+        quoCallId: null,
+        startTime: {
+          gte: new Date(providerStart.getTime() - WINDOW_MS),
+          lte: new Date(providerStart.getTime() + WINDOW_MS),
+        },
+      },
+      orderBy: { startTime: 'desc' },
+      select: { id: true, callerId: true, endTime: true, fromNumber: true },
+    });
   }
 
   /**
@@ -513,13 +774,15 @@ export class CommunicationsService {
 
   // ── Outbound: click-to-call ──
   /**
-   * Start an outbound call. Quo/OpenPhone exposes no API to place a call, so
-   * outbound is an app-handoff: the CRM logs the call and hands the number to the
-   * agent's OpenPhone dialer via a tel: link, staying the live monitor. The
-   * resulting call.* webhook enriches this Call record with status, duration,
-   * recording, transcript and AI summary.
+   * Start an outbound call. Quo exposes no API to place a call, so outbound is an
+   * app-handoff: the CRM logs the call and the client launches the Quo app with
+   * the number via Quo's documented deep link, staying the live monitor. The
+   * resulting call.* webhook enriches THIS Call record with status, duration,
+   * recording, transcript and AI summary (see adoptPendingOutboundCall) rather
+   * than creating a second one.
    */
   async startCall(leadId: string, callerId: string) {
+    await this.assertCallingEnabled();
     const lead = await this.prisma.lead.findFirst({ where: { id: leadId, deletedAt: null } });
     if (!lead) throw new NotFoundException('Lead not found');
 
@@ -543,13 +806,19 @@ export class CommunicationsService {
         userId: callerId,
         action: 'call_started',
         newValue: 'initiated',
-        remarks: `Outbound call to ${lead.phone} as ${name} (${fromNumber}) via OpenPhone dialer`,
+        remarks: `Outbound call to ${lead.phone} as ${name} (${fromNumber}) via the Quo app`,
       },
     });
     await this.touchLead(lead.id);
-    // `from`/`callerName` let the dialer confirm the identity the customer will see,
-    // so the agent dials from the right line (OpenPhone has no dial API to force it).
-    return { callId: call.id, tel: `tel:${lead.phone}`, phone: lead.phone, from: fromNumber, callerName: name };
+    // `from`/`callerName` let the client confirm the identity the customer will see,
+    // so the agent dials from the right line (Quo has no dial API to force it).
+    return {
+      callId: call.id,
+      dialUrl: quoDialUrl(lead.phone, fromNumber),
+      phone: lead.phone,
+      from: fromNumber,
+      callerName: name,
+    };
   }
 
   // ── Unified conversation timeline for a lead ──
@@ -584,6 +853,7 @@ export class CommunicationsService {
   // ── Outbound: dial-pad call to an arbitrary number ──
   /** Place a call to a typed number: resolve (or create) the lead, then dial. */
   async startCallByPhone(phone: string, callerId: string) {
+    await this.assertCallingEnabled();
     const trimmed = phone?.trim();
     if (!trimmed || digits(trimmed).length < 3) throw new BadRequestException('A valid phone number is required');
     // Validate the caller's identity before resolving the lead, so a rejected call
@@ -701,13 +971,16 @@ export class CommunicationsService {
     return { ok: true, action, rejectedOnCarrier: false as const };
   }
 
-  // ── Incoming-call popup: most recent inbound call in the last 60s ──
-  // Callback routing: a returning customer is routed to the employee who previously
-  // handled them, not merely whoever the lead is assigned to. handleCall already
-  // stamps an inbound call's `callerId` via resolveInboundOwner (the last agent to
-  // call the customer, falling back to the assignee), so scoping the popup by
-  // `callerId` sends the callback to the right person. Managers see every callback.
-  async latestIncoming(userId: string, role: string) {
+  // ── Incoming-call popup: the ringing call THIS user is meant to answer ──
+  // Strictly one recipient. handleCall stamps an inbound call's `callerId` via
+  // resolveInboundOwner — the agent whose Quo line was dialled, falling back to
+  // whoever last worked the customer — and the popup is scoped to that person for
+  // every role, managers included. A team leader used to get a popup for every
+  // call in the workspace, which is both noise and a privacy leak: an admin has no
+  // business being interrupted by a call ringing on someone else's extension. The
+  // manager-wide view of inbound activity lives in Calls Made / Missed Calls,
+  // which are lists, not interruptions.
+  async latestIncoming(userId: string) {
     const now = Date.now();
     // Three ways an inbound call earns a popup, deliberately narrow so the 10-minute
     // REST backfill (which imports already-finished calls minutes-to-hours late)
@@ -738,7 +1011,8 @@ export class CommunicationsService {
         { status: { in: LIVE_STATUSES }, endTime: null, createdAt: { gte: learnedSince } },
       ],
     };
-    if (role === 'employee') where.callerId = userId;
+    // Every role, not just employees: the popup belongs to the extension that rang.
+    where.callerId = userId;
     const call = await this.prisma.call.findFirst({
       where,
       include: {

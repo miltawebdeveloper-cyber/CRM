@@ -331,6 +331,14 @@ export const callsApi = {
     (await api.post(`/calls/${callId}/end`, { outcome, durationSecs, callbackAt })).data,
   addNote: async (callId: string, noteText: string, nextFollowupDate?: string, callbackAt?: string) =>
     (await api.post(`/calls/${callId}/notes`, { noteText, nextFollowupDate, callbackAt })).data,
+
+  // ── Lead-processing mode (calling temporarily disabled) ──
+  // Same disposition and same note trail as the two above, recorded straight
+  // against the lead because no call was placed.
+  logLead: async (leadId: string, outcome: CallOutcome, callbackAt?: string) =>
+    (await api.post(`/calls/lead/${leadId}/log`, { outcome, callbackAt })).data,
+  addLeadNote: async (leadId: string, noteText: string, nextFollowupDate?: string, callbackAt?: string) =>
+    (await api.post(`/calls/lead/${leadId}/notes`, { noteText, nextFollowupDate, callbackAt })).data,
 };
 
 // ───────────────────────── Productivity ─────────────────────────
@@ -482,6 +490,23 @@ export const authSettingsApi = {
     (await api.put('/auth/otp-settings', body)).data,
 };
 
+// ──────────────────── Calling mode ────────────────────
+/**
+ * Temporary lead-processing mode. When `callingEnabled` is false the CRM places
+ * no calls at all — every dial button, the Quo handoff and the queue's auto-dial
+ * are switched off — while the queue itself (lead card, outcome, notes, save and
+ * advance) carries on. Nothing is removed; an admin flips it back.
+ */
+export interface CallingMode {
+  callingEnabled: boolean;
+  disabledReason: string;
+}
+export const callingModeApi = {
+  get: async (): Promise<CallingMode> => (await api.get('/communications/calling-mode')).data,
+  save: async (body: Partial<CallingMode>): Promise<CallingMode> =>
+    (await api.put('/communications/calling-mode', body)).data,
+};
+
 // ──────────────────── Trusted devices ────────────────────
 /** A browser that has already passed an OTP and may skip it until `trustedUntil`. */
 export interface TrustedDevice {
@@ -554,8 +579,13 @@ export interface StartCallResult {
   phone: string;
   status?: string;
   error?: string | null;
-  /** tel: link handed to the agent's OpenPhone dialer to place the call. */
-  tel?: string;
+  /**
+   * Quo app deep link for this call (`openphone://dial?…`). The UI launches the
+   * app at the click site instead of using this — a custom scheme handed over
+   * after an await is dropped by the browser — but it is returned so any client
+   * has the canonical link, and it is never a `tel:`/browser URL.
+   */
+  dialUrl?: string;
   /** Caller identity the customer sees: the caller's own assigned OpenPhone line… */
   from?: string;
   /** …and their display name — shown on the widget so the agent dials as themselves. */

@@ -57,7 +57,13 @@ export class WebhooksController {
     this.logger.log(`Webhook delivery received: type=${type}, signed=${sig ? 'yes' : 'no'}`);
     const ok = this.comms.verifySignature(raw, sig);
     recordWebhook('/api/webhooks/quo', type, !!sig, ok ? 'ACCEPTED' : 'REJECTED(signature-mismatch)', req.body);
-    if (!ok) throw new ForbiddenException('Invalid webhook signature');
+    if (!ok) {
+      // Counted, so GET /communications/webhook/health can show accepted AND
+      // rejected traffic side by side — the fingerprint of a duplicate Quo
+      // subscription signing with a secret this deployment doesn't hold.
+      this.comms.noteRejectedWebhook(type);
+      throw new ForbiddenException('Invalid webhook signature');
+    }
     return this.comms.handleEvent((req.body as Record<string, unknown>) ?? {});
   }
 }
@@ -115,7 +121,10 @@ export class QuoHookController {
       headers['x-webhook-signature'];
     const ok = this.comms.verifySignature(raw, sig);
     recordWebhook('/hook/:token', type, !!sig, ok ? 'ACCEPTED' : 'REJECTED(signature-mismatch)', req.body);
-    if (!ok) throw new ForbiddenException('Invalid webhook signature');
+    if (!ok) {
+      this.comms.noteRejectedWebhook(type);
+      throw new ForbiddenException('Invalid webhook signature');
+    }
 
     return this.comms.handleEvent((req.body as Record<string, unknown>) ?? {});
   }

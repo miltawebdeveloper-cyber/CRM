@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class SendSmsDto {
@@ -68,4 +68,24 @@ export class CallByPhoneDto {
   @MinLength(3)
   @MaxLength(32)
   phone: string;
+}
+
+/**
+ * Temporary lead-processing mode: dialling off, queue on.
+ *
+ * Nothing is removed when this is set — the calling code stays exactly where it
+ * is and the switch simply refuses to place calls — so turning it back on is a
+ * toggle rather than a piece of work.
+ */
+export class CallingModeDto {
+  @ApiPropertyOptional({ description: 'False = no calls are placed anywhere in the CRM' })
+  @IsOptional()
+  @IsBoolean()
+  callingEnabled?: boolean;
+
+  @ApiPropertyOptional({ description: 'Explanation shown to agents where the Call button used to be' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  disabledReason?: string;
 }

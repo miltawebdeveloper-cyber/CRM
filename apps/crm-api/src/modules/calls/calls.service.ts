@@ -159,27 +159,66 @@ export class CallsService {
     const durationSecs =
       dto.durationSecs ?? Math.max(0, Math.round((endTime.getTime() - call.startTime.getTime()) / 1000));
 
-    const oc = await this.outcomesService.bySlug(dto.outcome);
-    const schedulesCallback = oc?.schedulesCallback ?? false;
-
-    const leadObj = await this.prisma.lead.findUnique({
-      where: { id: call.leadId },
-      select: { assignedToId: true, status: true },
-    });
-
-    const [updated] = await this.prisma.$transaction([
+    const [updated] = await this.applyDisposition(call.leadId, dto, callerId, 'call_completed', [
       this.prisma.call.update({
         where: { id: callId },
         data: { endTime, durationSecs, outcome: dto.outcome, recordingUrl: dto.recordingUrl },
       }),
+    ]);
+    return updated;
+  }
+
+  /**
+   * Record an outcome against a lead WITHOUT a call — the queue's lead-processing
+   * mode, where agents work the same queue, log the same outcomes and advance the
+   * same way while dialling is switched off.
+   *
+   * Deliberately shares `applyDisposition` with `end`, so a lead worked in this
+   * mode lands in exactly the same state as one worked on a call: same lead
+   * status mapping, same closure credit, same callback scheduling and reminders.
+   * The only difference is that no Call row is written — no call was made, and
+   * inventing one would corrupt every calls-made figure the team reports on.
+   */
+  async logWithoutCall(leadId: string, dto: EndCallDto, userId: string) {
+    const lead = await this.prisma.lead.findFirst({ where: { id: leadId, deletedAt: null }, select: { id: true } });
+    if (!lead) throw new NotFoundException('Lead not found');
+    const [updatedLead] = await this.applyDisposition(leadId, dto, userId, 'lead_processed');
+    return updatedLead;
+  }
+
+  /**
+   * The lead-side half of a disposition: status mapping, closure credit, callback
+   * (re)scheduling and the activity entry, plus the callback notification. Shared
+   * by the on-call and no-call paths so the two can never drift apart.
+   *
+   * `extraOps` are run inside the same transaction (the call update, when there is
+   * a call). The first result is returned, so callers get their own primary row.
+   */
+  private async applyDisposition(
+    leadId: string,
+    dto: EndCallDto,
+    userId: string,
+    action: 'call_completed' | 'lead_processed',
+    extraOps: Prisma.PrismaPromise<unknown>[] = [],
+  ) {
+    const oc = await this.outcomesService.bySlug(dto.outcome);
+    const schedulesCallback = oc?.schedulesCallback ?? false;
+
+    const leadObj = await this.prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { assignedToId: true, status: true },
+    });
+
+    const results = await this.prisma.$transaction([
+      ...extraOps,
       this.prisma.lead.update({
-        where: { id: call.leadId },
+        where: { id: leadId },
         data: {
           callStatus: dto.outcome,
           ...(oc?.leadStatus ? { status: oc.leadStatus } : {}),
           // An outcome that closes the lead moves it to Closed Leads, credited
           // to the caller who logged the outcome.
-          ...closureFields(oc?.leadStatus ?? undefined, leadObj?.status, callerId),
+          ...closureFields(oc?.leadStatus ?? undefined, leadObj?.status, userId),
           ...(schedulesCallback
             ? {
                 // (Re)schedule a callback — reset reminder stamps so the cron
@@ -197,18 +236,21 @@ export class CallsService {
       }),
       this.prisma.activity.create({
         data: {
-          leadId: call.leadId,
-          userId: callerId,
-          action: 'call_completed',
+          leadId,
+          userId,
+          action,
           newValue: dto.outcome,
           callStatus: dto.outcome,
           assignedToId: leadObj?.assignedToId ?? null,
+          ...(action === 'lead_processed'
+            ? { remarks: 'Outcome logged from the queue while calling was disabled (no call placed).' }
+            : {}),
         },
       }),
     ]);
 
     const lead = await this.prisma.lead.findUnique({
-      where: { id: call.leadId },
+      where: { id: leadId },
       include: { assignedTo: { select: { id: true, name: true, email: true } } },
     });
     if (lead && schedulesCallback && dto.callbackAt) {
@@ -221,17 +263,33 @@ export class CallsService {
         { email: lead.assignedTo?.email ?? null, alsoManagers: true },
       );
     }
-    return updated;
+    return results;
   }
 
   // CAL-012/013 — note after a call (lead resolved from the call record)
   async addNoteToCall(callId: string, dto: CreateNoteDto, userId: string) {
     const call = await this.prisma.call.findUnique({ where: { id: callId } });
     if (!call) throw new NotFoundException('Call not found');
+    return this.writeNote(call.leadId, callId, dto, userId);
+  }
+
+  /**
+   * The same note, written straight against the lead — used by the queue's
+   * lead-processing mode, where there is no call to hang it off. Identical
+   * result otherwise: a note row in the history and the lead's Comments field
+   * refreshed, so Lead Management reads the same either way.
+   */
+  async addNoteToLead(leadId: string, dto: CreateNoteDto, userId: string) {
+    const lead = await this.prisma.lead.findFirst({ where: { id: leadId, deletedAt: null }, select: { id: true } });
+    if (!lead) throw new NotFoundException('Lead not found');
+    return this.writeNote(leadId, null, dto, userId);
+  }
+
+  private async writeNote(leadId: string, callId: string | null, dto: CreateNoteDto, userId: string) {
     const note = await this.prisma.note.create({
       data: {
-        leadId: call.leadId,
-        callId,
+        leadId,
+        ...(callId ? { callId } : {}),
         noteText: dto.noteText,
         nextFollowupDate: dto.nextFollowupDate ? new Date(dto.nextFollowupDate) : undefined,
         ...(dto.callbackAt ? { nextFollowupDate: new Date(dto.callbackAt) } : {}),
@@ -243,7 +301,7 @@ export class CallsService {
     // field is just the newest entry, denormalized for the list column.
     const text = dto.noteText?.trim();
     if (text) {
-      await this.prisma.lead.update({ where: { id: call.leadId }, data: { comments: text } });
+      await this.prisma.lead.update({ where: { id: leadId }, data: { comments: text } });
     }
     return note;
   }

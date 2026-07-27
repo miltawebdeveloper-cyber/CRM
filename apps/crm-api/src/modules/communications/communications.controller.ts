@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
@@ -8,7 +8,7 @@ import { QuoSyncService } from './quo-sync.service';
 import { CallInsightsService } from './call-insights.service';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { SendSmsDto, CallByPhoneDto, HistoryQueryDto, CallResponseDto } from './dto/communications.dto';
+import { SendSmsDto, CallByPhoneDto, HistoryQueryDto, CallResponseDto, CallingModeDto } from './dto/communications.dto';
 
 /** PERM: recordings/transcripts/AI summaries are admin + team-leader only. */
 const canViewRecordings = (role: Role) => role === Role.admin || role === Role.team_leader;
@@ -46,16 +46,35 @@ export class CommunicationsController {
     return this.comms.startCallByPhone(dto.phone, user.id);
   }
 
+  /**
+   * Is dialling switched on? Read by every part of the UI that can place a call,
+   * so a single admin toggle takes calling out of the whole CRM while the queue
+   * workflow carries on. Readable by any signed-in user — they need to know why
+   * the Call button is gone.
+   */
+  @Get('calling-mode')
+  callingMode() {
+    return this.comms.getCallingMode();
+  }
+
+  /** Turn calling off (lead-processing mode) or back on. Admin only. */
+  @Roles(Role.admin)
+  @Put('calling-mode')
+  saveCallingMode(@Body() dto: CallingModeDto, @CurrentUser() user: AuthUser) {
+    return this.comms.saveCallingMode(dto, user.id);
+  }
+
   /** Live state of an in-progress call — polled ~1s by the in-CRM call widget. */
   @Get('call/:id/state')
   callState(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.comms.getCallState(id, user.id, user.role);
   }
 
-  /** Polled by the incoming-call popup. */
+  /** Polled by the incoming-call popup. Scoped to the caller — a user only ever
+   *  sees the call ringing on their own Quo line, whatever their role. */
   @Get('incoming/latest')
   latestIncoming(@CurrentUser() user: AuthUser) {
-    return this.comms.latestIncoming(user.id, user.role);
+    return this.comms.latestIncoming(user.id);
   }
 
   /**
