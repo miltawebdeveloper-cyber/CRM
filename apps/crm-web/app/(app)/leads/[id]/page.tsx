@@ -53,6 +53,11 @@ export default function LeadDetailPage() {
       qc.invalidateQueries({ queryKey: ['lead', id] });
       qc.invalidateQueries({ queryKey: ['lead', id, 'activities'] });
       qc.invalidateQueries({ queryKey: ['leads'] });
+      // The edit form can reassign the lead (`caller`) and can close it, so the
+      // owner's queue and KPI cards both move with this save.
+      qc.invalidateQueries({ queryKey: ['assignments-summary'] });
+      qc.invalidateQueries({ queryKey: ['caller-leads'] });
+      qc.invalidateQueries({ queryKey: ['caller-dash'] });
       setEditing(false);
     },
   });

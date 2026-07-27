@@ -7,6 +7,8 @@ import { OutcomesService } from '../outcomes/outcomes.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { CallPivotDim, CallPivotQueryDto, CallStatsQueryDto, SetCallTargetDto, StartCallDto, EndCallDto, CreateNoteDto, UpdateFollowupDto } from './dto/call.dto';
 import { closureFields } from '../leads/lead-closure';
+import { COMPLETION_ACTIONS, completedOpenLeadCounts, productiveSeconds } from './work-time';
+import { formatInZone, parseInZone } from '../../common/timezone';
 
 function startOfToday() {
   const d = new Date();
@@ -22,6 +24,35 @@ const dayEnd = (s: string) => { const [y, m, d] = s.split('-').map(Number); retu
 /** Provider call statuses that mean the call never connected. */
 const MISSED_STATUSES = ['missed', 'no-answer', 'no_answer', 'rejected', 'declined'];
 const FAILED_STATUSES = ['failed', 'busy', 'canceled', 'cancelled'];
+
+/**
+ * Most leads one calling queue will return. Generous, because the queue and the
+ * Assigned Leads card describe the same book and must agree — a cap that bites
+ * shows the agent fewer leads than they are told they hold.
+ */
+const QUEUE_MAX = 2_000;
+
+/**
+ * Ascending Lead ID order — the queue's default, and the order the panel hands
+ * leads to the agent one after another.
+ *
+ * Ids look like `L-2026-42` and carry no zero padding, so a plain string compare
+ * is wrong twice over: it sorts L-2026-10 ahead of L-2026-2, and it can't order
+ * across years on the trailing number alone (L-2025-500 must still come before
+ * L-2026-1). Both halves are therefore compared in their own right — the prefix
+ * as text, the sequence as a number. Ids in some other shape sort last rather
+ * than colliding at position zero, and ties fall back to the raw id so the order
+ * is total and a refresh can never shuffle two leads past each other.
+ */
+function compareLeadId(a: string, b: string): number {
+  const split = (id: string) => {
+    const m = id.match(/^(.*?)(\d+)\s*$/);
+    return m ? { prefix: m[1], seq: Number(m[2]) } : { prefix: id, seq: Number.MAX_SAFE_INTEGER };
+  };
+  const x = split(a);
+  const y = split(b);
+  return x.prefix.localeCompare(y.prefix) || x.seq - y.seq || a.localeCompare(b);
+}
 
 /**
  * Status stamped on a call the agent started but never dispositioned — they shut
@@ -179,11 +210,33 @@ export class CallsService {
    * The only difference is that no Call row is written — no call was made, and
    * inventing one would corrupt every calls-made figure the team reports on.
    */
-  async logWithoutCall(leadId: string, dto: EndCallDto, userId: string) {
-    const lead = await this.prisma.lead.findFirst({ where: { id: leadId, deletedAt: null }, select: { id: true } });
-    if (!lead) throw new NotFoundException('Lead not found');
-    const [updatedLead] = await this.applyDisposition(leadId, dto, userId, 'lead_processed');
+  async logWithoutCall(leadId: string, dto: EndCallDto, user: { id: string; role: Role }) {
+    await this.assertCanWorkLead(leadId, user);
+    const [updatedLead] = await this.applyDisposition(leadId, dto, user.id, 'lead_processed');
     return updatedLead;
+  }
+
+  /**
+   * Guard for the lead-processing routes: an employee may only record work
+   * against a lead assigned to them.
+   *
+   * Without this, `POST /calls/lead/:leadId/log` took any lead id at all, so one
+   * employee could disposition — and close — a lead owned by another, which is the
+   * cross-assignment the panel's queue scoping is there to prevent. Managers are
+   * exempt: working another rep's lead is part of their job, and every route here
+   * already grants them the wider scope.
+   */
+  private async assertCanWorkLead(leadId: string, user: { id: string; role: Role }) {
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: leadId, deletedAt: null },
+      select: { id: true, assignedToId: true },
+    });
+    if (!lead) throw new NotFoundException('Lead not found');
+    const isManager = user.role === Role.admin || user.role === Role.team_leader;
+    if (!isManager && lead.assignedToId !== user.id) {
+      throw new ForbiddenException('This lead is assigned to another employee.');
+    }
+    return lead;
   }
 
   /**
@@ -206,7 +259,7 @@ export class CallsService {
 
     const leadObj = await this.prisma.lead.findUnique({
       where: { id: leadId },
-      select: { assignedToId: true, status: true },
+      select: { assignedToId: true, status: true, timezone: true },
     });
 
     const results = await this.prisma.$transaction([
@@ -223,7 +276,12 @@ export class CallsService {
             ? {
                 // (Re)schedule a callback — reset reminder stamps so the cron
                 // fires fresh reminders for the new date.
-                callbackAt: dto.callbackAt ? new Date(dto.callbackAt) : null,
+                //
+                // The time the rep typed is the CUSTOMER's local time, so it is
+                // read in the lead's zone. `new Date()` read it in the server's
+                // zone, which put every callback hours out unless the server
+                // happened to sit in the customer's time zone.
+                callbackAt: parseInZone(dto.callbackAt, leadObj?.timezone),
                 callbackCompletedAt: null,
                 callbackReminderDayBeforeAt: null,
                 callbackReminderDueAt: null,
@@ -253,8 +311,11 @@ export class CallsService {
       where: { id: leadId },
       include: { assignedTo: { select: { id: true, name: true, email: true } } },
     });
-    if (lead && schedulesCallback && dto.callbackAt) {
-      const callbackText = `A callback for ${lead.businessName} is scheduled for ${new Date(dto.callbackAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}.`;
+    if (lead?.callbackAt && schedulesCallback && dto.callbackAt) {
+      // Read back off the lead rather than re-parsing the input, and stated in the
+      // customer's zone with the zone named — "3:00 PM" alone is how a rep rings
+      // an hour early on a lead in another part of the country.
+      const callbackText = `A callback for ${lead.businessName} is scheduled for ${formatInZone(lead.callbackAt, lead.timezone)}.`;
       await this.notifications.notifyAndEmail(
         lead.assignedToId,
         'callback_reminder',
@@ -267,10 +328,13 @@ export class CallsService {
   }
 
   // CAL-012/013 — note after a call (lead resolved from the call record)
-  async addNoteToCall(callId: string, dto: CreateNoteDto, userId: string) {
+  async addNoteToCall(callId: string, dto: CreateNoteDto, user: { id: string; role: Role }) {
     const call = await this.prisma.call.findUnique({ where: { id: callId } });
     if (!call) throw new NotFoundException('Call not found');
-    return this.writeNote(call.leadId, callId, dto, userId);
+    // Same rule `end` enforces: an employee writes up their own calls only.
+    const isManager = user.role === Role.admin || user.role === Role.team_leader;
+    if (!isManager && call.callerId !== user.id) throw new ForbiddenException('Not your call');
+    return this.writeNote(call.leadId, callId, dto, user.id);
   }
 
   /**
@@ -279,20 +343,23 @@ export class CallsService {
    * result otherwise: a note row in the history and the lead's Comments field
    * refreshed, so Lead Management reads the same either way.
    */
-  async addNoteToLead(leadId: string, dto: CreateNoteDto, userId: string) {
-    const lead = await this.prisma.lead.findFirst({ where: { id: leadId, deletedAt: null }, select: { id: true } });
-    if (!lead) throw new NotFoundException('Lead not found');
-    return this.writeNote(leadId, null, dto, userId);
+  async addNoteToLead(leadId: string, dto: CreateNoteDto, user: { id: string; role: Role }) {
+    await this.assertCanWorkLead(leadId, user);
+    return this.writeNote(leadId, null, dto, user.id);
   }
 
   private async writeNote(leadId: string, callId: string | null, dto: CreateNoteDto, userId: string) {
+    // A follow-up date is a wall-clock time agreed with the customer, so it is
+    // read in their zone — the same rule the callback itself follows, or the note
+    // and the callback it accompanies would name two different moments.
+    const tz = (await this.prisma.lead.findUnique({ where: { id: leadId }, select: { timezone: true } }))?.timezone;
+    const followUp = parseInZone(dto.callbackAt ?? dto.nextFollowupDate, tz);
     const note = await this.prisma.note.create({
       data: {
         leadId,
         ...(callId ? { callId } : {}),
         noteText: dto.noteText,
-        nextFollowupDate: dto.nextFollowupDate ? new Date(dto.nextFollowupDate) : undefined,
-        ...(dto.callbackAt ? { nextFollowupDate: new Date(dto.callbackAt) } : {}),
+        ...(followUp ? { nextFollowupDate: followUp } : {}),
         createdById: userId,
       },
     });
@@ -333,25 +400,74 @@ export class CallsService {
     }));
   }
 
-  // CAL-001..005 — caller dashboard KPIs
+  /**
+   * CAL-001..005 — the Calling Panel's KPI cards, for the logged-in rep only.
+   *
+   * Assigned / Completed / Pending describe the rep's BOOK, not today: they are
+   * counted from what the rep holds right now, so they survive a page refresh, a
+   * logout and a new shift, and they move the moment a lead is assigned, worked or
+   * reassigned. `assigned = completed + pending` always holds, because "completed"
+   * is defined as a subset of the assigned leads rather than as a tally of calls.
+   *
+   * Productive time and the averages are today's, since they describe a sitting
+   * rather than a stock.
+   */
   async callerDashboard(callerId: string) {
     const today = startOfToday();
-    const [assigned, todaysCalls] = await Promise.all([
-      this.prisma.lead.count({ where: { assignedToId: callerId, deletedAt: null } }),
+    const mine: Prisma.LeadWhereInput = { assignedToId: callerId, deletedAt: null };
+    const terminal = { status: { in: [LeadStatus.closed, LeadStatus.rejected] } };
+
+    const [assigned, closedOff, workedOpen, todaysWork, todaysCalls] = await Promise.all([
+      this.prisma.lead.count({ where: mine }),
+      // A lead that reached a terminal status is finished whether or not it was
+      // dispositioned from this panel (a manager may have closed it).
+      this.prisma.lead.count({ where: { ...mine, ...terminal } }),
+      // Still-open leads this rep has saved at least once. Terminal leads are
+      // excluded there, so the two counts can never double-count the same lead.
+      completedOpenLeadCounts(this.prisma, [callerId]),
+      // Today's saves — both the "completed today" count and the processing half
+      // of productive time are derived from these.
+      this.prisma.activity.findMany({
+        where: { userId: callerId, action: { in: COMPLETION_ACTIONS }, createdAt: { gte: today } },
+        select: { leadId: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      // Started today, not ended today: a call is productive time from the moment
+      // it starts, and one still in flight has no end time to filter on.
       this.prisma.call.findMany({
-        where: { callerId, endTime: { gte: today } },
-        select: { durationSecs: true },
+        where: { callerId, startTime: { gte: today } },
+        select: { startTime: true, endTime: true, durationSecs: true },
       }),
     ]);
-    const callsCompleted = todaysCalls.length;
-    const productiveSecs = todaysCalls.reduce((a, c) => a + (c.durationSecs ?? 0), 0);
-    const avgCallSecs = callsCompleted > 0 ? Math.round(productiveSecs / callsCompleted) : 0;
+
+    const completedLeads = closedOff + (workedOpen.get(callerId) ?? 0);
+    const completedToday = new Set(todaysWork.map((w) => w.leadId)).size;
+
+    // Talk time plus lead-processing time, merged so a lead dispositioned at the
+    // end of its own call is counted once. See work-time.ts for the rules.
+    const productiveSecs = productiveSeconds(todaysCalls, todaysWork.map((w) => w.createdAt));
+
+    // ── Averages ──
+    // Talk time only counts calls that actually finished; an in-flight call has no
+    // duration yet and would drag the average to zero.
+    const endedCalls = todaysCalls.filter((c) => c.endTime);
+    const talkSecs = endedCalls.reduce((a, c) => a + (c.durationSecs ?? 0), 0);
+
     return {
+      // ── Book ──
       assignedLeads: assigned,
-      callsCompleted,
-      pendingLeads: Math.max(assigned - callsCompleted, 0),
+      /** Assigned leads the rep has finished — the "Calls Completed" card. */
+      callsCompleted: completedLeads,
+      pendingLeads: Math.max(assigned - completedLeads, 0),
+      // ── Today ──
       productiveSecs,
-      avgCallSecs,
+      /** Average talk time per finished call — shown while calling is enabled. */
+      avgCallSecs: endedCalls.length > 0 ? Math.round(talkSecs / endedCalls.length) : 0,
+      /** Average time per lead worked today — what the panel shows with no calls. */
+      avgHandleSecs: completedToday > 0 ? Math.round(productiveSecs / completedToday) : 0,
+      completedToday,
+      callsToday: endedCalls.length,
+      talkSecs,
     };
   }
 
@@ -450,25 +566,38 @@ export class CallsService {
   }
 
   async updateFollowup(kind: 'note' | 'lead', id: string, dto: UpdateFollowupDto, userId: string) {
+    // Rescheduling reads the new time in the LEAD's zone, exactly as the panel's
+    // callback picker does — a follow-up moved from the Follow-ups page must land
+    // on the same instant it would have from the Calling Panel.
     if (kind === 'note') {
-      const note = await this.prisma.note.findUnique({ where: { id } });
+      const note = await this.prisma.note.findUnique({
+        where: { id },
+        select: { id: true, lead: { select: { timezone: true } } },
+      });
       if (!note) throw new NotFoundException('Follow-up not found');
       return this.prisma.note.update({
         where: { id },
         data: {
           ...(dto.noteText !== undefined ? { noteText: dto.noteText } : {}),
-          ...(dto.followUpAt !== undefined ? { nextFollowupDate: dto.followUpAt ? new Date(dto.followUpAt) : null } : {}),
+          ...(dto.followUpAt !== undefined ? { nextFollowupDate: parseInZone(dto.followUpAt, note.lead?.timezone) } : {}),
         },
       });
     }
 
     const lead = await this.prisma.lead.findUnique({ where: { id } });
     if (!lead) throw new NotFoundException('Follow-up not found');
+    const rescheduled = dto.followUpAt !== undefined ? parseInZone(dto.followUpAt, lead.timezone) : undefined;
     const updated = await this.prisma.lead.update({
       where: { id },
       data: {
-        ...(dto.followUpAt !== undefined ? { callbackAt: dto.followUpAt ? new Date(dto.followUpAt) : null } : {}),
+        ...(rescheduled !== undefined ? { callbackAt: rescheduled } : {}),
         callbackCompletedAt: null,
+        // A new time is a new appointment: clear the one-shot reminder stamps so
+        // the cron fires against the new instant instead of staying silent because
+        // it already reminded for the old one.
+        ...(rescheduled !== undefined
+          ? { callbackReminderDayBeforeAt: null, callbackReminderDueAt: null, callbackReminderMissedAt: null }
+          : {}),
       },
     });
     await this.prisma.activity.create({
@@ -477,7 +606,8 @@ export class CallsService {
         userId,
         action: 'updated',
         oldValue: lead.callbackAt?.toISOString() ?? null,
-        newValue: dto.followUpAt ?? null,
+        newValue: rescheduled?.toISOString() ?? null,
+        remarks: rescheduled ? `Callback moved to ${formatInZone(rescheduled, lead.timezone)}` : null,
       },
     });
     return updated;
@@ -986,6 +1116,11 @@ export class CallsService {
   }
 
   // CAL-006 — caller's assigned lead queue.
+  //
+  // OWNERSHIP: every row comes from `assignedToId = callerId`. A lead belongs to
+  // exactly one employee, so nothing else may widen this — it is the query that
+  // decides whose leads land in whose panel.
+  //
   // Single queue ordering:
   //   0 — Callback leads due today (sorted by scheduled time callbackAt asc)
   //   1 — Zoom meetings scheduled for today (sorted by meeting time scheduledAt asc)
@@ -1019,46 +1154,16 @@ export class CallsService {
           },
         },
       },
-      orderBy: { leadId: 'asc' },
-      take: 200,
+      // Creation order, NOT `leadId: 'asc'`. Ids are handed out in creation order,
+      // so this is the true ascending sequence — while a string sort would make
+      // the cap below keep L-2026-1000..1099 and drop L-2026-2, i.e. truncate the
+      // wrong end of the queue. The final in-memory sort orders what comes back.
+      orderBy: { createdAt: 'asc' },
+      // Was 200, which silently truncated the queue of anyone holding more — the
+      // Assigned Leads card counted the whole book while the queue below it showed
+      // a fraction, and the leads past the cut were unreachable from the panel.
+      take: QUEUE_MAX,
     });
-
-    // Also fetch Zoom meetings where callerId is organizerId, in case the lead is assigned elsewhere
-    const extraZoomMeetings = await this.prisma.zoomMeeting.findMany({
-      where: {
-        organizerId: callerId,
-        status: { in: [ZoomMeetingStatus.scheduled, ZoomMeetingStatus.in_progress, ZoomMeetingStatus.rescheduled] },
-        lead: { deletedAt: null },
-      },
-      include: {
-        lead: true,
-      },
-      orderBy: { scheduledAt: 'asc' },
-      take: 50,
-    });
-
-    const leadMap = new Map<string, typeof leads[number]>();
-    for (const l of leads) {
-      leadMap.set(l.id, l);
-    }
-    for (const zm of extraZoomMeetings) {
-      if (zm.lead && !leadMap.has(zm.lead.id)) {
-        leadMap.set(zm.lead.id, {
-          ...zm.lead,
-          zoomMeetings: [{
-            id: zm.id,
-            title: zm.title,
-            scheduledAt: zm.scheduledAt,
-            durationMins: zm.durationMins,
-            status: zm.status,
-            joinUrl: zm.joinUrl,
-            meetingId: zm.meetingId,
-          }],
-        });
-      }
-    }
-
-    const allLeads = Array.from(leadMap.values());
 
     // Most recent call per lead made today, to derive each lead's call state.
     const calls = await this.prisma.call.findMany({
@@ -1071,7 +1176,26 @@ export class CallsService {
       if (!latestByLead.has(c.leadId)) latestByLead.set(c.leadId, c);
     }
 
-    const enriched = allLeads.map((l) => {
+    // Leads this rep has already saved today. Without this the panel only knew a
+    // lead was finished from `lastCallEndedAt`, which nothing stamps when calling
+    // is off — so a reload handed the agent a lead they had just worked. Read from
+    // the server, so it survives a refresh, a re-login and a queue refresh.
+    const workedToday = await this.prisma.activity.findMany({
+      where: {
+        userId: callerId,
+        action: { in: COMPLETION_ACTIONS },
+        createdAt: { gte: startOfDay, lte: endOfToday },
+        leadId: { not: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { leadId: true, createdAt: true },
+    });
+    const workedByLead = new Map<string, Date>();
+    for (const w of workedToday) {
+      if (w.leadId && !workedByLead.has(w.leadId)) workedByLead.set(w.leadId, w.createdAt);
+    }
+
+    const enriched = leads.map((l) => {
       const call = latestByLead.get(l.id) ?? null;
       const nextZoom = l.zoomMeetings?.[0] ?? null;
       return {
@@ -1079,14 +1203,22 @@ export class CallsService {
         lastCallAt: call?.startTime ?? null,
         lastCallEndedAt: call?.endTime ?? null,
         lastOutcome: call?.outcome ?? null,
+        /** When this rep last saved the lead today — null if they haven't. */
+        lastWorkedAt: workedByLead.get(l.id) ?? null,
         nextZoomMeeting: nextZoom,
       };
     });
     type Row = (typeof enriched)[number];
 
+    /** When a finished lead was finished — the call ending, or the save. */
+    const finishedAt = (l: Row) =>
+      Math.max(l.lastCallEndedAt?.getTime() ?? 0, l.lastWorkedAt?.getTime() ?? 0) || null;
+
     const rank = (l: Row) => {
       const closed = l.status === 'closed' || l.status === 'rejected';
-      if (closed || l.lastCallEndedAt) return 5; // completed call or closed lead → bottom
+      // `lastWorkedAt` is what keeps a lead saved with dialling off from bobbing
+      // back to the top of the queue after a refresh.
+      if (closed || l.lastCallEndedAt || l.lastWorkedAt) return 5; // finished → bottom
 
       const isCallbackDueToday = !l.callbackCompletedAt && l.callbackAt && (isToday(l.callbackAt) || l.callbackAt < startOfDay);
       if (isCallbackDueToday) return 0; // 1. Callback leads due today (or overdue)
@@ -1104,26 +1236,41 @@ export class CallsService {
       return 3; // regular calling queue (backlog)
     };
 
+    /**
+     * Ascending Lead ID is the queue's default order — the smallest id first, and
+     * the order the panel walks the agent through. Only genuinely time-critical
+     * work overrides it, and only within its own band: an appointment at a stated
+     * hour has to come before an appointment an hour later, whatever their ids.
+     * Every other band, including the backlog the agent spends the day in, reads
+     * in strict ascending id order.
+     *
+     * Each comparator ends in `compareLeadId`, so the order is TOTAL — no two
+     * leads can ever compare equal. That is what stops the queue reshuffling
+     * between refreshes and handing the agent a lead they have already passed.
+     */
     return enriched.sort((a, b) => {
       const ra = rank(a);
       const rb = rank(b);
       if (ra !== rb) return ra - rb;
-      if (ra === 0) return (a.callbackAt?.getTime() ?? 0) - (b.callbackAt?.getTime() ?? 0);
-      if (ra === 1) return (a.nextZoomMeeting?.scheduledAt.getTime() ?? 0) - (b.nextZoomMeeting?.scheduledAt.getTime() ?? 0);
-      if (ra === 2) return (b.lastCallAt?.getTime() ?? 0) - (a.lastCallAt?.getTime() ?? 0);
-      if (ra === 4) {
-        const timeA = Math.min(
-          a.callbackAt && !a.callbackCompletedAt ? a.callbackAt.getTime() : Infinity,
-          a.nextZoomMeeting ? a.nextZoomMeeting.scheduledAt.getTime() : Infinity,
-        );
-        const timeB = Math.min(
-          b.callbackAt && !b.callbackCompletedAt ? b.callbackAt.getTime() : Infinity,
-          b.nextZoomMeeting ? b.nextZoomMeeting.scheduledAt.getTime() : Infinity,
-        );
-        return timeA - timeB;
+      const byId = compareLeadId(a.leadId, b.leadId);
+      // Bands 0/1 are appointments: soonest first, then ascending id.
+      if (ra === 0) return (a.callbackAt?.getTime() ?? 0) - (b.callbackAt?.getTime() ?? 0) || byId;
+      if (ra === 1) {
+        return (a.nextZoomMeeting?.scheduledAt.getTime() ?? 0) - (b.nextZoomMeeting?.scheduledAt.getTime() ?? 0) || byId;
       }
-      if (ra === 5) return (b.lastCallEndedAt?.getTime() ?? 0) - (a.lastCallEndedAt?.getTime() ?? 0);
-      return a.leadId.localeCompare(b.leadId);
+      if (ra === 2) return (b.lastCallAt?.getTime() ?? 0) - (a.lastCallAt?.getTime() ?? 0) || byId;
+      if (ra === 4) {
+        const soonest = (l: Row) =>
+          Math.min(
+            l.callbackAt && !l.callbackCompletedAt ? l.callbackAt.getTime() : Infinity,
+            l.nextZoomMeeting ? l.nextZoomMeeting.scheduledAt.getTime() : Infinity,
+          );
+        return soonest(a) - soonest(b) || byId;
+      }
+      // Finished leads sit at the bottom, most recently finished first, so the
+      // agent can see what they just did without it re-entering the run.
+      if (ra === 5) return (finishedAt(b) ?? 0) - (finishedAt(a) ?? 0) || byId;
+      return byId; // band 3 — the backlog, strictly ascending Lead ID
     });
   }
 }

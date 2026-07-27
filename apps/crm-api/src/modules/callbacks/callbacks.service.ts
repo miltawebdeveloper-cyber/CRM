@@ -1,15 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { NotificationType } from '@crm/database';
+import { NotificationType, Timezone } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { formatInZone } from '../../common/timezone';
 
 const HOUR = 60 * 60 * 1000;
 const MISSED_GRACE_MS = 1 * HOUR;
 
-function fmt(d: Date): string {
-  return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
+/**
+ * Every time in a reminder is stated in the CUSTOMER's zone, with the zone named.
+ * These used to render in the SERVER's zone and with no label at all, so a rep
+ * working a California lead from an EST-hosted CRM was told to ring at a time
+ * three hours from the one the customer had agreed to.
+ */
+const fmt = (d: Date, tz?: Timezone | null) => formatInZone(d, tz);
 
 /**
  * Callback reminder engine (req 4). A cron job scans active callbacks
@@ -43,6 +48,7 @@ export class CallbacksService {
         id: true,
         businessName: true,
         phone: true,
+        timezone: true,
         callbackAt: true,
         callbackReminderDayBeforeAt: true,
         callbackReminderDueAt: true,
@@ -55,6 +61,7 @@ export class CallbacksService {
     let fired = 0;
     for (const lead of leads) {
       const cb = lead.callbackAt!;
+      const tz = lead.timezone;
       const diffMs = cb.getTime() - now.getTime();
       const hrs = diffMs / HOUR;
       const email = lead.assignedTo?.email ?? null;
@@ -69,13 +76,13 @@ export class CallbacksService {
       if (diffMs <= -MISSED_GRACE_MS && !lead.callbackReminderMissedAt) {
         // Spec body (req 9): customer, phone, scheduled time, assigned user, missed time.
         const body =
-          `The scheduled callback for ${lead.businessName} at ${fmt(cb)} was not completed. ` +
+          `The scheduled callback for ${lead.businessName} at ${fmt(cb, tz)} was not completed. ` +
           `Please take the necessary follow-up action.\n\n` +
           `Customer Name: ${lead.businessName}\n` +
           `Phone Number: ${lead.phone}\n` +
-          `Scheduled Callback: ${fmt(cb)}\n` +
+          `Scheduled Callback: ${fmt(cb, tz)}\n` +
           `Assigned User: ${assignedName}\n` +
-          `Missed Time: ${fmt(now)}`;
+          `Missed Time: ${fmt(now, tz)}`;
         await this.fire(lead.assignedToId, email, NotificationType.callback_missed, 'Missed Callback Alert', body);
         updates.callbackReminderMissedAt = now;
         if (!lead.callbackReminderDueAt) updates.callbackReminderDueAt = now;
@@ -86,7 +93,7 @@ export class CallbacksService {
           email,
           NotificationType.callback_due,
           `Callback due now: ${lead.businessName}`,
-          `Your callback for ${lead.businessName} is due (${fmt(cb)}).`,
+          `Your callback for ${lead.businessName} is due (${fmt(cb, tz)}).`,
         );
         updates.callbackReminderDueAt = now;
         fired++;
@@ -99,7 +106,7 @@ export class CallbacksService {
           email,
           NotificationType.callback_reminder,
           `Callback tomorrow: ${lead.businessName}`,
-          `Reminder: callback for ${lead.businessName} is scheduled for ${fmt(cb)}.`,
+          `Reminder: callback for ${lead.businessName} is scheduled for ${fmt(cb, tz)}.`,
         );
         updates.callbackReminderDayBeforeAt = now;
         fired++;

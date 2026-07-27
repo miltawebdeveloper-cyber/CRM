@@ -545,13 +545,18 @@ export class LeadsService {
     // RBAC: employees see only their own leads. In Closed Leads that means the
     // leads they personally closed, not the ones merely assigned to them —
     // closing is what earns visibility, and a lead can be reassigned after.
-    // Admins & team leaders see every lead in either module.
+    // Admins & team leaders see every lead in either module, which is what lets
+    // them select and distribute leads that belong to nobody yet.
     const scope =
       user?.role === Role.employee
         ? query.closed === true
           ? { closedById: user.id }
           : { assignedToId: user.id }
         : {};
+    // `mine` narrows any role to their own book on request. It was declared on the
+    // DTO but never read, so a manager asking for their own leads silently got
+    // everyone's — the flag has to do what it says or not be offered.
+    const mineScope = query.mine && user ? (query.closed === true ? { closedById: user.id } : { assignedToId: user.id }) : {};
     // Inclusive lead-id window for range assignment.
     //
     // Lead ids are `L-<year>-<n>` with NO zero padding, so comparing them as
@@ -598,7 +603,7 @@ export class LeadsService {
       }
     }
     const rows = await this.prisma.lead.findMany({
-      where: { deletedAt: null, status: query.status, state: query.state, ...closedFilter, ...scope, ...rangeFilter },
+      where: { deletedAt: null, status: query.status, state: query.state, ...closedFilter, ...scope, ...mineScope, ...rangeFilter },
       // A ranged read is listed oldest-first: lead ids are handed out in creation
       // order, so that IS ascending sequence order — and unlike `leadId: 'asc'` it
       // doesn't put L-2026-10 ahead of L-2026-2.

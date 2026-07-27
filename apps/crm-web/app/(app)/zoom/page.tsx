@@ -8,6 +8,7 @@ import { leadsApi } from '@/lib/leads';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { MeetingDetail } from '@/components/zoom/meeting-detail';
+import { describeWallClock, formatInLeadZone, zoneLabel } from '@/lib/timezone';
 
 const FILTERS: { value: '' | ZoomMeetingStatus; label: string }[] = [
   { value: '', label: 'All' },
@@ -28,8 +29,8 @@ function StatusPill({ status }: { status: ZoomMeetingStatus }) {
   );
 }
 
-const fmtDateTime = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+// Meeting times read on the CLIENT's clock, with the zone named.
+const fmtDateTime = (iso: string | null, tz?: string | null) => (iso ? formatInLeadZone(iso, tz) : '—');
 // datetime-local needs `yyyy-MM-ddTHH:mm` in local time.
 const toLocalInput = (d: Date) => {
   const p = (n: number) => String(n).padStart(2, '0');
@@ -138,7 +139,7 @@ export default function ZoomPage() {
                     </button>
                   </td>
                   <td className="px-4 py-3 text-muted-foreground">{m.lead?.industry || '—'}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">{fmtDateTime(m.scheduledAt)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{fmtDateTime(m.scheduledAt, m.lead?.timezone)}</td>
                   <td className="px-4 py-3"><StatusPill status={m.status} /></td>
                   <td className="px-4 py-3 text-muted-foreground">{m.outcome || '—'}</td>
                   <td className="px-4 py-3">
@@ -183,6 +184,8 @@ export default function ZoomPage() {
 function ScheduleModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const { data: leads = [] } = useQuery({ queryKey: ['leads'], queryFn: () => leadsApi.list() });
   const [leadId, setLeadId] = useState('');
+  // The chosen client decides which clock the meeting is booked on.
+  const selectedLead = leads.find((l) => l.id === leadId);
   const [when, setWhen] = useState(() => {
     const d = new Date();
     d.setMinutes(0, 0, 0);
@@ -204,7 +207,9 @@ function ScheduleModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     try {
       await zoomApi.create({
         leadId,
-        scheduledAt: new Date(when).toISOString(),
+        // The wall clock exactly as typed. The API reads it in the selected
+        // client's zone; converting here would resolve it in the browser's.
+        scheduledAt: when,
         durationMins: duration,
         title: title || undefined,
         joinUrl: joinUrl || undefined,
@@ -231,13 +236,20 @@ function ScheduleModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           </select>
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Date & time">
+          {/* The zone is part of the field label, because the time is booked on the
+              CLIENT's clock and a rep entering "2 PM" has to know whose 2 PM. */}
+          <Field label={`Date & time${selectedLead ? ` (${selectedLead.timezone} / ${zoneLabel(selectedLead.timezone)})` : ''}`}>
             <input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
           </Field>
           <Field label="Duration (min)">
             <input type="number" min={5} max={480} value={duration} onChange={(e) => setDuration(Number(e.target.value))} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
           </Field>
         </div>
+        {selectedLead && when && (
+          <p className="-mt-1 text-[11.5px] text-muted-foreground">
+            Saved as <span className="font-semibold text-foreground">{describeWallClock(when, selectedLead.timezone)}</span> for {selectedLead.businessName}.
+          </p>
+        )}
         <Field label="Title (optional)">
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Bookkeeping onboarding call" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
         </Field>
@@ -286,7 +298,9 @@ function CompleteModal({ meeting, onClose, onSaved }: { meeting: ZoomMeeting; on
         decisions: form.decisions || undefined,
         actionItems: form.actionItems || undefined,
         notes: form.notes || undefined,
-        followUpAt: form.followUpAt ? new Date(form.followUpAt).toISOString() : undefined,
+        // Wall clock as typed — read in the client's zone by the API, like every
+        // other scheduled time on this record.
+        followUpAt: form.followUpAt || undefined,
       });
       onSaved();
     } finally {
@@ -316,7 +330,7 @@ function CompleteModal({ meeting, onClose, onSaved }: { meeting: ZoomMeeting; on
           <textarea value={form.actionItems} onChange={(e) => set('actionItems', e.target.value)} rows={3} placeholder={'Send pricing PDF\nSchedule follow-up'} className="w-full resize-y rounded-md border bg-background px-3 py-2 text-sm" />
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Follow-up / next meeting">
+          <Field label={`Follow-up / next meeting (${meeting.lead?.timezone ?? 'EST'})`}>
             <input type="datetime-local" value={form.followUpAt} onChange={(e) => set('followUpAt', e.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
           </Field>
           <Field label="Private notes">

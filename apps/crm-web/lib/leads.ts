@@ -45,6 +45,13 @@ export interface Lead {
   lastCallAt?: string | null;
   lastCallEndedAt?: string | null;
   lastOutcome?: string | null;
+  /**
+   * When the logged-in rep last saved this lead today, from the server. Nothing
+   * stamps `lastCallEndedAt` when calling is off, so this is what tells the queue
+   * a lead is already worked — and unlike the panel's in-memory set it survives a
+   * page refresh, a queue refresh and a re-login.
+   */
+  lastWorkedAt?: string | null;
   nextZoomMeeting?: {
     id: string;
     title: string | null;
@@ -158,10 +165,12 @@ export interface CreateLeadInput {
 export type UpdateLeadInput = Partial<CreateLeadInput> & { status?: string };
 
 export const leadsApi = {
-  // `mine` scopes the result to the caller's own assigned leads (Lead
-  // Management module). `closed` splits the two lead modules: false lists the
-  // active book, true the Closed Leads module (scoped for employees to the
-  // leads they closed). Omit both to list every record.
+  // `mine` narrows the result to the caller's OWN assigned leads whatever their
+  // role — managers included, who otherwise see every lead. Employees are scoped
+  // to their own book by the API regardless, so they never need the flag.
+  // `closed` splits the two lead modules: false lists the active book, true the
+  // Closed Leads module (scoped for employees to the leads they closed). Omit
+  // both to list every record the caller may see.
   list: async (opts?: { mine?: boolean; closed?: boolean; fromLeadId?: string; toLeadId?: string; limit?: number }): Promise<Lead[]> => {
     const params: Record<string, boolean | string | number> = {};
     if (opts?.mine) params.mine = true;

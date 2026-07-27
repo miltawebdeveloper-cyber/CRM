@@ -130,7 +130,7 @@ export class CallsController {
 
   @Post(':id/notes')
   addNote(@Param('id') id: string, @Body() dto: CreateNoteDto, @CurrentUser() user: AuthUser) {
-    return this.calls.addNoteToCall(id, dto, user.id);
+    return this.calls.addNoteToCall(id, dto, { id: user.id, role: user.role });
   }
 
   // ── Lead-processing mode (calling temporarily disabled) ──
@@ -138,15 +138,18 @@ export class CallsController {
   // an outcome and writes notes, and these two routes record exactly what the
   // on-call routes above record — minus the call, because none was made.
 
+  // Both are scoped in the service: an employee may only record work against a
+  // lead assigned to them, so one rep can never disposition another's lead.
+
   /** Log an outcome against a lead with no call attached. */
   @Post('lead/:leadId/log')
   logWithoutCall(@Param('leadId') leadId: string, @Body() dto: EndCallDto, @CurrentUser() user: AuthUser) {
-    return this.calls.logWithoutCall(leadId, dto, user.id);
+    return this.calls.logWithoutCall(leadId, dto, { id: user.id, role: user.role });
   }
 
   /** Note + Comments update against a lead with no call attached. */
   @Post('lead/:leadId/notes')
   addLeadNote(@Param('leadId') leadId: string, @Body() dto: CreateNoteDto, @CurrentUser() user: AuthUser) {
-    return this.calls.addNoteToLead(leadId, dto, user.id);
+    return this.calls.addNoteToLead(leadId, dto, { id: user.id, role: user.role });
   }
 }

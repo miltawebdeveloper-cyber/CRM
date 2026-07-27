@@ -11,6 +11,7 @@ import { KpiCard } from '@/components/dashboard/kpi-card';
 import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
+import { dayInLeadZone, formatScheduleInLeadZone } from '@/lib/timezone';
 
 const TIMEFRAME_OPTS = [
   { label: 'All Follow-Ups', value: '' },
@@ -19,15 +20,18 @@ const TIMEFRAME_OPTS = [
   { label: 'This Week', value: 'week' },
 ];
 
-function whenLabel(iso: string): { text: string; overdue: boolean; today: boolean } {
+/**
+ * A follow-up's due time, stated on the CUSTOMER's clock with the zone named —
+ * the same time the rep agreed with them and the same one the reminder emails
+ * quote. "Today" is likewise their today: a follow-up can already be tomorrow
+ * for the customer while it is still tonight for the rep.
+ */
+function whenLabel(iso: string, tz?: string | null): { text: string; overdue: boolean; today: boolean } {
   const d = new Date(iso);
   const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
+  const sameDay = dayInLeadZone(d, tz) === dayInLeadZone(now, tz);
   const overdue = d < now && !sameDay;
-  const text = sameDay
-    ? `Today ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-    : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  return { text, overdue, today: sameDay };
+  return { text: formatScheduleInLeadZone(iso, tz), overdue, today: sameDay };
 }
 
 export default function FollowupsPage() {
@@ -51,16 +55,23 @@ export default function FollowupsPage() {
   const { dial, callingEnabled } = useCanCall();
 
   const now = new Date();
-  const dueToday = allFus.filter((f) => new Date(f.nextFollowupDate).toDateString() === now.toDateString()).length;
-  const overdue = allFus.filter((f) => { const d = new Date(f.nextFollowupDate); return d < now && d.toDateString() !== now.toDateString(); }).length;
-  const thisWeek = allFus.filter((f) => { const d = new Date(f.nextFollowupDate); const diff = (d.getTime() - now.getTime()) / 86400000; return diff >= 0 && diff <= 7; }).length;
+  // "Due today" is asked on the customer's calendar, the same way the row's label
+  // reads it — otherwise a follow-up shows as "Today" in the table while the Due
+  // Today card refuses to count it.
+  const isDueToday = (f: Followup) =>
+    dayInLeadZone(f.nextFollowupDate, f.lead?.timezone) === dayInLeadZone(now, f.lead?.timezone);
+  const withinDays = (f: Followup, days: number) => {
+    const diff = (new Date(f.nextFollowupDate).getTime() - now.getTime()) / 86400000;
+    return diff >= 0 && diff <= days;
+  };
+  const dueToday = allFus.filter(isDueToday).length;
+  const overdue = allFus.filter((f) => new Date(f.nextFollowupDate) < now && !isDueToday(f)).length;
+  const thisWeek = allFus.filter((f) => withinDays(f, 7)).length;
 
   const matchesTimeframe = (f: Followup) => {
-    const d = new Date(f.nextFollowupDate);
-    const sameDay = d.toDateString() === now.toDateString();
-    if (timeframe === 'overdue') return d < now && !sameDay;
-    if (timeframe === 'today') return sameDay;
-    if (timeframe === 'week') { const diff = (d.getTime() - now.getTime()) / 86400000; return diff >= 0 && diff <= 7; }
+    if (timeframe === 'overdue') return new Date(f.nextFollowupDate) < now && !isDueToday(f);
+    if (timeframe === 'today') return isDueToday(f);
+    if (timeframe === 'week') return withinDays(f, 7);
     return true;
   };
   const term = q.trim().toLowerCase();
@@ -90,7 +101,7 @@ export default function FollowupsPage() {
   const columns = useMemo<ColumnDef<Followup>[]>(() => [
     {
       key: 'when', header: 'When', required: true,
-      render: (f) => { const w = whenLabel(f.nextFollowupDate); return <div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: w.overdue ? '#a8431f' : w.today ? '#c98a18' : '#a6c74d' }} /><b>{w.text}</b></div>; },
+      render: (f) => { const w = whenLabel(f.nextFollowupDate, f.lead?.timezone); return <div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: w.overdue ? '#a8431f' : w.today ? '#c98a18' : '#a6c74d' }} /><b>{w.text}</b></div>; },
     },
     { key: 'company', header: 'Company', render: (f) => <div className="flex items-center gap-[10px]"><Avatar name={f.lead?.businessName ?? '—'} /><span className="font-semibold">{f.lead?.businessName ?? '—'}</span></div> },
     { key: 'note', header: 'Note', cellClassName: 'max-w-[280px] truncate text-muted-foreground', render: (f) => f.noteText },

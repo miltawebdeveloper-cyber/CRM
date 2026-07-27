@@ -1,12 +1,16 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { NotificationType, Prisma, Role, TaskPriority, TaskStatus, ZoomMeetingStatus } from '@crm/database';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { NotificationType, Prisma, Role, TaskPriority, TaskStatus, Timezone, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CompleteZoomMeetingDto, CreateZoomMeetingDto, UpdateZoomMeetingDto, ZoomQueryDto } from './dto/zoom.dto';
+import { formatInZone, parseInZone } from '../../common/timezone';
 
-function fmtWhen(d: Date) {
-  return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
+/**
+ * Meeting times are always stated in the CLIENT's zone, with the zone named.
+ * Rendering in the server's zone (as this did) means the invite, the reminder and
+ * the client's own calendar disagree about when the meeting is.
+ */
+const fmtWhen = (d: Date, tz?: Timezone | null) => formatInZone(d, tz);
 
 function startOfToday() {
   const d = new Date();
@@ -29,6 +33,9 @@ const leadSelect = {
     email: true,
     city: true,
     state: true,
+    // The client's zone travels with the meeting: it is the zone the meeting was
+    // booked in, and the one every screen and reminder states the time in.
+    timezone: true,
     industry: true,
     status: true,
   },
@@ -109,7 +116,12 @@ export class ZoomService {
     const lead = await this.prisma.lead.findFirst({ where: { id: dto.leadId, deletedAt: null } });
     if (!lead) throw new NotFoundException('Lead not found');
     const organizerId = dto.organizerId ?? userId;
-    const scheduledAt = new Date(dto.scheduledAt);
+    // The picker sends the wall-clock time agreed with the client, so it is read
+    // in the CLIENT's zone — not the browser's and not the server's, which is
+    // what made the Zoom form and the callback form book different instants from
+    // the same typed time.
+    const scheduledAt = parseInZone(dto.scheduledAt, lead.timezone);
+    if (!scheduledAt) throw new BadRequestException('A valid meeting date and time is required.');
 
     // Auto-create a linked task in the organizer's task list, due at meeting time.
     const task = await this.prisma.task.create({
@@ -144,30 +156,41 @@ export class ZoomService {
     await this.log(m.id, userId, 'created', {
       field: 'scheduledAt',
       newValue: m.scheduledAt.toISOString(),
-      remarks: `Meeting scheduled for ${m.scheduledAt.toLocaleString()}`,
+      remarks: `Meeting scheduled for ${fmtWhen(m.scheduledAt, lead.timezone)}`,
     });
     await this.notify(
       m,
       NotificationType.zoom_scheduled,
       `Zoom meeting scheduled: ${lead.businessName}`,
-      `A Zoom meeting with ${lead.businessName} is scheduled for ${fmtWhen(m.scheduledAt)}.`,
+      `A Zoom meeting with ${lead.businessName} is scheduled for ${fmtWhen(m.scheduledAt, lead.timezone)}.`,
     );
     await this.logLeadActivity(m, userId, 'zoom_scheduled', {
       newValue: m.scheduledAt.toISOString(),
-      remarks: `Zoom meeting scheduled for ${fmtWhen(m.scheduledAt)}`,
+      remarks: `Zoom meeting scheduled for ${fmtWhen(m.scheduledAt, lead.timezone)}`,
     });
     return m;
   }
 
   async update(id: string, dto: UpdateZoomMeetingDto, userId: string) {
-    const existing = await this.prisma.zoomMeeting.findUnique({ where: { id } });
+    const existing = await this.prisma.zoomMeeting.findUnique({
+      where: { id },
+      include: { lead: { select: { timezone: true } } },
+    });
     if (!existing) throw new NotFoundException('Zoom meeting not found');
+    const tz = existing.lead?.timezone;
+    // Rescheduling reads the new time in the client's zone, the same rule create
+    // follows — otherwise moving a meeting by an hour could silently shift it by
+    // the difference between the server's zone and the client's.
+    const rescheduledAt = dto.scheduledAt !== undefined ? parseInZone(dto.scheduledAt, tz) : undefined;
+    if (dto.scheduledAt !== undefined && !rescheduledAt) {
+      throw new BadRequestException('A valid meeting date and time is required.');
+    }
     // Editing the time on a still-pending meeting implies a reschedule.
     const reschedule = dto.scheduledAt && dto.status === undefined;
-    const timeChanged = dto.scheduledAt !== undefined && new Date(dto.scheduledAt).getTime() !== existing.scheduledAt.getTime();
+    const timeChanged = !!rescheduledAt && rescheduledAt.getTime() !== existing.scheduledAt.getTime();
     const m = await this.tryUpdate(id, {
       ...(dto.title !== undefined ? { title: dto.title } : {}),
-      ...(dto.scheduledAt !== undefined ? { scheduledAt: new Date(dto.scheduledAt) } : {}),
+      ...(rescheduledAt ? { scheduledAt: rescheduledAt } : {}),
       ...(dto.durationMins !== undefined ? { durationMins: dto.durationMins } : {}),
       ...(dto.status !== undefined ? { status: dto.status } : reschedule ? { status: ZoomMeetingStatus.rescheduled } : {}),
       ...(dto.joinUrl !== undefined ? { joinUrl: dto.joinUrl } : {}),
@@ -181,19 +204,19 @@ export class ZoomService {
       // Rescheduling resets reminder stamps so the cron re-fires for the new time.
       ...(timeChanged ? { reminderDayBeforeAt: null, reminderDueAt: null } : {}),
     });
-    await this.logChanges(id, userId, existing, dto);
+    await this.logChanges(id, userId, existing, dto, rescheduledAt);
     await this.syncTask(m);
     if (timeChanged) {
       await this.notify(
         m,
         NotificationType.zoom_scheduled,
         `Zoom meeting rescheduled: ${m.lead?.businessName ?? 'Client'}`,
-        `The Zoom meeting with ${m.lead?.businessName ?? 'the client'} has been rescheduled to ${fmtWhen(m.scheduledAt)}.`,
+        `The Zoom meeting with ${m.lead?.businessName ?? 'the client'} has been rescheduled to ${fmtWhen(m.scheduledAt, m.lead?.timezone)}.`,
       );
       await this.logLeadActivity(m, userId, 'zoom_rescheduled', {
         oldValue: existing.scheduledAt.toISOString(),
         newValue: m.scheduledAt.toISOString(),
-        remarks: `Zoom meeting rescheduled to ${fmtWhen(m.scheduledAt)}`,
+        remarks: `Zoom meeting rescheduled to ${fmtWhen(m.scheduledAt, m.lead?.timezone)}`,
       });
     }
     return m;
@@ -211,6 +234,12 @@ export class ZoomService {
   async complete(id: string, dto: CompleteZoomMeetingDto, userId: string) {
     const existing = await this.prisma.zoomMeeting.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Zoom meeting not found');
+    // The follow-up time agreed at the end of the meeting is the client's local
+    // time, like every other scheduled time on this record.
+    const followUpTz = (
+      await this.prisma.lead.findUnique({ where: { id: existing.leadId }, select: { timezone: true } })
+    )?.timezone;
+    const followUpAt = dto.followUpAt !== undefined ? parseInZone(dto.followUpAt, followUpTz) : undefined;
     const m = await this.tryUpdate(id, {
       status: ZoomMeetingStatus.completed,
       endedAt: new Date(),
@@ -222,14 +251,14 @@ export class ZoomService {
       ...(dto.decisions !== undefined ? { decisions: dto.decisions } : {}),
       ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
       ...(dto.actionItems !== undefined ? { actionItems: dto.actionItems } : {}),
-      ...(dto.followUpAt !== undefined ? { followUpAt: dto.followUpAt ? new Date(dto.followUpAt) : null } : {}),
+      ...(followUpAt !== undefined ? { followUpAt } : {}),
     });
     await this.log(id, userId, 'completed', { field: 'status', oldValue: existing.status, newValue: 'completed' });
     if (dto.outcome !== undefined && dto.outcome !== (existing.outcome ?? undefined)) {
       await this.log(id, userId, 'outcome_updated', { field: 'outcome', oldValue: existing.outcome ?? null, newValue: dto.outcome });
     }
-    if (dto.followUpAt) {
-      await this.log(id, userId, 'follow_up_created', { field: 'followUpAt', newValue: new Date(dto.followUpAt).toISOString() });
+    if (followUpAt) {
+      await this.log(id, userId, 'follow_up_created', { field: 'followUpAt', newValue: followUpAt.toISOString() });
       // Store the follow-up in the Follow-Ups module (a Note with a next date),
       // so every follow-up lives in one place.
       const client = m.lead?.businessName ?? 'client';
@@ -240,7 +269,7 @@ export class ZoomService {
         data: {
           leadId: m.leadId,
           noteText: text,
-          nextFollowupDate: new Date(dto.followUpAt),
+          nextFollowupDate: followUpAt,
           createdById: userId,
         },
       });
@@ -262,11 +291,11 @@ export class ZoomService {
       m,
       NotificationType.zoom_cancelled,
       `Zoom meeting cancelled: ${m.lead?.businessName ?? 'Client'}`,
-      `The Zoom meeting with ${m.lead?.businessName ?? 'the client'} on ${fmtWhen(m.scheduledAt)} has been cancelled.`,
+      `The Zoom meeting with ${m.lead?.businessName ?? 'the client'} on ${fmtWhen(m.scheduledAt, m.lead?.timezone)} has been cancelled.`,
     );
     await this.logLeadActivity(m, userId, 'zoom_cancelled', {
       oldValue: existing?.status ?? null,
-      remarks: `Zoom meeting on ${fmtWhen(m.scheduledAt)} cancelled`,
+      remarks: `Zoom meeting on ${fmtWhen(m.scheduledAt, m.lead?.timezone)} cancelled`,
     });
     return m;
   }
@@ -368,8 +397,20 @@ export class ZoomService {
     });
   }
 
-  // Diff an update against the existing record and log one entry per change.
-  private async logChanges(id: string, userId: string, existing: Record<string, unknown>, dto: UpdateZoomMeetingDto) {
+  /**
+   * Diff an update against the existing record and log one entry per change.
+   *
+   * `resolvedAt` is the instant the reschedule actually landed on, already read in
+   * the client's zone. The audit entry has to use it rather than re-parsing the
+   * raw input, or the trail records a different moment from the one stored.
+   */
+  private async logChanges(
+    id: string,
+    userId: string,
+    existing: Record<string, unknown>,
+    dto: UpdateZoomMeetingDto,
+    resolvedAt?: Date | null,
+  ) {
     const fields: { key: keyof UpdateZoomMeetingDto; label: string; date?: boolean }[] = [
       { key: 'title', label: 'title' },
       { key: 'scheduledAt', label: 'scheduledAt', date: true },
@@ -400,7 +441,7 @@ export class ZoomService {
       const raw = dto[f.key];
       if (raw === undefined) continue;
       const oldV = str(existing[f.key]);
-      const newV = f.date ? new Date(raw as string).toISOString() : str(raw);
+      const newV = f.date ? (resolvedAt?.toISOString() ?? null) : str(raw);
       if (oldV === newV) continue;
       let action = 'updated';
       if (f.key === 'scheduledAt') action = 'rescheduled';

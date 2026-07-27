@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { OutcomeCategory } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
+import { COMPLETION_ACTIONS, completedOpenLeadCounts, productiveSeconds } from '../calls/work-time';
 
 function startOfToday() {
   const d = new Date();
@@ -47,7 +48,16 @@ export class ProductivityService {
     };
   }
 
-  /** PRD-005 — per-caller productivity table, scoped to a period. */
+  /**
+   * PRD-005 — per-caller productivity table, scoped to a period.
+   *
+   * Assigned / Completed and productive time use the SAME definitions as each
+   * rep's own Calling Panel (see calls/work-time.ts), so a team leader reading
+   * this table and the rep reading their own cards see the same numbers.
+   * "Completed" used to be `closed + interested`, which counted a live lead
+   * someone had merely shown interest in as finished while ignoring every lead
+   * actually worked — so the two views disagreed about nearly every rep.
+   */
   async perCaller(period: Period = 'day') {
     const today = since(period);
     const callers = await this.prisma.user.findMany({
@@ -55,38 +65,49 @@ export class ProductivityService {
       select: { id: true, name: true, email: true },
       orderBy: { name: 'asc' },
     });
+    const callerIds = callers.map((c) => c.id);
 
-    const [assignedByStatus, callsToday] = await Promise.all([
+    const [assignedByStatus, callsInPeriod, workedOpen, savesInPeriod] = await Promise.all([
       this.prisma.lead.groupBy({
         by: ['assignedToId', 'status'],
         where: { deletedAt: null, assignedToId: { not: null } },
         _count: { _all: true },
       }),
-      this.prisma.call.groupBy({
-        by: ['callerId'],
-        where: { endTime: { gte: today } },
-        _count: { _all: true },
-        _sum: { durationSecs: true },
+      // Started in the period, so a call still in flight is included — productive
+      // time counts it from its start.
+      this.prisma.call.findMany({
+        where: { callerId: { in: callerIds }, startTime: { gte: today } },
+        select: { callerId: true, startTime: true, endTime: true, durationSecs: true },
+      }),
+      // Still-open leads each rep has saved at least once. Terminal leads are
+      // counted from the status groupBy instead, so neither is double-counted.
+      completedOpenLeadCounts(this.prisma, callerIds),
+      this.prisma.activity.findMany({
+        where: { userId: { in: callerIds }, action: { in: COMPLETION_ACTIONS }, createdAt: { gte: today } },
+        select: { userId: true, createdAt: true },
       }),
     ]);
-
-    const callsMap = new Map(
-      callsToday.map((c) => [c.callerId, { calls: c._count._all, secs: c._sum.durationSecs ?? 0 }]),
-    );
 
     return callers.map((c) => {
       const statuses = assignedByStatus.filter((a) => a.assignedToId === c.id);
       const assigned = statuses.reduce((a, s) => a + s._count._all, 0);
       const closed = statuses.find((s) => s.status === 'closed')?._count._all ?? 0;
-      const interested = statuses.find((s) => s.status === 'interested')?._count._all ?? 0;
-      const calls = callsMap.get(c.id);
-      const productiveSecs = calls?.secs ?? 0;
+      const rejected = statuses.find((s) => s.status === 'rejected')?._count._all ?? 0;
+      // Only leads the rep still HOLDS count towards their book, matching the
+      // panel — work on a lead since handed to someone else isn't theirs any more.
+      const worked = workedOpen.get(c.id) ?? 0;
+      const calls = callsInPeriod.filter((x) => x.callerId === c.id);
+      const endedCalls = calls.filter((x) => x.endTime);
+      const productiveSecs = productiveSeconds(
+        calls,
+        savesInPeriod.filter((s) => s.userId === c.id).map((s) => s.createdAt),
+      );
       return {
         id: c.id,
         name: c.name,
         email: c.email,
-        callsToday: calls?.calls ?? 0,
-        leadsCompleted: closed + interested,
+        callsToday: endedCalls.length,
+        leadsCompleted: closed + rejected + worked,
         assigned,
         conversionPct: assigned > 0 ? Number(((closed / assigned) * 100).toFixed(1)) : 0,
         productiveSecs,

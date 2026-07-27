@@ -10,6 +10,8 @@ export interface ZoomLead {
   email: string | null;
   city: string;
   state: string;
+  /** The client's zone — the one every meeting time on this record is stated in. */
+  timezone: string;
   industry: string | null;
   status: string;
 }

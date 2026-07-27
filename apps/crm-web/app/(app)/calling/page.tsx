@@ -23,12 +23,15 @@ import { DialPad } from '@/components/dial-pad';
 import { useCall } from '@/components/call-provider';
 import { useCanCall } from '@/lib/use-can-call';
 import { launchQuoCall } from '@/lib/dialer';
+import { dayInLeadZone, formatScheduleInLeadZone, nowInLeadZone, zoneLabel } from '@/lib/timezone';
 
-// True when an ISO timestamp falls on the current calendar day.
-function isToday(iso: string | null | undefined): boolean {
-  if (!iso) return false;
-  return new Date(iso).toDateString() === new Date().toDateString();
-}
+/**
+ * How often the panel re-reads its two live sources. The queue is checked more
+ * often than the cards because working the wrong lead is worse than a KPI being a
+ * few seconds stale — and both refetch immediately on window focus anyway.
+ */
+const QUEUE_POLL_MS = 15_000;
+const DASH_POLL_MS = 30_000;
 
 /** Pull the API's message out of an axios error, with a usable fallback. */
 function apiError(err: unknown, fallback: string): string {
@@ -46,25 +49,23 @@ const PHASE_LABEL: Record<CallPhase, string> = {
   ended: 'Call ended',
 };
 
-// Format ISO date string into readable scheduled date & time
-function formatScheduledTime(iso?: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const today = new Date();
-  if (d.toDateString() === today.toDateString()) {
-    return `Today, ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-  }
-  return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
+// Scheduled times are shown in the LEAD's zone, with the zone named — an
+// appointment belongs to the customer's clock, not the rep's browser.
+const formatScheduledTime = formatScheduleInLeadZone;
 
 function getQueueItemType(l: Lead) {
-  const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
+  // "Due today" is asked on the CUSTOMER's calendar, not the rep's — the two are
+  // a different date for several hours of every day, and the server bands the
+  // queue the same way. Comparing day strings keeps this badge and the position
+  // the server gave the lead in agreement.
+  const today = dayInLeadZone(new Date(), l.timezone);
+  const cbDay = !l.callbackCompletedAt && l.callbackAt ? dayInLeadZone(l.callbackAt, l.timezone) : '';
+  const zmDay = l.nextZoomMeeting ? dayInLeadZone(l.nextZoomMeeting.scheduledAt, l.timezone) : '';
 
-  const isCbToday = !l.callbackCompletedAt && l.callbackAt && new Date(l.callbackAt) <= endOfDay;
-  const isZmToday = l.nextZoomMeeting && new Date(l.nextZoomMeeting.scheduledAt) <= endOfDay;
-  const isCbFuture = !l.callbackCompletedAt && l.callbackAt && new Date(l.callbackAt) > endOfDay;
-  const isZmFuture = l.nextZoomMeeting && new Date(l.nextZoomMeeting.scheduledAt) > endOfDay;
+  const isCbToday = !!cbDay && cbDay <= today;
+  const isZmToday = !!zmDay && zmDay <= today;
+  const isCbFuture = !!cbDay && cbDay > today;
+  const isZmFuture = !!zmDay && zmDay > today;
 
   if (isCbToday) {
     return { type: 'callback' as const, label: 'Callback Queue', badge: 'Callback Today', scheduledAt: l.callbackAt, isToday: true };
@@ -120,8 +121,23 @@ export default function CallingPage() {
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   const isManager = me?.role === 'admin' || me?.role === 'team_leader';
 
-  const { data: dash } = useQuery({ queryKey: ['caller-dash'], queryFn: callsApi.dashboard });
-  const { data: leads = [] } = useQuery({ queryKey: ['caller-leads'], queryFn: callsApi.myLeads });
+  // The panel's two live reads. Both poll, because the things that change them
+  // happen elsewhere: a manager assigning, reassigning or removing a lead, or the
+  // auto-reassignment that runs when someone goes offline. Without polling the
+  // queue and the cards only caught up on a manual reload, so an employee could
+  // sit calling a lead that had already been handed to someone else. React Query
+  // also refetches on window focus by default, so coming back to the tab is
+  // instant rather than waiting out the interval.
+  const { data: dash } = useQuery({
+    queryKey: ['caller-dash'],
+    queryFn: callsApi.dashboard,
+    refetchInterval: DASH_POLL_MS,
+  });
+  const { data: leads = [] } = useQuery({
+    queryKey: ['caller-leads'],
+    queryFn: callsApi.myLeads,
+    refetchInterval: QUEUE_POLL_MS,
+  });
   const { data: outcomes = [] } = useQuery({ queryKey: ['outcomes-config'], queryFn: outcomesApi.list });
   // Zoom meetings scheduled for today — pinned at the top of the Call Panel.
   const { data: zoomDue = [] } = useQuery({ queryKey: ['zoom-due'], queryFn: zoomApi.due });
@@ -178,29 +194,28 @@ export default function CallingPage() {
     enabled: !!selectedId,
   });
 
-  // ── Queue ordering (requirement) ──
-  // The queue always reads in ASCENDING lead-id order, with anything already dealt
-  // with today (closed, rejected, or a call finished) pushed to the END — so a
-  // completed lead drops to the back and the next pending one rises to the top and
-  // becomes the active card. Lead ids are `L-YYYY-N` with no padding, so the
-  // trailing number is compared numerically (L-2026-2 before L-2026-10).
-  const leadSeq = (id: string) => {
-    const m = id.match(/(\d+)\s*$/);
-    return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
-  };
+  // ── Queue ordering ──
+  // The order is the SERVER's, used exactly as it arrives: ascending Lead ID, with
+  // only callbacks and Zoom meetings due today pinned above it and finished leads
+  // pushed to the end. Deliberately not re-sorted here — two sort implementations
+  // is how the list you see stops matching the lead the panel hands you next.
   /**
-   * A lead is finished for this session once it's closed/rejected, once a call on
-   * it has ended, or once it has been saved here.
+   * A lead is finished once it's closed/rejected, once a call on it has ended, or
+   * once it has been saved today.
    *
-   * That last clause is what keeps the queue moving with dialling off: `lastCallEndedAt`
-   * is stamped by ending a CALL, so without it a saved lead would stay top of the
-   * queue and the panel would hand the agent the same record again. `processed`
-   * is deliberately session-only — the requirement is "completed for the current
-   * session", and a reload should show the true state from the server rather than
-   * a local memory of what was skipped.
+   * `lastWorkedAt` is the server's answer to that last clause and is what keeps the
+   * queue moving with dialling off: `lastCallEndedAt` is only stamped by ending a
+   * CALL, so without it a saved lead stayed top of the queue and the panel handed
+   * the agent the same record again. It comes from the API rather than memory, so a
+   * page refresh, a queue refresh or a re-login all show the same finished leads.
+   * `processed` still covers the moment between saving and the next refetch.
    */
   const isDone = (l: Lead) =>
-    l.status === 'closed' || l.status === 'rejected' || !!l.lastCallEndedAt || processed.has(l.id);
+    l.status === 'closed' ||
+    l.status === 'rejected' ||
+    !!l.lastCallEndedAt ||
+    !!l.lastWorkedAt ||
+    processed.has(l.id);
   const queue = leads;
   const filteredQueue = queue.filter((q) => {
     if (queueFilter === 'all') return true;
@@ -308,7 +323,11 @@ export default function CallingPage() {
       if (schedulesZoom && zoomAt) {
         await zoomApi.create({
           leadId: lead.id,
-          scheduledAt: new Date(zoomAt).toISOString(),
+          // Sent as the bare wall clock the rep typed. `new Date(zoomAt).toISOString()`
+          // resolved it in the BROWSER's zone, so the same "2 PM" booked a different
+          // instant depending on where the rep sat — and disagreed with the callback
+          // field beside it. The API reads it in the lead's zone instead.
+          scheduledAt: zoomAt,
           durationMins: zoomDuration,
           participants: zoomParticipants || undefined,
           joinUrl: zoomJoinUrl || undefined,
@@ -343,7 +362,17 @@ export default function CallingPage() {
     }
   }
 
-  const remaining = leads.filter((l) => l.status !== 'closed' && l.status !== 'rejected').length;
+  // Scheduling always happens on the CURRENT lead's clock: `leadZone` is the zone
+  // abbreviation as it stands today (EDT vs EST), and `leadToday` is the
+  // customer's own current date/time, used to seed and bound the pickers.
+  const leadZone = zoneLabel(current?.timezone);
+  const leadNow = nowInLeadZone(current?.timezone); // `YYYY-MM-DDTHH:mm`
+  const leadToday = leadNow.slice(0, 10);
+
+  // Which average the last KPI reports. Talk time is the meaningful one once calls
+  // have been placed; with none today (or with dialling off entirely) it would be a
+  // permanent 00:00, so the card falls back to time spent per lead.
+  const showAvgCall = callingEnabled && (dash?.callsToday ?? 0) > 0;
 
   // ── Quick message ── send an SMS to the current lead without leaving the panel.
   const [msgOpen, setMsgOpen] = useState(false);
@@ -397,13 +426,26 @@ export default function CallingPage() {
 
       {tab === 'panel' && (
       <>
-      {/* KPIs */}
+      {/* KPIs — live for the logged-in rep. Assigned / Completed / Pending are the
+          rep's book (they always add up, and they hold across a refresh); the last
+          two describe today's sitting. All five re-read on a poll, on window focus
+          and immediately after each lead is saved.
+
+          The average switches source rather than showing a misleading zero: with
+          dialling off there are no call durations to average, so it reports time
+          per lead worked instead — which is the number that actually moves. */}
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
         <KpiCard icon={Target} iconBg="#d8eed9" iconColor="#266929" value={dash?.assignedLeads ?? 0} label="Assigned Leads" />
         <KpiCard icon={CheckCircle2} iconBg="#e4f2e4" iconColor="#317d34" value={dash?.callsCompleted ?? 0} label="Calls Completed" />
         <KpiCard icon={Clock} iconBg="#fbf3e2" iconColor="#c98a18" value={dash?.pendingLeads ?? 0} label="Pending" />
         <KpiCard icon={Phone} iconBg="#e3f1ee" iconColor="#2f6f63" value={formatDuration(dash?.productiveSecs ?? 0)} label="Productive Time" />
-        <KpiCard icon={Percent} iconBg="#e7f0f8" iconColor="#2c5d8f" value={formatDuration(dash?.avgCallSecs ?? 0)} label="Avg Call" />
+        <KpiCard
+          icon={Percent}
+          iconBg="#e7f0f8"
+          iconColor="#2c5d8f"
+          value={formatDuration(showAvgCall ? dash?.avgCallSecs ?? 0 : dash?.avgHandleSecs ?? 0)}
+          label={showAvgCall ? 'Avg Call' : 'Avg / Lead'}
+        />
       </div>
 
       {/* Queue (left) · Green lead card + notes (centre) · Dial pad (right). */}
@@ -453,11 +495,13 @@ export default function CallingPage() {
               {filteredQueue.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">No items in this queue.</p>}
               {filteredQueue.map((q) => {
                 const closed = q.status === 'closed' || q.status === 'rejected';
-                const activeCall = !!q.lastCallAt && !q.lastCallEndedAt;
-                const completedToday = !!q.lastCallEndedAt;
+                const activeCall = !!q.lastCallAt && !q.lastCallEndedAt && !q.lastWorkedAt;
+                // Same definition as `isDone`, so the ✓ on a row and the row's
+                // position in the queue can't disagree about what's been worked.
+                const completedToday = !!q.lastCallEndedAt || !!q.lastWorkedAt || processed.has(q.id);
                 const isCurrent = current?.id === q.id && !closed;
                 const done = closed || completedToday;
-                const meta = outcomeMeta(q.lastOutcome);
+                const meta = outcomeMeta(q.lastOutcome ?? q.callStatus);
                 const qType = getQueueItemType(q);
                 const priorityIndex = queue.findIndex((item) => item.id === q.id) + 1;
 
@@ -503,8 +547,12 @@ export default function CallingPage() {
                         </span>
                       ) : (isCurrent || activeCall) ? (
                         <StatusPill status="in_progress" />
-                      ) : completedToday && q.lastOutcome ? (
-                        <OutcomePill name={meta?.name ?? q.lastOutcome} color={meta?.color} />
+                      ) : completedToday && (q.lastOutcome || q.callStatus) ? (
+                        // `lastOutcome` comes off the call record, so a lead worked
+                        // with dialling off has none — fall back to the outcome
+                        // stamped on the lead itself, or the row reads "New Call"
+                        // straight after being completed.
+                        <OutcomePill name={meta?.name ?? q.lastOutcome ?? q.callStatus!} color={meta?.color} />
                       ) : closed ? (
                         <StatusPill status={q.status} />
                       ) : (
@@ -519,7 +567,7 @@ export default function CallingPage() {
                       <span className="font-mono">{q.phone}</span>
                       {qType.scheduledAt ? (
                         <span className="font-medium text-foreground">
-                          📅 {formatScheduledTime(qType.scheduledAt)}
+                          📅 {formatScheduledTime(qType.scheduledAt, q.timezone)}
                         </span>
                       ) : (
                         <span>{q.timezone}</span>
@@ -619,7 +667,7 @@ export default function CallingPage() {
                         </span>
                       </div>
                       <div className="mt-1.5 text-[12px] text-[#e0f2fe]">
-                        Scheduled: <span className="font-semibold">{formatScheduledTime(current.nextZoomMeeting.scheduledAt)}</span>
+                        Scheduled: <span className="font-semibold">{formatScheduledTime(current.nextZoomMeeting.scheduledAt, current.timezone)}</span>
                       </div>
                       <div className="mt-2.5 flex items-center gap-2">
                         {current.nextZoomMeeting.joinUrl && (
@@ -746,27 +794,38 @@ export default function CallingPage() {
                 })}
               </div>
               {schedules && (
-                <div className="mb-3 grid gap-2 sm:grid-cols-2">
-                  <label className="space-y-1 text-sm">
-                    <span className="font-medium">Callback Date</span>
-                    <input
-                      type="date"
-                      value={callbackAt ? callbackAt.slice(0, 10) : ''}
-                      onChange={(e) => setCallbackAt(`${e.target.value}T${callbackAt ? callbackAt.slice(11, 16) : '09:00'}`)}
-                      className="w-full rounded-md border bg-background px-3 py-2"
-                      required
-                    />
-                  </label>
-                  <label className="space-y-1 text-sm">
-                    <span className="font-medium">Callback Time</span>
-                    <input
-                      type="time"
-                      value={callbackAt ? callbackAt.slice(11, 16) : ''}
-                      onChange={(e) => setCallbackAt(`${callbackAt ? callbackAt.slice(0, 10) : new Date().toISOString().slice(0, 10)}T${e.target.value}`)}
-                      className="w-full rounded-md border bg-background px-3 py-2"
-                      required
-                    />
-                  </label>
+                <div className="mb-3">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">Callback Date</span>
+                      <input
+                        type="date"
+                        value={callbackAt ? callbackAt.slice(0, 10) : ''}
+                        onChange={(e) => setCallbackAt(`${e.target.value}T${callbackAt ? callbackAt.slice(11, 16) : '09:00'}`)}
+                        className="w-full rounded-md border bg-background px-3 py-2"
+                        required
+                      />
+                    </label>
+                    <label className="space-y-1 text-sm">
+                      <span className="font-medium">Callback Time</span>
+                      <input
+                        type="time"
+                        value={callbackAt ? callbackAt.slice(11, 16) : ''}
+                        // Defaults to the CUSTOMER's today, not the rep's. `new Date()`
+                        // here could offer a date already gone (or not yet arrived)
+                        // where the customer is.
+                        onChange={(e) => setCallbackAt(`${callbackAt ? callbackAt.slice(0, 10) : leadToday}T${e.target.value}`)}
+                        className="w-full rounded-md border bg-background px-3 py-2"
+                        required
+                      />
+                    </label>
+                  </div>
+                  {/* The rep is booking on the customer's clock, so the panel says
+                      so — a time entered with no zone shown is a callback made at
+                      the wrong hour. */}
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                    Times are in the lead&apos;s time zone — <span className="font-semibold text-foreground">{current?.timezone ?? 'EST'} ({leadZone})</span>.
+                  </p>
                 </div>
               )}
               {schedulesZoom && (
@@ -776,8 +835,8 @@ export default function CallingPage() {
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <label className="space-y-1 text-sm">
-                      <span className="font-medium">Date &amp; time</span>
-                      <input type="datetime-local" value={zoomAt} onChange={(e) => setZoomAt(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2" required />
+                      <span className="font-medium">Date &amp; time ({leadZone})</span>
+                      <input type="datetime-local" value={zoomAt} onChange={(e) => setZoomAt(e.target.value)} min={leadNow} className="w-full rounded-md border bg-background px-3 py-2" required />
                     </label>
                     <label className="space-y-1 text-sm">
                       <span className="font-medium">Duration (min)</span>
@@ -792,7 +851,9 @@ export default function CallingPage() {
                       <input value={zoomJoinUrl} onChange={(e) => setZoomJoinUrl(e.target.value)} placeholder="https://zoom.us/j/…" className="w-full rounded-md border bg-background px-3 py-2" />
                     </label>
                   </div>
-                  <p className="mt-1.5 text-[11px] text-[#1f5fae]">Saved to the Zoom dashboard and pinned in the Call Panel at the scheduled time.</p>
+                  <p className="mt-1.5 text-[11px] text-[#1f5fae]">
+                    Booked in the lead&apos;s time zone ({current?.timezone ?? 'EST'} / {leadZone}). Saved to the Zoom dashboard and pinned in the Call Panel at the scheduled time.
+                  </p>
                 </div>
               )}
               <textarea

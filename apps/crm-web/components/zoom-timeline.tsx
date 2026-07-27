@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Video, Clock, ListChecks } from 'lucide-react';
 import { zoomApi, STATUS_META, type ZoomMeetingStatus } from '@/lib/zoom';
+import { formatInLeadZone } from '@/lib/timezone';
 
 function StatusPill({ status }: { status: ZoomMeetingStatus }) {
   const m = STATUS_META[status];
@@ -13,8 +14,8 @@ function StatusPill({ status }: { status: ZoomMeetingStatus }) {
     </span>
   );
 }
-const fmt = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+// Meeting and follow-up times read on the CLIENT's clock, with the zone named.
+const fmt = (iso: string | null, tz?: string | null) => (iso ? formatInLeadZone(iso, tz) : '—');
 
 function Line({ label, value }: { label: string; value: string | null }) {
   if (!value) return null;
@@ -49,7 +50,7 @@ export function ZoomTimeline({ leadId }: { leadId: string }) {
           <li key={m.id} className="relative">
             <span className="absolute -left-[27px] top-1 grid h-4 w-4 place-items-center rounded-full border-2 border-card" style={{ background: STATUS_META[m.status].color }} />
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-[13px] font-semibold">{fmt(m.scheduledAt)}</span>
+              <span className="text-[13px] font-semibold">{fmt(m.scheduledAt, m.lead?.timezone)}</span>
               <div className="flex items-center gap-2">
                 {m.joinUrl && (m.status === 'scheduled' || m.status === 'rescheduled' || m.status === 'in_progress') && (
                   <a href={m.joinUrl} target="_blank" rel="noopener noreferrer" className="rounded-md bg-[#2D8CFF] px-2 py-0.5 text-[11px] font-semibold text-white">Join</a>
@@ -72,7 +73,7 @@ export function ZoomTimeline({ leadId }: { leadId: string }) {
             )}
             {m.followUpAt && (
               <div className="mt-1.5 flex items-center gap-1.5 text-[12px] text-[#2c5d8f]">
-                <Clock className="h-3.5 w-3.5" /> Follow-up: {fmt(m.followUpAt)}
+                <Clock className="h-3.5 w-3.5" /> Follow-up: {fmt(m.followUpAt, m.lead?.timezone)}
               </div>
             )}
           </li>

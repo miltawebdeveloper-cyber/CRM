@@ -1,14 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { NotificationType, ZoomMeetingStatus } from '@crm/database';
+import { NotificationType, Timezone, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { formatInZone } from '../../common/timezone';
 
 const HOUR = 60 * 60 * 1000;
 
-function fmt(d: Date): string {
-  return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-}
+/** Meeting times are stated in the client's zone, with the zone named. */
+const fmt = (d: Date, tz?: Timezone | null) => formatInZone(d, tz);
 
 /**
  * Zoom meeting reminder engine — mirrors the callback reminder cron. Scans
@@ -41,7 +41,7 @@ export class ZoomRemindersService {
         status: { in: [ZoomMeetingStatus.scheduled, ZoomMeetingStatus.rescheduled] },
       },
       include: {
-        lead: { select: { businessName: true } },
+        lead: { select: { businessName: true, timezone: true } },
         organizer: { select: { id: true, email: true } },
       },
     });
@@ -49,6 +49,7 @@ export class ZoomRemindersService {
     let fired = 0;
     for (const m of meetings) {
       const at = m.scheduledAt;
+      const tz = m.lead?.timezone;
       const diffMs = at.getTime() - now.getTime();
       const hrs = diffMs / HOUR;
       const client = m.lead?.businessName ?? 'the client';
@@ -62,7 +63,7 @@ export class ZoomRemindersService {
           email,
           NotificationType.zoom_due,
           `Zoom meeting starting: ${client}`,
-          `Your Zoom meeting with ${client} is due now (${fmt(at)}).`,
+          `Your Zoom meeting with ${client} is due now (${fmt(at, tz)}).`,
         );
         updates.reminderDueAt = now;
         fired++;
@@ -75,7 +76,7 @@ export class ZoomRemindersService {
           email,
           NotificationType.zoom_reminder,
           `Zoom meeting tomorrow: ${client}`,
-          `Reminder: your Zoom meeting with ${client} is scheduled for ${fmt(at)}.`,
+          `Reminder: your Zoom meeting with ${client} is scheduled for ${fmt(at, tz)}.`,
         );
         updates.reminderDayBeforeAt = now;
         fired++;

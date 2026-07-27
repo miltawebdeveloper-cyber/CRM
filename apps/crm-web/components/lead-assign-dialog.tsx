@@ -165,24 +165,30 @@ export function LeadAssignDialog({
     });
   };
 
-  const assign = useMutation({
-    mutationFn: () => assignmentsApi.batch({ allocations }),
-    meta: { successMessage: `Assigned ${totalAssigned} lead${totalAssigned === 1 ? '' : 's'} to ${allocations.length} employee${allocations.length === 1 ? '' : 's'}` },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['leads'] });
-      qc.invalidateQueries({ queryKey: ['assignments-summary'] });
-      qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
-      onAssigned?.();
-      onClose();
-    },
-  });
-
+  /**
+   * Everything that describes who owns what, refreshed together. The two caller
+   * keys matter as much as the lead list: assigning changes the Calling Panel's
+   * queue and its Assigned / Pending cards, and without them the assigner's own
+   * panel would keep showing the pre-assignment book until it next polled.
+   */
   const invalidateAfterAssign = () => {
     qc.invalidateQueries({ queryKey: ['leads'] });
     qc.invalidateQueries({ queryKey: ['assignments-summary'] });
     qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
     qc.invalidateQueries({ queryKey: ['lead-range'] });
+    qc.invalidateQueries({ queryKey: ['caller-leads'] });
+    qc.invalidateQueries({ queryKey: ['caller-dash'] });
   };
+
+  const assign = useMutation({
+    mutationFn: () => assignmentsApi.batch({ allocations }),
+    meta: { successMessage: `Assigned ${totalAssigned} lead${totalAssigned === 1 ? '' : 's'} to ${allocations.length} employee${allocations.length === 1 ? '' : 's'}` },
+    onSuccess: () => {
+      invalidateAfterAssign();
+      onAssigned?.();
+      onClose();
+    },
+  });
 
   const assignRange = useMutation({
     // Only the unowned leads in the window are sent; skipAssigned makes the server
@@ -532,10 +538,14 @@ export function LeadAssignDialog({
                 disabled={!canAssignRange}
                 className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
               >
+                {/* Counts what will actually be assigned, not what the window
+                    contains — already-owned and locked-today leads are excluded
+                    from the request, so promising the full range then assigning
+                    fewer is how a manager ends up thinking leads went missing. */}
                 {assignRange.isPending
                   ? 'Assigning…'
-                  : rangeLeads.length > 0
-                    ? `Assign ${rangeLeads.length} lead${rangeLeads.length === 1 ? '' : 's'}`
+                  : rangeFree > 0
+                    ? `Assign ${rangeFree} lead${rangeFree === 1 ? '' : 's'}`
                     : 'Assign range'}
               </button>
             ) : (

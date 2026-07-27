@@ -99,12 +99,30 @@ export const assignmentsApi = {
 };
 
 // ─────────────────────────── Calls ─────────────────────────────
+/**
+ * Calling Panel KPIs for the logged-in rep.
+ *
+ * The first three describe the rep's BOOK — what they hold right now — so they
+ * survive a refresh or a new shift and always satisfy
+ * `assignedLeads = callsCompleted + pendingLeads`. The rest describe today's
+ * sitting, and are recomputed after every lead the rep completes.
+ */
 export interface CallerDashboard {
+  /** Leads currently assigned to this rep. */
   assignedLeads: number;
+  /** Assigned leads the rep has finished (saved a disposition on, or closed). */
   callsCompleted: number;
+  /** Assigned leads still to work — assignedLeads − callsCompleted. */
   pendingLeads: number;
+  /** Time actually spent working today: talk time plus lead-processing time. */
   productiveSecs: number;
+  /** Average talk time per finished call today. */
   avgCallSecs: number;
+  /** Average time per lead worked today — used when no calls were placed. */
+  avgHandleSecs: number;
+  completedToday: number;
+  callsToday: number;
+  talkSecs: number;
 }
 // Outcomes are an admin-configurable list now; the slug is a free string.
 export type CallOutcome = string;

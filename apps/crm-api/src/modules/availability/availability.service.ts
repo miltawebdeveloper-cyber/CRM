@@ -125,6 +125,7 @@ export class AvailabilityService {
 
     if (leadIds.length) {
       await this.prisma.lead.updateMany({ where: { id: { in: leadIds } }, data: { assignedToId: toUser.id } });
+      await this.recordHandover(leadIds, fromUserId, fromUser.name, toUser.id, reason);
       for (const l of leads) {
         const isCallback = !!(l.callbackAt && !l.callbackCompletedAt);
         const followDate = followByLead.get(l.id) ?? null;
@@ -170,6 +171,52 @@ export class AvailabilityService {
       );
     }
     return { reassigned: records.length, toUserId: toUser.id, toUserName: toUser.name };
+  }
+
+  /**
+   * Write the ownership history for an automatic handover.
+   *
+   * This path moved `assignedToId` with a bare `updateMany` and nothing else, so
+   * the lead's active `assignment` row still named the PREVIOUS owner: Lead
+   * Management showed one employee while the assignment trail claimed another, the
+   * same-day lock read the wrong handover date, and the move left no entry in the
+   * activity log at all. Recorded here the way every manual path records it, so an
+   * automatic reassignment is as traceable as a deliberate one.
+   */
+  private async recordHandover(
+    leadIds: string[],
+    fromUserId: string,
+    fromUserName: string,
+    toUserId: string,
+    reason: string,
+  ) {
+    // No human triggered this, so the audit rows are attributed to an admin — the
+    // account that owns automated actions — falling back to the recipient when the
+    // instance has none.
+    const admin = await this.prisma.user.findFirst({ where: { role: Role.admin }, select: { id: true } });
+    const actingId = admin?.id ?? toUserId;
+    await this.prisma.$transaction([
+      this.prisma.assignment.updateMany({ where: { leadId: { in: leadIds }, isActive: true }, data: { isActive: false } }),
+      this.prisma.assignment.createMany({
+        data: leadIds.map((leadId) => ({
+          leadId,
+          callerId: toUserId,
+          assignedById: actingId,
+          batchName: `Auto-reassign (${reason})`,
+        })),
+      }),
+      this.prisma.activity.createMany({
+        data: leadIds.map((leadId) => ({
+          leadId,
+          userId: actingId,
+          action: 'lead_reassigned',
+          oldValue: fromUserId,
+          newValue: toUserId,
+          remarks: `Automatically reassigned from ${fromUserName} (${reason})`,
+          assignedToId: toUserId,
+        })),
+      }),
+    ]);
   }
 
   /** Next available user = least-loaded online, active caller (excluding the offline one). */

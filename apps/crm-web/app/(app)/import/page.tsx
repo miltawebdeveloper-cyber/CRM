@@ -190,6 +190,17 @@ export default function ImportPage() {
   const importMut = useMutation({
     mutationFn: (params: { skipDuplicates?: boolean; skipRowIndexes?: number[] }) =>
       importApi.bulk(rows, params.skipDuplicates, params.skipRowIndexes, activeCheckFields),
+    // An import's "Assigned To" column hands leads straight to employees, so it
+    // moves the same things a manual assignment does. Nothing was refreshed here
+    // at all, which left every lead list and the Calling Panel showing the book as
+    // it was before the file landed.
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['leads'] });
+      qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
+      qc.invalidateQueries({ queryKey: ['assignments-summary'] });
+      qc.invalidateQueries({ queryKey: ['caller-leads'] });
+      qc.invalidateQueries({ queryKey: ['caller-dash'] });
+    },
   });
 
   const [dupResult, setDupResult] = useState<ImportCheckResult | null>(null);

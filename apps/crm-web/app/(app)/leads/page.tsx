@@ -105,11 +105,16 @@ export default function LeadsPage() {
   const [dateFilter, setDateFilter] = usePersistedState<DateFilterValue>('leads:date-filter', EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
 
-  // Lead Management shows only the logged-in user's assigned leads (all roles),
-  // and only active ones — a lead marked closed moves to /closed-leads.
+  // Only active leads — one marked closed moves to /closed-leads.
+  //
+  // Scope is the API's call, not a flag from here: an employee is pinned to their
+  // own assigned leads (so no two employees ever see the same lead), while a
+  // manager gets the whole book, which is what makes the select-and-distribute
+  // flow below possible at all. Asking for `mine` here would leave a manager with
+  // nothing to hand out.
   const { data: allLeads = [], isLoading } = useQuery({
-    queryKey: ['leads', 'mine', 'active'],
-    queryFn: () => leadsApi.list({ mine: true, closed: false }),
+    queryKey: ['leads', 'scoped', 'active'],
+    queryFn: () => leadsApi.list({ closed: false }),
   });
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   const canManage = me?.role === 'admin' || me?.role === 'team_leader';
@@ -242,6 +247,10 @@ export default function LeadsPage() {
       qc.invalidateQueries({ queryKey: ['leads'] });
       qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
       qc.invalidateQueries({ queryKey: ['assignments-summary'] });
+      // Deleting removes leads from whoever held them — the Calling Panel's queue
+      // and its Assigned / Pending counts both drop with it.
+      qc.invalidateQueries({ queryKey: ['caller-leads'] });
+      qc.invalidateQueries({ queryKey: ['caller-dash'] });
     },
   });
 

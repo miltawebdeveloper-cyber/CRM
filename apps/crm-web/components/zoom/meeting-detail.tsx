@@ -7,6 +7,7 @@ import { ArrowLeft, X, ExternalLink, History, ScrollText, ClipboardList } from '
 import { zoomApi, STATUS_META, ACTION_LABEL, type ZoomMeeting, type ZoomMeetingStatus } from '@/lib/zoom';
 import { Avatar } from '@/components/page-head';
 import { ZoomTimeline } from '@/components/zoom-timeline';
+import { formatInLeadZone } from '@/lib/timezone';
 
 function StatusPill({ status }: { status: ZoomMeetingStatus }) {
   const m = STATUS_META[status];
@@ -17,7 +18,13 @@ function StatusPill({ status }: { status: ZoomMeetingStatus }) {
     </span>
   );
 }
-const fmt = (iso: string | null) =>
+/**
+ * Meeting times read on the CLIENT's clock with the zone named; audit stamps
+ * (when a row was written) stay on the viewer's, since those record what the CRM
+ * did rather than when the client is expected.
+ */
+const fmt = (iso: string | null, tz?: string | null) => (iso ? formatInLeadZone(iso, tz) : '—');
+const fmtStamp = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
 
 /**
@@ -64,7 +71,7 @@ export function MeetingDetail({ id, onClose }: { id: string; onClose?: () => voi
             <div>
               <h1 className="font-display text-[20px] font-semibold">{m.lead?.businessName ?? 'Unknown client'}</h1>
               <div className="text-[13px] text-muted-foreground">{m.title || `${m.durationMins} min Zoom meeting`}</div>
-              <div className="mt-1.5 flex items-center gap-2"><StatusPill status={m.status} /><span className="text-[12.5px] text-muted-foreground">{fmt(m.scheduledAt)}</span></div>
+              <div className="mt-1.5 flex items-center gap-2"><StatusPill status={m.status} /><span className="text-[12.5px] text-muted-foreground">{fmt(m.scheduledAt, m.lead?.timezone)}</span></div>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -85,7 +92,7 @@ export function MeetingDetail({ id, onClose }: { id: string; onClose?: () => voi
           <div className="mt-4 flex items-center gap-2">
             <input type="datetime-local" value={reschedule} onChange={(e) => setReschedule(e.target.value)} className="rounded-md border bg-background px-3 py-2 text-sm" />
             <button
-              onClick={() => act(async () => { await zoomApi.update(m.id, { scheduledAt: new Date(reschedule).toISOString() }); setReschedule(''); })}
+              onClick={() => act(async () => { await zoomApi.update(m.id, { scheduledAt: reschedule }); setReschedule(''); })}
               disabled={!reschedule}
               className="rounded-md border px-3 py-2 text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
             >
@@ -118,7 +125,7 @@ export function MeetingDetail({ id, onClose }: { id: string; onClose?: () => voi
           <TabBtn active={tab === 'activity'} onClick={() => setTab('activity')} icon={ScrollText} label="Activity Log" />
         </div>
         <div className="p-4 sm:p-5">
-          {tab === 'record' ? <MeetingRecord m={m} /> : tab === 'history' ? <ZoomTimeline leadId={m.leadId} /> : <ActivityLog meetingId={m.id} />}
+          {tab === 'record' ? <MeetingRecord m={m} /> : tab === 'history' ? <ZoomTimeline leadId={m.leadId} /> : <ActivityLog meetingId={m.id} tz={m.lead?.timezone} />}
         </div>
       </div>
     </div>
@@ -131,11 +138,11 @@ function MeetingRecord({ m }: { m: ZoomMeeting }) {
   return (
     <div className="space-y-4">
       <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
-        <Row label="Scheduled" value={fmt(m.scheduledAt)} />
+        <Row label="Scheduled" value={fmt(m.scheduledAt, m.lead?.timezone)} />
         <Row label="Duration" value={`${m.durationMins} min`} />
         <Row label="Status" value={STATUS_META[m.status].label} />
         <Row label="Outcome" value={m.outcome} />
-        <Row label="Next follow-up" value={m.followUpAt ? fmt(m.followUpAt) : null} />
+        <Row label="Next follow-up" value={m.followUpAt ? fmt(m.followUpAt, m.lead?.timezone) : null} />
       </dl>
       <div className="space-y-3">
         <Block label="Reason for meeting" value={m.reason} />
@@ -166,7 +173,7 @@ function TabBtn({ active, onClick, icon: Icon, label }: { active: boolean; onCli
 }
 
 // ──────────────────────── Activity Log tab ────────────────────────
-function ActivityLog({ meetingId }: { meetingId: string }) {
+function ActivityLog({ meetingId, tz }: { meetingId: string; tz?: string | null }) {
   const { data: items = [], isLoading } = useQuery({ queryKey: ['zoom-activities', meetingId], queryFn: () => zoomApi.activities(meetingId) });
 
   if (isLoading) return <p className="text-sm text-muted-foreground">Loading…</p>;
@@ -188,14 +195,14 @@ function ActivityLog({ meetingId }: { meetingId: string }) {
         <tbody>
           {items.map((a) => (
             <tr key={a.id} className="border-b last:border-0 align-top">
-              <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">{fmt(a.createdAt)}</td>
+              <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">{fmtStamp(a.createdAt)}</td>
               <td className="px-3 py-2.5">{a.user?.name ?? 'System'}</td>
               <td className="px-3 py-2.5">
                 <span className="font-semibold">{ACTION_LABEL[a.action] ?? a.action}</span>
                 {a.field && <span className="ml-1 text-[12px] text-muted-foreground">({a.field})</span>}
               </td>
-              <td className="px-3 py-2.5 text-muted-foreground">{fmtVal(a.field, a.oldValue)}</td>
-              <td className="px-3 py-2.5">{fmtVal(a.field, a.newValue)}</td>
+              <td className="px-3 py-2.5 text-muted-foreground">{fmtVal(a.field, a.oldValue, tz)}</td>
+              <td className="px-3 py-2.5">{fmtVal(a.field, a.newValue, tz)}</td>
               <td className="px-3 py-2.5 text-muted-foreground">{a.remarks ?? '—'}</td>
             </tr>
           ))}
@@ -205,12 +212,13 @@ function ActivityLog({ meetingId }: { meetingId: string }) {
   );
 }
 
-// Dates stored as ISO are rendered human-friendly in the log.
-function fmtVal(field: string | null, value: string | null): string {
+// Dates stored as ISO are rendered human-friendly in the log — meeting times on
+// the client's clock, so the trail agrees with the record it describes.
+function fmtVal(field: string | null, value: string | null, tz?: string | null): string {
   if (!value) return '—';
   if (field === 'scheduledAt' || field === 'followUpAt') {
-    const d = new Date(value);
-    if (!Number.isNaN(d.getTime())) return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const shown = formatInLeadZone(value, tz);
+    if (shown) return shown;
   }
   return value.replace('_', ' ');
 }

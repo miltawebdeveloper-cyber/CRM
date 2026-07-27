@@ -90,22 +90,42 @@ export class AssignmentsService {
       return { assigned: 0, callerId, skipped };
     }
 
-    await this.prisma.$transaction([
-      // close prior active assignments for these leads
-      this.prisma.assignment.updateMany({
-        where: { leadId: { in: leadIds }, isActive: true },
-        data: { isActive: false },
-      }),
-      this.prisma.lead.updateMany({
-        where: { id: { in: leadIds } },
+    /**
+     * The ownership check above reads the leads before the write, so on its own it
+     * leaves a window in which two managers assigning overlapping selections could
+     * both pass it and the second would silently take the first's leads. The WHERE
+     * below closes that window in the database: under READ COMMITTED the UPDATE
+     * waits on any row a concurrent transaction is holding and then re-evaluates
+     * the condition against the committed row, so a lead taken in the meantime is
+     * skipped rather than stolen. It is the guarantee that a lead has one owner.
+     */
+    const claimable: Prisma.LeadWhereInput = allowReassign
+      ? {}
+      : { OR: [{ assignedToId: null }, { assignedToId: callerId }] };
+
+    const assignedIds = await this.prisma.$transaction(async (tx) => {
+      await tx.lead.updateMany({
+        where: { id: { in: leadIds }, ...claimable },
         data: { assignedToId: callerId },
-      }),
-      this.prisma.assignment.createMany({
-        data: leadIds.map((leadId) => ({ leadId, callerId, assignedById, batchName })),
-      }),
+      });
+      // Read back what is actually ours now — `updateMany` reports a count, not
+      // which rows, and only the leads we really hold may get history rows.
+      const owned = await tx.lead.findMany({
+        where: { id: { in: leadIds }, assignedToId: callerId },
+        select: { id: true },
+      });
+      const ids = owned.map((o) => o.id);
+      if (ids.length === 0) return ids;
+
+      // Close prior active assignments, then open one per lead, so a lead always
+      // has exactly one active assignment naming its current owner.
+      await tx.assignment.updateMany({ where: { leadId: { in: ids }, isActive: true }, data: { isActive: false } });
+      await tx.assignment.createMany({
+        data: ids.map((leadId) => ({ leadId, callerId, assignedById, batchName })),
+      });
       // Lead Activity Log entry per lead (admin/TL audit trail).
-      this.prisma.activity.createMany({
-        data: leadIds
+      await tx.activity.createMany({
+        data: ids
           .filter((leadId) => priorById.get(leadId)?.assignedToId !== callerId) // skip no-op re-assigns to same owner
           .map((leadId) => {
             const p = priorById.get(leadId);
@@ -121,9 +141,20 @@ export class AssignmentsService {
               assignedToId: callerId,
             };
           }),
-      }),
-    ]);
-    return { assigned: leadIds.length, callerId, skipped };
+      });
+      return ids;
+    });
+
+    // Anything the guard refused was claimed by someone else between the check and
+    // the write. Reported like any other skip rather than counted as assigned.
+    const claimed = new Set(assignedIds);
+    for (const id of leadIds) {
+      if (!claimed.has(id)) {
+        const p = priorById.get(id);
+        skipped.push({ id, leadId: p?.leadId ?? id, assignedTo: 'another employee (assigned just now)' });
+      }
+    }
+    return { assigned: assignedIds.length, callerId, skipped };
   }
 
   /**
