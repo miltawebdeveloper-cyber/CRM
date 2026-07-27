@@ -2,6 +2,7 @@ import { Injectable, ConflictException, NotFoundException } from '@nestjs/common
 import * as bcrypt from 'bcrypt';
 import { Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
+import { TrustedDeviceService } from '../auth/trusted-device.service';
 import { CreateUserDto, UpdateUserDto, ListUsersQueryDto } from './dto/user.dto';
 
 // Never leak secrets — select excludes passwordHash / mfaSecret.
@@ -21,7 +22,10 @@ const SAFE_SELECT = {
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly devices: TrustedDeviceService,
+  ) {}
 
   /**
    * A caller ID (OpenPhone number) identifies exactly one employee to the customer,
@@ -91,7 +95,11 @@ export class UsersService {
       ...(dto.openphoneNumber !== undefined ? { openphoneNumber: dto.openphoneNumber.trim() || null } : {}),
     };
     if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 12);
-    return this.prisma.user.update({ where: { id }, data, select: SAFE_SELECT });
+    const user = await this.prisma.user.update({ where: { id }, data, select: SAFE_SELECT });
+    // A new password must not leave devices behind that can still skip the OTP —
+    // otherwise the reset doesn't actually lock out whoever had the old one.
+    if (dto.password) await this.devices.revokeOnPasswordChange(id);
+    return user;
   }
 
   // LGN-011 — deactivate (soft); deactivated users cannot login

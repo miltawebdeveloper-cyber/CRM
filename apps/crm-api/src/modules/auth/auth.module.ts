@@ -7,6 +7,7 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { MfaService } from './mfa.service';
 import { LoginOtpService } from './login-otp.service';
+import { TrustedDeviceService } from './trusted-device.service';
 import { MailModule } from '../mail/mail.module';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -18,11 +19,12 @@ import { RolesGuard } from '../../common/guards/roles.guard';
     AuthService,
     MfaService,
     LoginOtpService,
+    TrustedDeviceService,
     JwtStrategy,
     // Global auth + RBAC. Order matters: authenticate, then check role.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
-  exports: [AuthService],
+  exports: [AuthService, TrustedDeviceService],
 })
 export class AuthModule {}

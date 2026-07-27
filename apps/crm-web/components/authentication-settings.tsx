@@ -122,6 +122,42 @@ export function AuthenticationSettings() {
           </label>
         </div>
 
+        {/* Trusted devices — the reason a user isn't asked for a code on every
+            single sign-in. Off = a code every time, on any device. */}
+        <div className="space-y-[14px] rounded-lg border bg-muted/30 p-3.5">
+          <label className="flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              checked={form.trustDeviceEnabled}
+              onChange={(e) => set('trustDeviceEnabled', e.target.checked)}
+              className="mt-0.5 h-4 w-4 accent-[#266929]"
+            />
+            <span>
+              <span className="block text-[13.5px] font-semibold">Remember trusted devices</span>
+              <span className="block text-[12px] text-muted-foreground">
+                After a code is verified, that browser skips the OTP until the trust period ends. Signing out does not
+                clear it — only an expiry or a revoke does.
+              </span>
+            </span>
+          </label>
+
+          <label className="block max-w-[260px] space-y-1 text-sm">
+            <span className="text-xs font-semibold">Trust Period (days)</span>
+            <input
+              type="number"
+              min={1}
+              max={365}
+              disabled={!form.trustDeviceEnabled}
+              value={form.trustDeviceDays}
+              onChange={(e) => set('trustDeviceDays', Number(e.target.value))}
+              className="w-full rounded-md border bg-background px-3 py-2 outline-none focus:border-primary disabled:opacity-50"
+            />
+            <span className="block text-[11.5px] text-muted-foreground">
+              Default 180 days. The next sign-in after this window needs a fresh code, which then renews it.
+            </span>
+          </label>
+        </div>
+
         {noRecipient && (
           <p className="text-[12.5px] font-medium text-[#a8431f]">Set a recipient email before enabling OTP authentication.</p>
         )}

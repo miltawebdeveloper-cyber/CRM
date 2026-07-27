@@ -159,6 +159,7 @@ model User {
   targetsSet        Target[]            @relation("TargetSetBy")
   activities        Activity[]
   loginOtps         LoginOtp[]
+  trustedDevices    TrustedDevice[]
   activityAssignedTo Activity[]          @relation("ActivityAssignedTo")
   assignmentsMade   Assignment[]        @relation("AssignmentAssignedBy")
   assignmentsTaken  Assignment[]        @relation("AssignmentCaller")
@@ -204,6 +205,38 @@ model LoginOtp {
   @@index([userId])
   @@index([expiresAt])
   @@map("login_otps")
+}
+
+/**
+ * A browser/device this user has already passed an OTP challenge on.
+ *
+ * While a row is live (not revoked, not past `expiresAt`) the login OTP step is
+ * skipped for that device — that is the whole point: one code per device per
+ * trust window, not one per login. The cookie the browser holds carries a random
+ * verifier; only its SHA-256 hash is stored here, so a leaked table can't be
+ * replayed into someone's account. Rows outlive sessions deliberately: logging
+ * out must not cost the user another code.
+ */
+model TrustedDevice {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /** SHA-256 of the cookie's verifier half. Never the verifier itself. */
+  tokenHash   String    @unique @map("token_hash")
+  /** Human label for the admin list, e.g. "Chrome on Windows". */
+  deviceName  String    @map("device_name")
+  browser     String
+  os          String
+  userAgent   String    @map("user_agent")
+  ipAddress   String?   @map("ip_address")
+  expiresAt   DateTime  @map("expires_at")
+  lastLoginAt DateTime  @default(now()) @map("last_login_at")
+  revokedAt   DateTime? @map("revoked_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("trusted_devices")
 }
 
 model AppSetting {

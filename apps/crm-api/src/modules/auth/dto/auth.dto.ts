@@ -78,4 +78,16 @@ export class OtpSettingsDto {
   @Min(15)
   @Max(600)
   resendSeconds?: number;
+
+  @ApiPropertyOptional({ description: 'Skip the OTP on devices that have already passed one' })
+  @IsOptional()
+  @IsBoolean()
+  trustDeviceEnabled?: boolean;
+
+  @ApiPropertyOptional({ description: 'Days a device stays trusted before a new code is required (1–365)' })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  trustDeviceDays?: number;
 }

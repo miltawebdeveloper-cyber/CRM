@@ -24,7 +24,7 @@ export default function LoginPage() {
   // ── Email-OTP step ──
   // The password check hands back a challenge instead of tokens; nothing is
   // granted until the code that was mailed out is exchanged here.
-  const [challenge, setChallenge] = useState<{ id: string; sentTo: string } | null>(null);
+  const [challenge, setChallenge] = useState<{ id: string; sentTo: string; trustDays: number } | null>(null);
   const [code, setCode] = useState('');
   const [cooldown, setCooldown] = useState(0);
 
@@ -51,7 +51,7 @@ export default function LoginPage() {
         return;
       }
       if (data.otpRequired) {
-        setChallenge({ id: data.challengeId, sentTo: data.sentTo });
+        setChallenge({ id: data.challengeId, sentTo: data.sentTo, trustDays: data.trustDeviceDays ?? 0 });
         setCooldown(data.resendSeconds ?? 60);
         setCode('');
         return;
@@ -85,7 +85,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/otp/resend', { challengeId: challenge.id });
-      setChallenge({ id: data.challengeId, sentTo: data.sentTo });
+      setChallenge({ ...challenge, id: data.challengeId, sentTo: data.sentTo });
       setCooldown(data.resendSeconds ?? 60);
       setCode('');
     } catch (err: unknown) {
@@ -153,6 +153,12 @@ export default function LoginPage() {
             <h2 className="mb-1.5 font-display text-[26px] font-semibold tracking-tight text-[#0c120d]">Verification required</h2>
             <p className="mb-[26px] text-sm text-[#5a725b]">
               A 6-digit code was sent to <b className="text-[#1d491f]">{challenge.sentTo}</b>. Enter it below to finish signing in.
+              {challenge.trustDays > 0 && (
+                <>
+                  {' '}This browser will then be remembered for <b className="text-[#1d491f]">{challenge.trustDays} days</b> — you
+                  won&apos;t be asked for a code again here, even after signing out.
+                </>
+              )}
             </p>
 
             <label className="mb-[7px] block text-xs font-semibold text-[#1d491f]">Verification code</label>

@@ -15,6 +15,13 @@ export interface OtpSettings {
   expiryMinutes: number;
   maxAttempts: number;
   resendSeconds: number;
+  /**
+   * Remember the browser after a successful code, so the next logins from it skip
+   * the OTP step. Turn OFF to demand a code on every single login.
+   */
+  trustDeviceEnabled: boolean;
+  /** How long a device stays trusted before a fresh code is required again. */
+  trustDeviceDays: number;
 }
 
 /**
@@ -31,6 +38,8 @@ const DEFAULTS: OtpSettings = {
   expiryMinutes: 5,
   maxAttempts: 5,
   resendSeconds: 60,
+  trustDeviceEnabled: true,
+  trustDeviceDays: 180,
 };
 
 @Injectable()
@@ -65,6 +74,7 @@ export class LoginOtpService {
     next.expiryMinutes = Math.min(60, Math.max(1, Math.round(next.expiryMinutes)));
     next.maxAttempts = Math.min(10, Math.max(1, Math.round(next.maxAttempts)));
     next.resendSeconds = Math.min(600, Math.max(15, Math.round(next.resendSeconds)));
+    next.trustDeviceDays = Math.min(365, Math.max(1, Math.round(next.trustDeviceDays)));
     await this.prisma.appSetting.upsert({
       where: { key: OTP_SETTINGS_KEY },
       create: { key: OTP_SETTINGS_KEY, value: { ...next } },

@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { configApi } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
 import { AuthenticationSettings } from '@/components/authentication-settings';
+import { TrustedDevices } from '@/components/trusted-devices';
 
 function Toggle({ on: initial }: { on: boolean }) {
   const [on, setOn] = useState(initial);
@@ -85,14 +86,20 @@ export default function SettingsPage() {
       )}
 
       {tab === 'Security' && (
-        <div className="max-w-[760px] space-y-[18px]">
-          <div className="rounded-2xl border bg-card p-[18px] shadow-sm">
-            <div className="grid gap-3.5 sm:grid-cols-2"><div className="sm:col-span-2"><Field label="Current Password" type="password" value="" /></div><Field label="New Password" type="password" /><Field label="Confirm Password" type="password" /></div>
-            <div className="mt-[18px]"><Row t="Two-Factor Authentication" d="Add an extra layer of security with 2FA" on={true} /><Row t="Login alerts" d="Email me about new sign-ins" on={true} /></div>
-            <div className="mt-[22px] flex justify-end"><button className="rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground">Update Password</button></div>
+        <div className="space-y-[18px]">
+          <div className="max-w-[760px] space-y-[18px]">
+            <div className="rounded-2xl border bg-card p-[18px] shadow-sm">
+              <div className="grid gap-3.5 sm:grid-cols-2"><div className="sm:col-span-2"><Field label="Current Password" type="password" value="" /></div><Field label="New Password" type="password" /><Field label="Confirm Password" type="password" /></div>
+              <div className="mt-[18px]"><Row t="Two-Factor Authentication" d="Add an extra layer of security with 2FA" on={true} /><Row t="Login alerts" d="Email me about new sign-ins" on={true} /></div>
+              <div className="mt-[22px] flex justify-end"><button className="rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground">Update Password</button></div>
+            </div>
+            {/* Admin-only: the login OTP policy. */}
+            {me?.role === 'admin' && <AuthenticationSettings />}
           </div>
-          {/* Admin-only: the login OTP policy. */}
-          {me?.role === 'admin' && <AuthenticationSettings />}
+
+          {/* Own devices for everyone; admins also get the all-users register. */}
+          <TrustedDevices scope="mine" />
+          {me?.role === 'admin' && <TrustedDevices scope="all" />}
         </div>
       )}
 

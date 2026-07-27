@@ -469,6 +469,10 @@ export interface OtpSettings {
   expiryMinutes: number;
   maxAttempts: number;
   resendSeconds: number;
+  /** Skip the code on devices that have already passed one. */
+  trustDeviceEnabled: boolean;
+  /** Days a device stays trusted before a fresh code is required. */
+  trustDeviceDays: number;
   /** False when SMTP isn't configured — codes would never actually be delivered. */
   mailReady: boolean;
 }
@@ -476,6 +480,33 @@ export const authSettingsApi = {
   get: async (): Promise<OtpSettings> => (await api.get('/auth/otp-settings')).data,
   save: async (body: Partial<Omit<OtpSettings, 'mailReady'>>): Promise<OtpSettings> =>
     (await api.put('/auth/otp-settings', body)).data,
+};
+
+// ──────────────────── Trusted devices ────────────────────
+/** A browser that has already passed an OTP and may skip it until `trustedUntil`. */
+export interface TrustedDevice {
+  id: string;
+  deviceName: string;
+  browser: string;
+  os: string;
+  ipAddress: string | null;
+  lastLoginAt: string;
+  trustedUntil: string;
+  createdAt: string;
+  revokedAt: string | null;
+  status: 'active' | 'expired' | 'revoked';
+  /** True for the browser making the request. */
+  current: boolean;
+  /** Present only on the admin (all users) listing. */
+  user?: { id: string; name: string; email: string };
+}
+export const trustedDevicesApi = {
+  mine: async (): Promise<TrustedDevice[]> => (await api.get('/auth/devices')).data,
+  all: async (): Promise<TrustedDevice[]> => (await api.get('/auth/devices/all')).data,
+  revoke: async (id: string): Promise<{ revoked: number }> => (await api.delete(`/auth/devices/${id}`)).data,
+  /** Revoke every device for a user — own account, or another's (admin only). */
+  revokeAll: async (userId?: string): Promise<{ revoked: number }> =>
+    (await api.delete('/auth/devices', { params: userId ? { userId } : undefined })).data,
 };
 
 // ─────────────────────────── Config ────────────────────────────

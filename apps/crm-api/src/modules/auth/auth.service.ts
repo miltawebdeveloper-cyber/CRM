@@ -1,10 +1,12 @@
 import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import type { Request, Response } from 'express';
 import { Availability } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MfaService } from './mfa.service';
 import { LoginOtpService } from './login-otp.service';
+import { TrustedDeviceService } from './trusted-device.service';
 import { LoginDto } from './dto/auth.dto';
 
 /** `jane.doe@example.com` → `ja••••@example.com`, so the UI can say where the code went. */
@@ -22,9 +24,10 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly mfa: MfaService,
     private readonly otp: LoginOtpService,
+    private readonly devices: TrustedDeviceService,
   ) {}
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, req: Request, res: Response) {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
 
     // SEC-005 — bcrypt compare; generic error to avoid user enumeration
@@ -47,6 +50,17 @@ export class AuthService {
     // No tokens are issued here, so a stolen password gets nothing on its own.
     const otp = await this.otp.getSettings();
     if (otp.enabled) {
+      // …unless this browser already answered a code and is still inside its trust
+      // window. That is the whole point of trusted devices: one code per device
+      // per window, so signing out and back in doesn't cost another one.
+      if (otp.trustDeviceEnabled && (await this.devices.isTrusted(req, user.id))) {
+        await this.audit(user.id, 'trusted_device_login', 'Signed in from a trusted device — OTP skipped');
+        return this.completeLogin(user.id, user.email, user.role);
+      }
+      // Cookie present but not honoured (expired, revoked, or another account's):
+      // drop it rather than leaving a dead credential in the browser.
+      if (this.devices.currentDeviceId(req)) this.devices.clearCookie(res);
+
       const { challengeId, sentTo, resendSeconds } = await this.otp.issue(user);
       return {
         otpRequired: true as const,
@@ -54,6 +68,8 @@ export class AuthService {
         // Masked — the client shows where to look without publishing the address.
         sentTo: maskEmail(sentTo),
         resendSeconds,
+        // So the OTP screen can say how long this device will be remembered for.
+        trustDeviceDays: otp.trustDeviceEnabled ? otp.trustDeviceDays : 0,
       };
     }
 
@@ -64,11 +80,21 @@ export class AuthService {
    * Exchange a verified OTP challenge for tokens. Verification is the OTP
    * service's job; this only issues once it has passed.
    */
-  async verifyLoginOtp(challengeId: string, code: string) {
+  async verifyLoginOtp(challengeId: string, code: string, req: Request, res: Response) {
     const { userId } = await this.otp.verify(challengeId, code);
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user || !user.isActive) throw new UnauthorizedException('Account deactivated');
-    return this.completeLogin(user.id, user.email, user.role);
+
+    // A passed code buys this browser a trust window — including a fresh one when
+    // the previous window had simply run out.
+    const s = await this.otp.getSettings();
+    let trustedUntil: Date | null = null;
+    if (s.trustDeviceEnabled) {
+      trustedUntil = await this.devices.remember(req, res, user.id, s.trustDeviceDays);
+      await this.audit(user.id, 'trusted_device_added', `Device trusted until ${trustedUntil.toISOString().slice(0, 10)} — OTP will be skipped here`);
+    }
+
+    return { ...(await this.completeLogin(user.id, user.email, user.role)), trustedUntil };
   }
 
   /** Shared tail of a successful login, whichever gate it came through. */
@@ -124,6 +150,15 @@ export class AuthService {
     }
     await this.prisma.user.update({ where: { id: userId }, data: { mfaEnabled: true } });
     return { mfaEnabled: true };
+  }
+
+  /** Account-level audit entry (leadId null — this is not a lead event). */
+  private async audit(userId: string, action: string, remarks: string) {
+    try {
+      await this.prisma.activity.create({ data: { leadId: null, userId, action, oldValue: null, newValue: null, remarks } });
+    } catch {
+      /* auditing must never block a login */
+    }
   }
 
   private async issueTokens(sub: string, email: string, role: string) {
