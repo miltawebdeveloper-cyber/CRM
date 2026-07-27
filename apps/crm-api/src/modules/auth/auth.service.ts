@@ -149,7 +149,32 @@ export class AuthService {
       throw new UnauthorizedException('Invalid MFA code');
     }
     await this.prisma.user.update({ where: { id: userId }, data: { mfaEnabled: true } });
+    // Turning MFA on changes what guards this account, so devices trusted under
+    // the old arrangement no longer stand — every browser answers a fresh code.
+    await this.devices.revokeOnSecurityChange(userId, 'enabling MFA');
+    await this.audit(userId, 'mfa_enabled', 'MFA enabled — trusted devices revoked');
     return { mfaEnabled: true };
+  }
+
+  /**
+   * Turn MFA off. Requires a valid current code, exactly as enabling does:
+   * stripping a factor is a privileged act, and without the proof a hijacked
+   * session could quietly remove the protection standing in its way.
+   *
+   * The stored secret is cleared alongside the flag, so re-enrolling issues a
+   * brand-new secret rather than silently reactivating the old one — anyone who
+   * captured it while MFA was on cannot turn it back on and be trusted.
+   */
+  async disableMfa(userId: string, token: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    if (!user.mfaEnabled || !user.mfaSecret) throw new BadRequestException('MFA is not enabled');
+    if (!this.mfa.verify(token, user.mfaSecret)) {
+      throw new UnauthorizedException('Invalid MFA code');
+    }
+    await this.prisma.user.update({ where: { id: userId }, data: { mfaEnabled: false, mfaSecret: null } });
+    await this.devices.revokeOnSecurityChange(userId, 'disabling MFA');
+    await this.audit(userId, 'mfa_disabled', 'MFA disabled — trusted devices revoked');
+    return { mfaEnabled: false };
   }
 
   /** Account-level audit entry (leadId null — this is not a lead event). */

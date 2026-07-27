@@ -98,17 +98,25 @@ export class UsersService {
     const user = await this.prisma.user.update({ where: { id }, data, select: SAFE_SELECT });
     // A new password must not leave devices behind that can still skip the OTP —
     // otherwise the reset doesn't actually lock out whoever had the old one.
-    if (dto.password) await this.devices.revokeOnPasswordChange(id);
+    if (dto.password) await this.devices.revokeOnSecurityChange(id, 'password change');
+    // Same for an account switched off from this form: see `deactivate`.
+    if (dto.isActive === false) await this.devices.revokeOnSecurityChange(id, 'account deactivation');
     return user;
   }
 
   // LGN-011 — deactivate (soft); deactivated users cannot login
   async deactivate(id: string) {
     await this.findOne(id);
-    return this.prisma.user.update({
+    const user = await this.prisma.user.update({
       where: { id },
       data: { isActive: false },
       select: SAFE_SELECT,
     });
+    // Pulling access has to take device trust with it. `isActive` alone only
+    // blocks the login while it is false — reactivating the account later would
+    // otherwise hand every previously trusted browser a straight walk back in,
+    // no code asked, which is precisely what deactivating was meant to stop.
+    await this.devices.revokeOnSecurityChange(id, 'account deactivation');
+    return user;
   }
 }

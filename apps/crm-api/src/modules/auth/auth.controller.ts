@@ -147,4 +147,17 @@ export class AuthController {
   confirmMfa(@CurrentUser('id') userId: string, @Body() dto: VerifyMfaDto) {
     return this.auth.confirmMfa(userId, dto.token);
   }
+
+  /**
+   * Turn MFA off. Needs a current code, like enabling does — and like the OTP
+   * endpoints, it is rate-limited, because this is the one route that removes a
+   * factor rather than adding one.
+   */
+  @ApiBearerAuth()
+  @Throttle({ default: { limit: 10, ttl: 15 * 60 * 1000 } })
+  @Post('mfa/disable')
+  @HttpCode(200)
+  disableMfa(@CurrentUser('id') userId: string, @Body() dto: VerifyMfaDto) {
+    return this.auth.disableMfa(userId, dto.token);
+  }
 }

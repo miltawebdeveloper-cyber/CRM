@@ -270,16 +270,26 @@ export class TrustedDeviceService {
   }
 
   /**
-   * Password change kills every trusted device for that account: the point of a
-   * password reset is that whoever held the old one is locked out, and a device
-   * that can skip OTP would otherwise survive it. Never throws — a failure here
-   * must not block the password change itself.
+   * Any change to how an account authenticates drops all of its device trust, so
+   * the next sign-in from every browser has to answer a fresh code.
+   *
+   * The triggers are the ones where leaving trust in place would defeat the
+   * change itself:
+   *  • password change — the point of a reset is that whoever held the old
+   *    password is locked out, and a device that can skip OTP survives it;
+   *  • MFA turned on or off — the factors guarding the account just changed, so
+   *    devices vouched for under the old arrangement no longer stand;
+   *  • an account being deactivated — an administrator pulling access must not
+   *    leave a browser that walks straight back in if the account is restored.
+   *
+   * Never throws. A failure to revoke must not block the security change that
+   * prompted it — the change is the more important half, and it is logged.
    */
-  async revokeOnPasswordChange(userId: string) {
+  async revokeOnSecurityChange(userId: string, reason: string) {
     try {
-      await this.revokeAll(userId, 'Trusted devices revoked after password change');
+      await this.revokeAll(userId, `Trusted devices revoked after ${reason}`);
     } catch (err) {
-      this.logger.warn(`Could not revoke trusted devices for ${userId} after password change: ${String(err)}`);
+      this.logger.warn(`Could not revoke trusted devices for ${userId} after ${reason}: ${String(err)}`);
     }
   }
 
