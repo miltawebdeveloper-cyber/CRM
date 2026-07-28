@@ -7,9 +7,10 @@ import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, T
 import { leadsApi, type CreateLeadInput, type Lead } from '@/lib/leads';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { LeadAssignDialog } from '@/components/lead-assign-dialog';
+import { LeadOutcomeCell } from '@/components/lead-outcome-cell';
 import { LeadCommentCell } from '@/components/lead-comment-cell';
 import { LeadInlineCell } from '@/components/lead-inline-cell';
-import { metricsApi } from '@/lib/crm';
+import { metricsApi, outcomesApi } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
 import { useCanCall } from '@/lib/use-can-call';
@@ -62,35 +63,6 @@ const STATUS_OPTS = [
   { label: 'Contacted',  value: 'contacted' },
 ];
 
-const CALL_STATUS_OPTS = [
-  { label: 'All Call Statuses',   value: '' },
-  { label: 'Answering Machine',   value: 'Answering Machine' },
-  { label: 'Call Back',           value: 'Call Back' },
-  { label: 'Disconnected Calls',  value: 'Disconnected Calls' },
-  { label: 'Email',               value: 'Email' },
-  { label: 'Dm-Not Interested',   value: 'Dm-Not Interested' },
-  { label: 'Not Interested',      value: 'Not Interested' },
-  { label: 'Not Available',       value: 'Not Available' },
-  { label: 'No Answer',           value: 'No Answer' },
-  { label: 'Opposite Call Back',  value: 'Opposite Call Back' },
-  { label: 'Voice Mail',          value: 'Voice Mail' },
-  { label: 'Wrong Number',        value: 'Wrong Number' },
-  { label: 'Meeting Scheduled',   value: 'Meeting Scheduled' },
-  { label: 'Zoom',                value: 'Zoom' },
-  { label: 'Follow-up Required',  value: 'Follow-up Required' },
-  { label: 'Negotiation',         value: 'Negotiation' },
-  { label: 'Closed-Won',          value: 'Closed-Won' },
-  { label: 'Closed-Lost',         value: 'Closed-Lost' },
-  { label: 'Follow-up 1',         value: 'Follow-up 1' },
-  { label: 'Follow-up 2',         value: 'Follow-up 2' },
-  { label: 'Follow-up 3',         value: 'Follow-up 3' },
-  { label: 'Follow-up 4',         value: 'Follow-up 4' },
-  { label: 'Follow-up 5',         value: 'Follow-up 5' },
-  { label: 'Dormant',             value: 'Dormant' },
-  { label: 'Do Not Disturb',      value: 'Do Not Disturb' },
-  { label: 'Do Not Contact',      value: 'Do Not Contact' },
-];
-
 export default function LeadsPage() {
   const router = useRouter();
   const qc = useQueryClient();
@@ -118,6 +90,15 @@ export default function LeadsPage() {
   });
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   const canManage = me?.role === 'admin' || me?.role === 'team_leader';
+  // The configured outcome list (Admin → Outcomes) drives both the Call Outcome
+  // filter and the inline editor, so renaming or adding an outcome shows up in
+  // both with no code change — and the filter can't offer a value the CRM no
+  // longer recognises, which the old hard-coded list did.
+  const { data: outcomeDefs = [] } = useQuery({ queryKey: ['outcomes-config'], queryFn: outcomesApi.list });
+  const callOutcomeOpts = useMemo(
+    () => [{ label: 'All Call Outcomes', value: '' }, ...outcomeDefs.map((o) => ({ label: o.name, value: o.slug }))],
+    [outcomeDefs],
+  );
   // Refuse to dial before the API would reject the call (no assigned caller ID),
   // since the Quo app handoff fires first and can't be taken back.
   const { dial, callingEnabled } = useCanCall();
@@ -321,7 +302,17 @@ export default function LeadsPage() {
       trackable: true,
       searchValue: (l) => l.assignedTo?.name,
     },
-    { key: 'callStatus', header: 'Call Status', cellClassName: 'text-muted-foreground', render: (l) => l.callStatus ?? '—', searchable: true, sortable: true, searchValue: (l) => l.callStatus },
+    {
+      key: 'callStatus',
+      header: 'Call Outcome',
+      // Editable in place: one click opens the configured outcome list and the
+      // pick saves straight away, so a mis-dispositioned lead is corrected from
+      // the row instead of a round trip through the Edit Lead page.
+      render: (l) => <LeadOutcomeCell lead={l} />,
+      searchable: true,
+      sortable: true,
+      searchValue: (l) => l.callStatus,
+    },
     { key: 'firstContact', header: 'First Contact', cellClassName: 'text-muted-foreground', render: (l) => l.firstContact ? new Date(l.firstContact).toLocaleDateString() : '—' },
     { key: 'lastContact', header: 'Last Contact', cellClassName: 'text-muted-foreground', render: (l) => l.lastContact ? new Date(l.lastContact).toLocaleDateString() : '—' },
     { key: 'followup', header: 'Next Follow-up', cellClassName: 'text-muted-foreground', render: (l) => l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '—', trackable: true },
@@ -389,7 +380,17 @@ export default function LeadsPage() {
     if (status === 'unassigned' && !!l.assignedTo) return false;
     if (status === 'contacted'  && l.status !== 'contacted') return false;
     // Call Status filter (case-insensitive match)
-    if (callStatus && (l.callStatus ?? '').toLowerCase() !== callStatus.toLowerCase()) return false;
+    // Match on the slug OR the display name. A lead dispositioned through the CRM
+    // stores the outcome's SLUG (`call_back`), while leads imported before the
+    // outcome list existed carry the display NAME ("Call Back") — and the inline
+    // editor writes slugs, so a name-only comparison would quietly stop matching
+    // every lead the moment its outcome was corrected.
+    if (callStatus) {
+      const have = (l.callStatus ?? '').toLowerCase();
+      const want = callStatus.toLowerCase();
+      const alias = (outcomeDefs.find((o) => o.slug === callStatus)?.name ?? '').toLowerCase();
+      if (have !== want && (!alias || have !== alias)) return false;
+    }
     // Remaining filters
     if (tz && l.timezone !== tz) return false;
     if (state && l.state !== state) return false;
@@ -462,7 +463,7 @@ export default function LeadsPage() {
         <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         <FilterSelect icon={Tag} value={status} onChange={setStatus} options={STATUS_OPTS} />
-        <FilterSelect icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={CALL_STATUS_OPTS} />
+        <FilterSelect icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={callOutcomeOpts} />
         <DateFilter value={dateFilter} onChange={setDateFilter} />
       </div>
 

@@ -403,6 +403,13 @@ export const callsApi = {
    */
   updateOutcome: async (callId: string, outcome: CallOutcome, callbackAt?: string) =>
     (await api.patch(`/calls/${callId}/outcome`, { outcome, callbackAt })).data,
+  /**
+   * Correct a LEAD's call outcome — the inline dropdown on Lead Management.
+   * Re-applies the disposition (status, closure, callback) and corrects the
+   * lead's most recent call, so the lead and the call log can't disagree.
+   */
+  updateLeadOutcome: async (leadId: string, outcome: CallOutcome, callbackAt?: string) =>
+    (await api.patch(`/calls/lead/${leadId}/outcome`, { outcome, callbackAt })).data,
 
   // ── Lead-processing mode (calling temporarily disabled) ──
   // Same disposition and same note trail as the two above, recorded straight

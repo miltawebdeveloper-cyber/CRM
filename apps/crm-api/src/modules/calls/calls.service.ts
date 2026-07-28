@@ -429,6 +429,62 @@ export class CallsService {
     return updatedCall;
   }
 
+  /**
+   * Correct a LEAD's call outcome — the inline edit on the Lead Management table.
+   *
+   * Same correction as `updateCallOutcome`, entered from the lead rather than
+   * from a call record, so the rep can fix a mis-picked disposition while
+   * scanning the list. It goes through `applyDisposition` for the same reason:
+   * the outcome is not a loose label, it drives the lead's status, its closure
+   * credit and its callback, and changing it anywhere has to move all of them.
+   *
+   * The lead's most recent call is corrected alongside it. A wrong outcome was
+   * wrong on the call too, and leaving the call log saying one thing while the
+   * lead says another is exactly the mismatch this is meant to remove — it is
+   * also what keeps Calls Made and Analytics in step, since those read the call.
+   * A lead worked with no call placed simply has none to update.
+   */
+  async updateLeadOutcome(leadId: string, dto: EndCallDto, user: { id: string; role: Role }) {
+    await this.assertCanWorkLead(leadId, user);
+    const oc = await this.outcomesService.bySlug(dto.outcome);
+    if (!oc) throw new BadRequestException('Unknown outcome');
+
+    const lead = await this.prisma.lead.findUniqueOrThrow({
+      where: { id: leadId },
+      select: { callbackAt: true },
+    });
+
+    // An outcome that schedules a callback must end up with a date. Keep the one
+    // already on the lead rather than wiping an appointment the customer is
+    // expecting; with none at all, say so instead of writing a callback with no
+    // time on it.
+    let callbackAt = dto.callbackAt;
+    if (oc.schedulesCallback && !callbackAt) {
+      if (!lead.callbackAt) {
+        throw new BadRequestException(
+          `"${oc.name}" schedules a callback, so it needs a date and time. Set one from the Calling Panel.`,
+        );
+      }
+      callbackAt = lead.callbackAt.toISOString();
+    }
+
+    const latestCall = await this.prisma.call.findFirst({
+      where: { leadId },
+      orderBy: { startTime: 'desc' },
+      select: { id: true },
+    });
+
+    const results = await this.applyDisposition(
+      leadId,
+      { ...dto, callbackAt },
+      user.id,
+      'outcome_updated',
+      latestCall ? [this.prisma.call.update({ where: { id: latestCall.id }, data: { outcome: dto.outcome } })] : [],
+    );
+    // The lead update sits straight after the extra ops in the transaction.
+    return results[latestCall ? 1 : 0];
+  }
+
   // CAL-012/013 — note after a call (lead resolved from the call record)
   async addNoteToCall(callId: string, dto: CreateNoteDto, user: { id: string; role: Role }) {
     const call = await this.prisma.call.findUnique({ where: { id: callId } });

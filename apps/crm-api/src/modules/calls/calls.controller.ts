@@ -156,6 +156,15 @@ export class CallsController {
     return this.calls.logWithoutCall(leadId, dto, { id: user.id, role: user.role });
   }
 
+  /**
+   * Correct a lead's call outcome — the inline dropdown on Lead Management.
+   * Scoped in the service: an employee may only correct their own leads.
+   */
+  @Patch('lead/:leadId/outcome')
+  updateLeadOutcome(@Param('leadId') leadId: string, @Body() dto: EndCallDto, @CurrentUser() user: AuthUser) {
+    return this.calls.updateLeadOutcome(leadId, dto, { id: user.id, role: user.role });
+  }
+
   /** Note + Comments update against a lead with no call attached. */
   @Post('lead/:leadId/notes')
   addLeadNote(@Param('leadId') leadId: string, @Body() dto: CreateNoteDto, @CurrentUser() user: AuthUser) {
