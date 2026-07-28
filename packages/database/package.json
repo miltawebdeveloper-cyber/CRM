@@ -11,6 +11,7 @@
     "studio": "prisma studio",
     "seed": "tsx prisma/seed.ts",
     "set-admin": "tsx prisma/set-admin.ts",
+    "fix-schedule-timezones": "tsx prisma/fix-schedule-timezones.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
