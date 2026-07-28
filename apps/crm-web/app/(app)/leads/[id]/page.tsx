@@ -234,7 +234,7 @@ export default function LeadDetailPage() {
         <div className="rounded-lg border bg-card p-5 lg:col-span-1">
           <h2 className="mb-4 text-sm font-semibold">Lead Details</h2>
           {!editing ? (
-            <dl className="grid grid-cols-2 gap-4">
+            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {field('Lead ID', lead.leadId)}
               {field('Lead Generation ID', lead.leadGenerationId)}
               {field('Created Date', lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : null)}

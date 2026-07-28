@@ -207,9 +207,15 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
 
   return (
     <div>
-      {/* Call summary — eight nano-compact stat tiles. A tighter gap + smaller
-          padding keeps all 8 in a single row on typical ≥1280 px screens. */}
-      <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+      {/* Call summary tiles — as many per row as genuinely fit.
+          This was a fixed `xl:grid-cols-8`, which assumed a 1280px VIEWPORT meant
+          1280px of room. It doesn't: the sidebar takes 248px, so a 1366px laptop
+          left each of eight tiles about 130px — too narrow for "Total Calls Made"
+          and a figure — and the three lead-processing tiles added later spilled
+          into a ragged second row. `auto-fit` measures the container instead, so
+          the row reflows to the space actually available, on any laptop, and
+          whether the sidebar is expanded or railed. */}
+      <div className="mb-4 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
         <KpiCard icon={Phone} iconBg="#e7f0f8" iconColor="#2c5d8f" value={(stats?.total ?? 0).toLocaleString()} label="Total Calls Made" />
         <KpiCard icon={PhoneOutgoing} iconBg="#e7eed8" iconColor="#42512f" value={(stats?.outgoing ?? 0).toLocaleString()} label="Outgoing Calls" />
         <KpiCard icon={PhoneIncoming} iconBg="#e3f1ee" iconColor="#2f6f63" value={(stats?.incoming ?? 0).toLocaleString()} label="Incoming Calls" />

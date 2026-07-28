@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Search, Phone, Settings, LogOut } from 'lucide-react';
+import { Search, Phone, Settings, LogOut, Menu } from 'lucide-react';
 import { tokenStore } from '@/lib/api';
 import { availabilityApi } from '@/lib/availability';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -27,7 +27,7 @@ function IconBtn({ children, label, href, onClick }: { children: React.ReactNode
   );
 }
 
-export function Topbar({ email }: { email?: string }) {
+export function Topbar({ email, onMenu }: { email?: string; onMenu?: () => void }) {
   const router = useRouter();
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -45,18 +45,34 @@ export function Topbar({ email }: { email?: string }) {
   }
 
   return (
-    <header className="sticky top-0 z-40 flex h-[62px] items-center gap-4 border-b bg-card/85 px-6 backdrop-blur">
+    <header className="sticky top-0 z-30 flex h-[62px] items-center gap-2 border-b bg-card/85 px-3 backdrop-blur sm:gap-4 sm:px-6">
+      {/* Opens the nav drawer. Below `lg` the sidebar is off-canvas, so without
+          this there is no way to reach the menu at all. */}
+      <button
+        type="button"
+        onClick={onMenu}
+        aria-label="Open menu"
+        className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] text-[#1d491f] transition-colors hover:bg-muted dark:text-foreground/80 lg:hidden"
+      >
+        <Menu className="h-[21px] w-[21px]" />
+      </button>
+
       {/* Page title + subtitle. A page with tabs names itself in its first tab,
-          so the title stands down rather than repeating the same word. */}
+          so the title stands down rather than repeating the same word.
+          `min-w-0` + truncate so a long title yields rather than shoving the
+          actions off a narrow screen. */}
       {!hasTabs && (
-        <div className="shrink-0">
-          <div className="font-display text-[18px] font-semibold leading-tight tracking-tight">{title}</div>
-          {sub && <div className="text-[11.5px] text-muted-foreground">{sub}</div>}
+        <div className="min-w-0">
+          <div className="truncate font-display text-[18px] font-semibold leading-tight tracking-tight">{title}</div>
+          {sub && <div className="truncate text-[11.5px] text-muted-foreground">{sub}</div>}
         </div>
       )}
 
-      {/* Where a page hangs its view tabs. Empty on pages that don't have any. */}
-      <PageTabsSlot className="shrink-0" />
+      {/* Where a page hangs its view tabs. Empty on pages that don't have any.
+          Scrolls sideways rather than wrapping — the Calling Panel has six, which
+          will not fit a phone, and a wrapped second row would push the bar's
+          height around as you navigate. */}
+      <PageTabsSlot className="min-w-0 max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" />
 
       {/* Search */}
       <form
@@ -76,14 +92,20 @@ export function Topbar({ email }: { email?: string }) {
 
       <div className="flex-1" />
 
-      {/* Actions */}
-      <IconBtn label="Quick dial" href="/calling">
-        <Phone className="h-[19px] w-[19px]" />
-      </IconBtn>
+      {/* Actions. Quick dial and Settings are both one tap away in the nav
+          drawer, so they stand down on a phone rather than crowding out the
+          notification bell and the account menu, which are not. */}
+      <div className="hidden sm:contents">
+        <IconBtn label="Quick dial" href="/calling">
+          <Phone className="h-[19px] w-[19px]" />
+        </IconBtn>
+      </div>
       <NotificationBell />
-      <IconBtn label="Settings" href="/settings">
-        <Settings className="h-[19px] w-[19px]" />
-      </IconBtn>
+      <div className="hidden sm:contents">
+        <IconBtn label="Settings" href="/settings">
+          <Settings className="h-[19px] w-[19px]" />
+        </IconBtn>
+      </div>
       <ThemeToggle />
 
       {/* Avatar */}

@@ -159,8 +159,11 @@ export default function CalendarPage() {
             ))}
           </div>
         </div>
-        <div className="p-[18px]">
-          <div className="grid grid-cols-7 gap-1.5">
+        {/* A week is seven columns whatever the screen — collapsing it would stop
+            being a calendar. So on a narrow screen the grid keeps a workable
+            minimum width and the container scrolls sideways instead. */}
+        <div className="overflow-x-auto p-3 sm:p-[18px]">
+          <div className="grid min-w-[560px] grid-cols-7 gap-1.5">
             {DOW.map((d) => <div key={d} className="py-1.5 text-center text-[11px] font-semibold uppercase tracking-[.08em] text-muted-foreground">{d}</div>)}
             {cells}
           </div>

@@ -469,8 +469,15 @@ export default function CallingPage() {
         />
       </div>
 
-      {/* Queue (left) · Green lead card + notes (centre) · Dial pad (right). */}
-      <div className="grid gap-[18px] xl:grid-cols-[300px_minmax(0,1fr)_360px]">
+      {/* Queue (left) · Green lead card + notes (centre) · Dial pad (right).
+          Three fixed-ish columns only once there is genuinely room for them. The
+          breakpoint measures the VIEWPORT, but 248px of it is sidebar — so at
+          `xl` (1280px) the three columns had about 1030px to share, and after the
+          300px queue and 360px dial pad the lead card was left around 330px, too
+          narrow for the customer's name, contact, email and location. So: one
+          column on small screens, queue + lead card from `xl` (card gets ~700px),
+          and the dial pad joins them as a third column only at `2xl`. */}
+      <div className="grid gap-[18px] xl:grid-cols-[280px_minmax(0,1fr)] 2xl:grid-cols-[300px_minmax(0,1fr)_360px]">
         {/* Left: Your Queue section (New Calling Queue, Callback Queue, Zoom Scheduled Queue) */}
         <div className="space-y-[18px]">
           <div className="rounded-2xl border bg-card shadow-sm">
@@ -909,8 +916,14 @@ export default function CallingPage() {
           </div>
         </div>
 
-        {/* Right: dial pad + zoom + stats */}
-        <div className="space-y-[18px]">
+        {/* Right: dial pad + zoom + stats.
+            At `xl` the grid is two columns, so this sits on its own row beneath
+            them and spans both — a third of a row's width with two-thirds empty
+            beside it would waste the space it was moved down to reclaim. Its
+            cards then run side by side rather than stacked, since a dial pad
+            stretched across 1000px is not a better dial pad. At `2xl` there is
+            room for a third column, so it goes back to being one. */}
+        <div className="space-y-[18px] xl:col-span-2 xl:grid xl:gap-[18px] xl:space-y-0 xl:[grid-template-columns:repeat(auto-fit,minmax(300px,1fr))] 2xl:col-span-1 2xl:block 2xl:space-y-[18px]">
           {/* Dial pad — call any number directly from the CRM (live status in the docked
               widget). Blocked while THIS panel has a call in flight: the two run separate
               call flows, so without this an agent could start a second call mid-call. */}

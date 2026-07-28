@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { api, tokenStore } from '@/lib/api';
@@ -15,6 +15,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const mainRef = useRef<HTMLElement>(null);
+  // Below `lg` the sidebar is an off-canvas drawer rather than a column — a
+  // 248px rail on a 375px phone leaves no room for the page. The open state
+  // lives here because the two components that need it are siblings: the
+  // topbar's menu button opens it, the sidebar renders it.
+  const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => {
     if (!tokenStore.access) router.replace('/login');
@@ -43,12 +48,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Wraps the topbar and the page together, so a page can render its view
           tabs into the slot the topbar exposes beside the title. */}
       <PageTabsProvider>
+      {/* `min-w-0` on the content column is what stops a wide table stretching the
+          flex row and pushing the page off-screen — without it the shell grows to
+          the table's width and the whole document scrolls sideways. */}
       <div className="flex h-screen overflow-hidden bg-background">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Topbar email={me?.email} />
+        <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} />
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <Topbar email={me?.email} onMenu={() => setNavOpen(true)} />
           <main ref={mainRef} className="flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-[1500px] p-6">
+            <div className="mx-auto w-full max-w-[1500px] p-4 sm:p-6">
               {allowed ? children : (
                 <div className="grid h-[60vh] place-items-center text-center">
                   <div>

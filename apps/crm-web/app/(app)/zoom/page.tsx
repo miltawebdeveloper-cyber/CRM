@@ -235,7 +235,7 @@ function ScheduleModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
             ))}
           </select>
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {/* The zone is part of the field label, because the time is booked on the
               CLIENT's clock and a rep entering "2 PM" has to know whose 2 PM. */}
           <Field label={`Date & time${selectedLead ? ` (${selectedLead.timezone} / ${zoneLabel(selectedLead.timezone)})` : ''}`}>
@@ -253,7 +253,7 @@ function ScheduleModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
         <Field label="Title (optional)">
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Bookkeeping onboarding call" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Zoom join link">
             <input value={joinUrl} onChange={(e) => setJoinUrl(e.target.value)} placeholder="https://zoom.us/j/…" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
           </Field>
@@ -329,7 +329,7 @@ function CompleteModal({ meeting, onClose, onSaved }: { meeting: ZoomMeeting; on
         <Field label="Action items (one per line)">
           <textarea value={form.actionItems} onChange={(e) => set('actionItems', e.target.value)} rows={3} placeholder={'Send pricing PDF\nSchedule follow-up'} className="w-full resize-y rounded-md border bg-background px-3 py-2 text-sm" />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label={`Follow-up / next meeting (${meeting.lead?.timezone ?? 'EST'})`}>
             <input type="datetime-local" value={form.followUpAt} onChange={(e) => set('followUpAt', e.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
           </Field>
