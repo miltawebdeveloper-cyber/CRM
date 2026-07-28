@@ -57,9 +57,12 @@ export class AuthService {
         await this.audit(user.id, 'trusted_device_login', 'Signed in from a trusted device — OTP skipped');
         return this.completeLogin(user.id, user.email, user.role);
       }
-      // Cookie present but not honoured (expired, revoked, or another account's):
-      // drop it rather than leaving a dead credential in the browser.
-      if (this.devices.currentDeviceId(req)) this.devices.clearCookie(res);
+      // A cookie is present but this user isn't trusted by it — expired, revoked,
+      // or it only carries other accounts. Drop THIS user's entry and leave the
+      // rest: wiping the whole cookie meant one person signing in un-trusted
+      // everyone else who shares the browser, so an admin and an employee account
+      // on the same machine each cost the other a code on every switch.
+      await this.devices.dropUser(req, res, user.id);
 
       const { challengeId, sentTo, resendSeconds } = await this.otp.issue(user);
       return {

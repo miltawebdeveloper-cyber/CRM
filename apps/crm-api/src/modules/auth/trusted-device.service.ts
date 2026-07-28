@@ -16,6 +16,28 @@ const COOKIE_PATH = '/api/auth';
 /** Expired/revoked rows are kept this long for the admin audit view, then pruned. */
 const PRUNE_AFTER_DAYS = 30;
 
+/**
+ * Separates the per-account tokens inside the one cookie. Not a character that
+ * appears in a uuid, base64url or the dots that join a token's three parts.
+ */
+const TOKEN_SEPARATOR = '~';
+
+/**
+ * How many accounts one browser may stay trusted for at once. Shared machines are
+ * real, but so is the 4KB cookie limit; at roughly 125 bytes a token this leaves
+ * an enormous margin while still bounding the header. The least recently trusted
+ * entry falls off the end.
+ */
+const MAX_TRUSTED_ACCOUNTS = 5;
+
+/**
+ * Lifetime given to the cookie when it is rewritten without a fresh OTP (dropping
+ * one account's entry). Generous on purpose: the cookie is only a carrier, and
+ * every entry inside it is checked against its own row and expiry on each login,
+ * so an over-long cookie can't extend anyone's actual trust.
+ */
+const MAX_COOKIE_AGE_MS = 365 * 24 * 60 * 60 * 1000;
+
 export interface DeviceInfo {
   deviceName: string;
   browser: string;
@@ -135,6 +157,34 @@ export class TrustedDeviceService {
     return { id, verifier };
   }
 
+  /**
+   * Every trust token the browser is carrying, tampered ones dropped.
+   *
+   * The cookie holds a LIST, one entry per account that has answered a code on
+   * this browser. It used to hold exactly one, which meant two people sharing a
+   * machine — or one person with an admin and an employee login, which is the
+   * normal way this gets tested — knocked each other's trust out on every
+   * switch: the second sign-in found a cookie belonging to the first, treated it
+   * as a miss, cleared it, and sent a code. Then the first came back and the same
+   * thing happened in reverse, so neither ever kept their trust and both were
+   * asked for a code every single time.
+   */
+  private parseTokens(raw: string | null): { id: string; verifier: string }[] {
+    if (!raw) return [];
+    return raw
+      .split(TOKEN_SEPARATOR)
+      .map((t) => this.parseToken(t.trim()))
+      .filter((t): t is { id: string; verifier: string } => !!t);
+  }
+
+  /** Re-assemble a cookie value from tokens, newest first and bounded. */
+  private serialiseTokens(tokens: { id: string; verifier: string }[]): string {
+    return tokens
+      .slice(0, MAX_TRUSTED_ACCOUNTS)
+      .map((t) => `${t.id}.${t.verifier}.${this.sign(t.id, t.verifier)}`)
+      .join(TOKEN_SEPARATOR);
+  }
+
   describe(req: Request): DeviceInfo {
     const userAgent = (req.headers?.['user-agent'] as string | undefined) ?? '';
     const { browser, os, deviceName } = parseUserAgent(userAgent);
@@ -154,21 +204,21 @@ export class TrustedDeviceService {
    * the OTP that created it, and re-verification is what buys another window.
    */
   async isTrusted(req: Request, userId: string): Promise<boolean> {
-    const raw = this.readCookie(req);
-    if (!raw) return false;
-    const parsed = this.parseToken(raw);
-    if (!parsed) return false;
+    // Check every token the browser carries, not just the first: the cookie holds
+    // one per account, and this user's may not be at the front.
+    for (const parsed of this.parseTokens(this.readCookie(req))) {
+      const device = await this.prisma.trustedDevice.findUnique({ where: { id: parsed.id } }).catch(() => null);
+      if (!device || device.userId !== userId || device.revokedAt) continue;
+      if (device.expiresAt <= new Date()) continue;
 
-    const device = await this.prisma.trustedDevice.findUnique({ where: { id: parsed.id } }).catch(() => null);
-    if (!device || device.userId !== userId || device.revokedAt) return false;
-    if (device.expiresAt <= new Date()) return false;
+      const expected = Buffer.from(device.tokenHash);
+      const actual = Buffer.from(this.hash(parsed.verifier));
+      if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) continue;
 
-    const expected = Buffer.from(device.tokenHash);
-    const actual = Buffer.from(this.hash(parsed.verifier));
-    if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) return false;
-
-    await this.prisma.trustedDevice.update({ where: { id: device.id }, data: { lastLoginAt: new Date() } });
-    return true;
+      await this.prisma.trustedDevice.update({ where: { id: device.id }, data: { lastLoginAt: new Date() } });
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -183,11 +233,19 @@ export class TrustedDeviceService {
 
     // Re-verifying on a device that already had a (possibly expired) record
     // supersedes it, so the list shows one row per device rather than a pile.
-    const existingRaw = this.readCookie(req);
-    const existing = existingRaw ? this.parseToken(existingRaw) : null;
-    if (existing) {
+    // Only THIS user's entries are superseded — tokens belonging to other
+    // accounts on the same browser are carried over untouched.
+    const carried = this.parseTokens(this.readCookie(req));
+    const owned = carried.length
+      ? await this.prisma.trustedDevice.findMany({
+          where: { id: { in: carried.map((t) => t.id) }, userId },
+          select: { id: true },
+        })
+      : [];
+    const ownedIds = new Set(owned.map((d) => d.id));
+    if (ownedIds.size) {
       await this.prisma.trustedDevice
-        .deleteMany({ where: { id: existing.id, userId } })
+        .deleteMany({ where: { id: { in: [...ownedIds] }, userId } })
         .catch(() => undefined);
     }
 
@@ -205,14 +263,39 @@ export class TrustedDeviceService {
       select: { id: true },
     });
 
-    res.cookie(TRUSTED_DEVICE_COOKIE, `${device.id}.${verifier}.${this.sign(device.id, verifier)}`, this.cookieOptions(maxAgeMs));
+    // This user's new token goes to the front; every other account's is kept, so
+    // a shared browser stays trusted for all of them at once.
+    const others = carried.filter((t) => !ownedIds.has(t.id));
+    const value = this.serialiseTokens([{ id: device.id, verifier }, ...others]);
+    res.cookie(TRUSTED_DEVICE_COOKIE, value, this.cookieOptions(maxAgeMs));
     await this.prune(userId);
     return expiresAt;
   }
 
-  /** Drop the cookie — used when it points at a dead/foreign record. */
-  clearCookie(res: Response) {
-    res.clearCookie(TRUSTED_DEVICE_COOKIE, this.cookieOptions());
+  /**
+   * Drop just THIS user's trust from the browser, leaving other accounts alone.
+   *
+   * Called when a cookie is present but this user's entry in it is dead — expired
+   * or revoked. Clearing the whole cookie here is what made a shared browser
+   * un-trustable: signing in as a second account wiped the first account's trust
+   * as a side effect, so both were asked for a code on every switch.
+   */
+  async dropUser(req: Request, res: Response, userId: string) {
+    const carried = this.parseTokens(this.readCookie(req));
+    if (!carried.length) return;
+    const mine = await this.prisma.trustedDevice
+      .findMany({ where: { id: { in: carried.map((t) => t.id) }, userId }, select: { id: true } })
+      .catch(() => []);
+    const mineIds = new Set(mine.map((d) => d.id));
+    const others = carried.filter((t) => !mineIds.has(t.id));
+    if (others.length === carried.length) return; // nothing of this user's to drop
+    if (others.length === 0) {
+      res.clearCookie(TRUSTED_DEVICE_COOKIE, this.cookieOptions());
+      return;
+    }
+    // Keep the remaining accounts trusted; the longest window still standing
+    // governs how long the browser holds them.
+    res.cookie(TRUSTED_DEVICE_COOKIE, this.serialiseTokens(others), this.cookieOptions(MAX_COOKIE_AGE_MS));
   }
 
   /** Id of the device the request is coming from, so the UI can say "this device". */
