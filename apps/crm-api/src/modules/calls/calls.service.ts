@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { CommDirection, LeadStatus, OutcomeCategory, Prisma, Role, Timezone, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -8,6 +8,7 @@ import { CommunicationsService } from '../communications/communications.service'
 import { CallPivotDim, CallPivotQueryDto, CallStatsQueryDto, SetCallTargetDto, StartCallDto, EndCallDto, CreateNoteDto, UpdateFollowupDto } from './dto/call.dto';
 import { closureFields } from '../leads/lead-closure';
 import { COMPLETION_ACTIONS, completedOpenLeadCounts, productiveSeconds } from './work-time';
+import { ABANDONED_STATUS, FAILED_STATUSES, MISSED_STATUSES } from './call-status';
 import { formatInZone, parseInZone } from '../../common/timezone';
 
 function startOfToday() {
@@ -21,9 +22,8 @@ function startOfToday() {
 const dayStart = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d, 0, 0, 0, 0); };
 const dayEnd = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d, 23, 59, 59, 999); };
 
-/** Provider call statuses that mean the call never connected. */
-const MISSED_STATUSES = ['missed', 'no-answer', 'no_answer', 'rejected', 'declined'];
-const FAILED_STATUSES = ['failed', 'busy', 'canceled', 'cancelled'];
+// Connected / missed / failed live in call-status.ts so the dashboard's summary
+// cards count calls by exactly the same rules this module reports them under.
 
 /**
  * Most leads one calling queue will return. Generous, because the queue and the
@@ -55,14 +55,6 @@ function compareLeadId(a: string, b: string): number {
 }
 
 /**
- * Status stamped on a call the agent started but never dispositioned — they shut
- * the tab, the browser died, or the dial never happened. Distinct from any
- * provider status so these are identifiable in the log rather than looking like
- * a normal completed call.
- */
-const ABANDONED_STATUS = 'abandoned';
-
-/**
  * How long a call may sit with no end time before it's treated as abandoned.
  * Generous: it must comfortably exceed the longest real call, because closing a
  * live call would truncate it.
@@ -71,6 +63,36 @@ const ABANDONED_AFTER_MS = Number(process.env.ABANDONED_CALL_AFTER_MS ?? 4 * 60 
 
 /** Most calls one sweep will close, so a first run on a large backlog is bounded. */
 const ABANDONED_BATCH = 500;
+
+/** Most rows the Calls Made table carries — the tiles above it count the rest. */
+const RECORDS_MAX = 500;
+
+/**
+ * The activity written when a lead is worked from the queue with no call placed.
+ * These share the Calls Made log with real calls: the contact happened and the
+ * team's work should be visible, but no call was dialled — so they are counted
+ * apart from Total Calls Made and carry no duration.
+ */
+const PROCESSED_ACTION = 'lead_processed';
+
+/** Status shown against a lead worked without a call. */
+const PROCESSED_STATUS = 'processed (no call)';
+
+/**
+ * Longest processing time one lead may report, in seconds.
+ *
+ * The timer runs in the browser from opening a lead to pressing Save, so a tab
+ * left open over lunch — or overnight — would otherwise book hours of "handling"
+ * against a single lead and wreck every average built on it. An hour is far
+ * beyond any genuine write-up, so anything past it is a walk-away, not work.
+ */
+const MAX_PROCESSING_SECS = 60 * 60;
+
+/** Trust the client's timer only as far as a plausible processing time goes. */
+function clampProcessingSecs(secs: number | undefined): number | null {
+  if (secs === undefined || secs === null || !Number.isFinite(secs)) return null;
+  return Math.min(Math.max(Math.round(secs), 0), MAX_PROCESSING_SECS);
+}
 
 /**
  * Most calls the pivot will read in one request. The pivot aggregates in memory
@@ -251,7 +273,7 @@ export class CallsService {
     leadId: string,
     dto: EndCallDto,
     userId: string,
-    action: 'call_completed' | 'lead_processed',
+    action: 'call_completed' | 'lead_processed' | 'outcome_updated',
     extraOps: Prisma.PrismaPromise<unknown>[] = [],
   ) {
     const oc = await this.outcomesService.bySlug(dto.outcome);
@@ -272,6 +294,18 @@ export class CallsService {
           // An outcome that closes the lead moves it to Closed Leads, credited
           // to the caller who logged the outcome.
           ...closureFields(oc?.leadStatus ?? undefined, leadObj?.status, userId),
+          // Why a lead was lost, kept in step with the disposition that lost it.
+          // Nothing set this from the panel, so a lead rejected on a call showed a
+          // blank Lost Reason in Lead Management and in every export — the one
+          // field that explains the rejection was only fillable by hand
+          // afterwards. The outcome's name IS the reason ("Not Interested",
+          // "Wrong Number"), so it is recorded here and cleared again if a later
+          // disposition takes the lead back out of rejected.
+          ...(oc?.leadStatus === LeadStatus.rejected
+            ? { lostReason: oc.name }
+            : oc?.leadStatus && leadObj?.status === LeadStatus.rejected
+              ? { lostReason: null }
+              : {}),
           ...(schedulesCallback
             ? {
                 // (Re)schedule a callback — reset reminder stamps so the cron
@@ -301,8 +335,17 @@ export class CallsService {
           callStatus: dto.outcome,
           assignedToId: leadObj?.assignedToId ?? null,
           ...(action === 'lead_processed'
-            ? { remarks: 'Outcome logged from the queue while calling was disabled (no call placed).' }
-            : {}),
+            ? {
+                remarks: 'Outcome logged from the queue while calling was disabled (no call placed).',
+                // Time the agent spent on the lead — the queue times from opening
+                // it to pressing Save. With no call to measure, this is what the
+                // log and the reports use as the duration. Clamped so a tab left
+                // open overnight can't report a nine-hour "call".
+                durationSecs: clampProcessingSecs(dto.durationSecs),
+              }
+            : action === 'outcome_updated'
+              ? { remarks: 'Outcome corrected from the Outcome Records log.' }
+              : {}),
         },
       }),
     ]);
@@ -325,6 +368,65 @@ export class CallsService {
       );
     }
     return results;
+  }
+
+  /**
+   * Correct the outcome recorded against a past call.
+   *
+   * A disposition is picked in seconds at the end of a call and is the single
+   * field the whole funnel, the lead's status and its callback all hang off — so
+   * the wrong one being picked needs a way back that isn't "ring them again".
+   * The Outcome Records log is where that mistake is spotted, so it is where the
+   * fix belongs.
+   *
+   * Goes through `applyDisposition`, exactly as ending a call does, so a
+   * correction lands the lead in the state it would have been in had the right
+   * outcome been chosen at the time: same status mapping, same closure credit,
+   * same callback scheduling. Anything less would leave the log saying one thing
+   * and the lead another, which is the problem this is meant to solve.
+   *
+   * The activity is logged as `outcome_updated`, deliberately NOT one of
+   * COMPLETION_ACTIONS: the lead was already completed, and counting a
+   * correction as a second completion would inflate the Calling Panel's figures.
+   */
+  async updateCallOutcome(callId: string, dto: EndCallDto, user: { id: string; role: Role }) {
+    const call = await this.prisma.call.findUnique({
+      where: { id: callId },
+      select: { id: true, leadId: true, callerId: true, outcome: true, lead: { select: { callbackAt: true } } },
+    });
+    if (!call) throw new NotFoundException('Call not found');
+    // Same rule the rest of this module enforces: a rep may correct their own
+    // calls, a manager may correct anyone's.
+    const isManager = user.role === Role.admin || user.role === Role.team_leader;
+    if (!isManager && call.callerId !== user.id) throw new ForbiddenException('Not your call');
+
+    const oc = await this.outcomesService.bySlug(dto.outcome);
+    if (!oc) throw new BadRequestException('Unknown outcome');
+
+    // An outcome that schedules a callback must end up with a date. Keep the one
+    // already on the lead when the corrected outcome still schedules one and no
+    // new date was given — re-picking "Call Back" shouldn't silently wipe the
+    // appointment the customer is expecting. With neither, say so plainly rather
+    // than writing a callback with no time on it.
+    let callbackAt = dto.callbackAt;
+    if (oc.schedulesCallback && !callbackAt) {
+      if (!call.lead?.callbackAt) {
+        throw new BadRequestException(
+          `"${oc.name}" schedules a callback, so it needs a date and time. Pick one, or set it from the Calling Panel.`,
+        );
+      }
+      // Already an instant — parseInZone passes an explicit offset through as-is.
+      callbackAt = call.lead.callbackAt.toISOString();
+    }
+
+    const [updatedCall] = await this.applyDisposition(
+      call.leadId,
+      { ...dto, callbackAt },
+      user.id,
+      'outcome_updated',
+      [this.prisma.call.update({ where: { id: callId }, data: { outcome: dto.outcome } })],
+    );
+    return updatedCall;
   }
 
   // CAL-012/013 — note after a call (lead resolved from the call record)
@@ -659,7 +761,9 @@ export class CallsService {
         outcome: true,
         createdAt: true,
         lead: {
-          select: { id: true, businessName: true, phone: true, status: true, callbackAt: true, callbackCompletedAt: true },
+          // `timezone` so a callback rescheduled while correcting an outcome is
+          // entered on the customer's clock, like everywhere else.
+          select: { id: true, businessName: true, phone: true, status: true, timezone: true, callbackAt: true, callbackCompletedAt: true },
         },
         caller: { select: { id: true, name: true, email: true } },
       },
@@ -672,11 +776,8 @@ export class CallsService {
    * Employees are pinned to their own calls; managers see everyone and may
    * narrow to one caller.
    */
-  private async callsMadeWhere(query: CallStatsQueryDto, current: { id: string; role: Role }): Promise<Prisma.CallWhereInput> {
-    const isManager = current.role === Role.admin || current.role === Role.team_leader;
-    const callerId = isManager ? query.userId : current.id;
-
-    // Geography / lead-status filters resolve against the call's lead.
+  /** The lead-side half of the Calls Made filter, shared with the no-call rows. */
+  private leadFilter(query: CallStatsQueryDto): Prisma.LeadWhereInput {
     const lead: Prisma.LeadWhereInput = {};
     if (query.timezone) lead.timezone = query.timezone as Timezone;
     if (query.state) lead.state = query.state;
@@ -684,6 +785,59 @@ export class CallsService {
     if (query.leadStatus === 'assigned') lead.assignedToId = { not: null };
     else if (query.leadStatus === 'unassigned') lead.assignedToId = null;
     else if (query.leadStatus) lead.status = query.leadStatus as LeadStatus;
+    return lead;
+  }
+
+  /**
+   * WHERE for the leads worked WITHOUT a call — the lead-processing mode the
+   * queue runs in while dialling is switched off.
+   *
+   * These are real contact activity and belong in the call log, but no call was
+   * placed, so they carry no duration, no direction and no provider status. They
+   * are sourced from the `lead_processed` activity rather than invented as call
+   * rows, which is what keeps Total Calls Made honest about how much was actually
+   * dialled while still showing the shift's work.
+   *
+   * Scoped and filtered exactly like the calls beside them: employees see their
+   * own, managers may narrow to one rep, and the date, outcome and geography
+   * filters all apply.
+   */
+  private async processedWhere(query: CallStatsQueryDto, current: { id: string; role: Role }): Promise<Prisma.ActivityWhereInput> {
+    const isManager = current.role === Role.admin || current.role === Role.team_leader;
+    const userId = isManager ? query.userId : current.id;
+    const lead = this.leadFilter(query);
+
+    // The disposition slug is stored in `newValue`. Legacy display names are
+    // matched too, the same way the call-side outcome filter does.
+    let outcomeWhere: Prisma.ActivityWhereInput = {};
+    if (query.outcome) {
+      const oc = await this.prisma.outcome.findUnique({ where: { slug: query.outcome }, select: { name: true } });
+      outcomeWhere = { newValue: { in: [query.outcome, ...(oc?.name ? [oc.name] : [])] } };
+    }
+
+    return {
+      action: PROCESSED_ACTION,
+      leadId: { not: null },
+      ...(userId ? { userId } : {}),
+      ...(query.from || query.to
+        ? {
+            createdAt: {
+              ...(query.from ? { gte: dayStart(query.from) } : {}),
+              ...(query.to ? { lte: dayEnd(query.to) } : {}),
+            },
+          }
+        : {}),
+      ...(Object.keys(lead).length ? { lead } : {}),
+      ...outcomeWhere,
+    };
+  }
+
+  private async callsMadeWhere(query: CallStatsQueryDto, current: { id: string; role: Role }): Promise<Prisma.CallWhereInput> {
+    const isManager = current.role === Role.admin || current.role === Role.team_leader;
+    const callerId = isManager ? query.userId : current.id;
+
+    // Geography / lead-status filters resolve against the call's lead.
+    const lead = this.leadFilter(query);
 
     // Outcome match. Calls store the outcome SLUG, but leads imported before the
     // outcome list existed carry the display NAME in their legacy callStatus, and
@@ -767,7 +921,7 @@ export class CallsService {
    */
   async callsMadeStats(query: CallStatsQueryDto, current: { id: string; role: Role }) {
     const where = await this.callsMadeWhere(query, current);
-    const [total, outgoing, incoming, connected, missed, failed, duration, byOutcome, outcomes] = await Promise.all([
+    const [total, outgoing, incoming, connected, missed, failed, duration, byOutcome, outcomes, processed] = await Promise.all([
       this.prisma.call.count({ where }),
       this.prisma.call.count({ where: { ...where, direction: CommDirection.outbound } }),
       this.prisma.call.count({ where: { ...where, direction: CommDirection.inbound } }),
@@ -782,6 +936,17 @@ export class CallsService {
       this.prisma.outcome.findMany({
         orderBy: { sortOrder: 'asc' },
         select: { slug: true, name: true, color: true, category: true },
+      }),
+      // Leads worked with no call placed. Counted separately from `total` on
+      // purpose: they appear in the log because the contact is real work, but
+      // folding them into Total Calls Made would overstate how much was dialled.
+      // The time spent on them is summed apart from talk time for the same
+      // reason — it is handling time, not time on the phone.
+      this.prisma.activity.aggregate({
+        where: await this.processedWhere(query, current),
+        _count: { _all: true },
+        _sum: { durationSecs: true },
+        _avg: { durationSecs: true },
       }),
     ]);
 
@@ -829,6 +994,13 @@ export class CallsService {
       totalDurationSecs: duration._sum.durationSecs ?? 0,
       avgDurationSecs: Math.round(duration._avg.durationSecs ?? 0),
       connectedPct: total > 0 ? Number(((connected / total) * 100).toFixed(1)) : 0,
+      /** Leads worked without a call — listed in the log, counted apart from `total`. */
+      processed: processed._count._all,
+      /** Every contact in the log, dialled or not — what the table's rows total. */
+      totalContacts: total + processed._count._all,
+      /** Time spent working leads in the queue. Handling time, not talk time. */
+      processingSecs: processed._sum.durationSecs ?? 0,
+      avgProcessingSecs: Math.round(processed._avg.durationSecs ?? 0),
       // ── Funnel report ──
       given,
       byStatus,
@@ -1086,7 +1258,7 @@ export class CallsService {
     const calls = await this.prisma.call.findMany({
       where: await this.callsMadeWhere(query, current),
       orderBy: { startTime: 'desc' },
-      take: 500,
+      take: RECORDS_MAX,
       select: {
         id: true,
         startTime: true,
@@ -1105,14 +1277,65 @@ export class CallsService {
         caller: { select: { id: true, name: true, email: true } },
       },
     });
-    return calls.map((c) => ({
+    // Leads worked without a call, shaped like a call row so the log reads as one
+    // list. Everything a call carries is present except the things a non-call
+    // genuinely hasn't got: no duration, no direction, no recording.
+    const processed = await this.prisma.activity.findMany({
+      where: await this.processedWhere(query, current),
+      orderBy: { createdAt: 'desc' },
+      take: RECORDS_MAX,
+      select: {
+        id: true,
+        createdAt: true,
+        newValue: true,
+        durationSecs: true,
+        lead: {
+          select: {
+            id: true, leadId: true, businessName: true, contactName: true, phone: true, status: true,
+            timezone: true, state: true, city: true, callStatus: true, assignedToId: true,
+          },
+        },
+        user: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    const callRows = calls.map((c) => ({
       ...c,
+      /** Distinguishes a dialled call from a lead worked without one. */
+      kind: 'call' as const,
       // Whether a recording EXISTS is safe for anyone who can see the call, and is
       // what the export reports. The signed provider URL stays manager-only —
       // employees play their own recordings through the permission-checked proxy.
       hasRecording: !!c.recordingUrl,
       recordingUrl: canViewRecordings ? c.recordingUrl : null,
     }));
+
+    const processedRows = processed.map((a) => ({
+      // Prefixed so an activity id can never be mistaken for a call id by
+      // anything keying off it — including the outcome-correction route, which
+      // must not be offered on a row that has no call behind it.
+      id: `processed:${a.id}`,
+      kind: 'processed' as const,
+      startTime: a.createdAt,
+      endTime: a.createdAt,
+      // How long the agent spent working the lead in the queue. Null for rows
+      // written before the timer existed, which is why the column stays nullable
+      // rather than defaulting to a misleading zero.
+      durationSecs: a.durationSecs,
+      direction: null,
+      status: PROCESSED_STATUS,
+      outcome: a.newValue,
+      recordingUrl: null,
+      hasRecording: false,
+      lead: a.lead,
+      caller: a.user,
+    }));
+
+    // One chronological log. Each side is capped, so the merge is capped too;
+    // the tiles above the table report the true totals either way.
+    return [...callRows, ...processedRows]
+      .sort((x, y) => y.startTime.getTime() - x.startTime.getTime())
+      .slice(0, RECORDS_MAX);
   }
 
   // CAL-006 — caller's assigned lead queue.

@@ -128,6 +128,15 @@ export class CallsController {
     return this.calls.end(id, dto, user.id);
   }
 
+  /**
+   * Correct the outcome on a past call, from the Outcome Records log. Scoped in
+   * the service: a rep may fix their own calls, a manager anyone's.
+   */
+  @Patch(':id/outcome')
+  updateOutcome(@Param('id') id: string, @Body() dto: EndCallDto, @CurrentUser() user: AuthUser) {
+    return this.calls.updateCallOutcome(id, dto, { id: user.id, role: user.role });
+  }
+
   @Post(':id/notes')
   addNote(@Param('id') id: string, @Body() dto: CreateNoteDto, @CurrentUser() user: AuthUser) {
     return this.calls.addNoteToCall(id, dto, { id: user.id, role: user.role });

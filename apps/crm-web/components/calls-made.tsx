@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Phone, PhoneOutgoing, PhoneIncoming, PhoneMissed, PhoneOff, CheckCircle2, Clock, Timer, Download, MapPin, Building2, Tag, PhoneCall, User as UserIcon } from 'lucide-react';
+import { Phone, PhoneOutgoing, PhoneIncoming, PhoneMissed, PhoneOff, CheckCircle2, Clock, Timer, Download, MapPin, Building2, Tag, PhoneCall, User as UserIcon, Info, ClipboardCheck, Hourglass } from 'lucide-react';
 import { callsApi, outcomesApi, formatDuration, type CallRecord } from '@/lib/crm';
 import { OutcomePill } from '@/components/outcome-pill';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
@@ -11,6 +11,7 @@ import { Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { CAT, DirectionPill, useCallFilters } from '@/components/calls-shared';
 import { DateFilter, FilterSelect, optionsFrom } from '@/components/filter-controls';
+import { useCallingEnabled } from '@/lib/use-calling-enabled';
 
 const LEAD_STATUS_OPTS = [
   { label: 'All Lead Statuses', value: '' },
@@ -32,6 +33,9 @@ const TIMEZONES = ['EST', 'CST', 'MST', 'PST'];
 export function CallsMade({ isManager }: { isManager: boolean }) {
   const filters = useCallFilters(isManager);
   const { params: scope, dateFilter, setDateFilter, userId, setUserId, userOpts } = filters;
+  // With dialling off no call rows are written at all, which is the single
+  // likeliest reason this view is empty — see the notice below.
+  const { callingEnabled, disabledReason } = useCallingEnabled();
 
   const [tz, setTz] = useState('');
   const [state, setState] = useState('');
@@ -97,9 +101,22 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
     {
       key: 'status', header: 'Call Status', searchable: true, searchValue: (c) => c.status,
       // No provider status means the call never went through OpenPhone; fall
-      // back to whether it was completed in the dialer.
-      render: (c) => <span className="capitalize text-muted-foreground">{c.status ?? (c.endTime ? 'completed' : 'in progress')}</span>,
+      // back to whether it was completed in the dialer. A processed row is marked
+      // as such, so it is never mistaken for a call that was actually placed.
+      render: (c) =>
+        c.kind === 'processed' ? (
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-[#eef0e8] px-2 py-[3px] text-[11px] font-semibold text-[#6b7359]"
+            title="Worked from the queue with no call placed — dialling was switched off"
+          >
+            <ClipboardCheck className="h-3 w-3" /> No call
+          </span>
+        ) : (
+          <span className="capitalize text-muted-foreground">{c.status ?? (c.endTime ? 'completed' : 'in progress')}</span>
+        ),
     },
+    // Blank for a processed row: no call was placed, so there is no duration to
+    // report and a zero would read as a call that connected for no time.
     { key: 'duration', header: 'Call Duration', cellClassName: 'tabular-nums', render: (c) => c.durationSecs != null ? formatDuration(c.durationSecs) : '—' },
     {
       key: 'outcome', header: 'Call Outcome', trackable: true, searchable: true,
@@ -201,7 +218,41 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
         <KpiCard icon={PhoneOff} iconBg="#fbeeec" iconColor="#a8431f" value={(stats?.failed ?? 0).toLocaleString()} label="Failed Calls" />
         <KpiCard icon={Clock} iconBg="#fbf3e2" iconColor="#c98a18" value={formatDuration(stats?.totalDurationSecs ?? 0)} label="Call Duration" />
         <KpiCard icon={Timer} iconBg="#eef0e8" iconColor="#6b7359" value={formatDuration(stats?.avgDurationSecs ?? 0)} label="Avg Call" />
+        {/* Leads worked with no call placed. Its own tile rather than part of
+            Total Calls Made — the work is real and belongs in the log, but it
+            wasn't dialled, and rolling it into call volume would overstate it. */}
+        {(stats?.processed ?? 0) > 0 && (
+          <>
+            <KpiCard icon={ClipboardCheck} iconBg="#eef0e8" iconColor="#6b7359" value={(stats?.processed ?? 0).toLocaleString()} label="Processed · no call" />
+            {/* Handling time, kept apart from talk time for the same reason the
+                counts are: it is time spent working the lead, not on the phone. */}
+            <KpiCard icon={Hourglass} iconBg="#eef0e8" iconColor="#6b7359" value={formatDuration(stats?.processingSecs ?? 0)} label="Processing Time" />
+            <KpiCard icon={Timer} iconBg="#eef0e8" iconColor="#6b7359" value={formatDuration(stats?.avgProcessingSecs ?? 0)} label="Avg per Lead" />
+          </>
+        )}
       </div>
+
+      {/* Why this view is empty while calling is switched off.
+          Nothing is wrong: with dialling disabled the queue records dispositions
+          straight onto the lead and writes NO call row, deliberately, so the
+          figures above stay honest about a day on which nobody dialled. Without
+          saying so, an empty Call Details table after a full shift of processed
+          leads reads as lost data, which is exactly how this gets reported as a
+          sync bug. The panel's own Calls Completed card does count that work. */}
+      {!callingEnabled && (
+        <div className="mb-[14px] flex items-start gap-2.5 rounded-xl border border-[#e8dcc0] bg-[#fbf6e9] px-4 py-3 text-[12.5px] text-[#7a5d17]">
+          <Info className="mt-[1px] h-4 w-4 shrink-0" />
+          <div>
+            <div className="font-semibold">Calling is switched off — leads worked from the queue show as “No call”.</div>
+            <div className="mt-0.5 leading-relaxed">
+              {disabledReason || 'The queue records the outcome and notes against the lead itself.'} Those records carry no
+              duration or direction because no call was placed, and they are counted under{' '}
+              <span className="font-medium">Processed · no call</span> rather than Total Calls Made, so call volume stays
+              accurate. Dialled calls resume appearing as soon as an admin turns calling back on (Settings → Calling Mode).
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Call Details filters — same geography/status/date bar as Lead Management. */}
       <div className="mb-[14px] flex flex-wrap items-center gap-2.5">
@@ -221,13 +272,15 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
         rows={filteredRecords}
         getRowKey={(c) => c.id}
         title="Call Details"
-        // The tiles count every matching call; the table can only carry 500. Say so
-        // against the real total rather than implying the page IS the result.
-        subtitle={`${filteredRecords.length.toLocaleString()} call${filteredRecords.length === 1 ? '' : 's'}${
-          stats && stats.total > filteredRecords.length ? ` shown · ${stats.total.toLocaleString()} match the filters` : ''
+        // The tiles count every matching contact; the table can only carry 500.
+        // Say so against the real total rather than implying the page IS the
+        // result. "Records" not "calls", because the log also lists leads worked
+        // with no call placed.
+        subtitle={`${filteredRecords.length.toLocaleString()} record${filteredRecords.length === 1 ? '' : 's'}${
+          stats && stats.totalContacts > filteredRecords.length ? ` shown · ${stats.totalContacts.toLocaleString()} match the filters` : ''
         }`}
         loading={isLoading}
-        emptyText="No calls match the selected filters."
+        emptyText="No records match the selected filters."
         prefs={prefs}
         selectable={false}
         fillViewport

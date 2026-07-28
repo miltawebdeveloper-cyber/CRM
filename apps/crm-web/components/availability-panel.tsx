@@ -27,9 +27,8 @@ export function AvailabilityPanel() {
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['availability'] });
     qc.invalidateQueries({ queryKey: ['availability-inbox'] });
-    // Reassignment may have moved leads/tasks off this user.
-    qc.invalidateQueries({ queryKey: ['caller-leads'] });
-    qc.invalidateQueries({ queryKey: ['followups'] });
+    // The queue and follow-ups are NOT refreshed here any more: going offline is
+    // purely a status change now, so it cannot have moved a single lead.
   };
 
   async function goOffline(reason: string) {
@@ -75,7 +74,8 @@ export function AvailabilityPanel() {
         </div>
       </div>
 
-      {/* Reassigned-to-me feed */}
+      {/* Reassigned-to-me feed — history only. Automatic reassignment was removed,
+          so nothing new lands here; the block self-hides once the feed is empty. */}
       {inbox.length > 0 && (
         <div className="rounded-2xl border bg-card shadow-sm">
           <div className="flex items-center gap-2 border-b px-[18px] py-3.5">

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Phone, PhoneOff, X, Loader2, Check, ExternalLink } from 'lucide-react';
 import { communicationsApi, callsApi, outcomesApi, type CallPhase, type Outcome } from '@/lib/crm';
 import { launchQuoCall } from '@/lib/dialer';
+import { invalidateCallActivity } from '@/lib/sync';
 
 /** Minimal lead shape the Call button needs — any caller can pass this. */
 export interface CallLead {
@@ -114,12 +115,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
     },
     meta: { successMessage: 'Call logged' },
     onSuccess: () => {
-      if (active) {
-        qc.invalidateQueries({ queryKey: ['lead', active.lead.id, 'timeline'] });
-        qc.invalidateQueries({ queryKey: ['lead', active.lead.id] });
-      }
-      qc.invalidateQueries({ queryKey: ['leads'] });
-      qc.invalidateQueries({ queryKey: ['caller-dashboard'] });
+      // A call logged from the docked widget is the same event as one logged from
+      // the Calling Panel, so it refreshes the same modules. It used to name four
+      // keys, one of which — `caller-dashboard` — was not a key anything reads
+      // (the queue's cards are `caller-dash`), so the KPI cards never moved after
+      // a dial-pad call. See lib/sync.ts.
+      invalidateCallActivity(qc);
       reset();
     },
   });

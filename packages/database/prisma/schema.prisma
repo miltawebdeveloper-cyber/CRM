@@ -146,8 +146,14 @@ model User {
   // users may share one. Nullable (many users may be unassigned) — but an unassigned
   // user is blocked from placing outbound calls, never silently handed a shared line.
   openphoneNumber String? @unique @map("openphone_number")
-  shiftStart         String?      @map("shift_start") // "HH:mm" local start time (default 09:00)
-  noLoginHandledOn   DateTime?    @map("no_login_handled_on") @db.Date // dedupe stamp for the no-login cron
+  /// "HH:mm" local shift start. Informational now — it used to drive a cron that
+  /// marked late users unavailable and reassigned their leads; that logic was
+  /// removed (see AvailabilityService) because it concentrated whole lead books
+  /// onto one rep. Nothing reads this to make a decision.
+  shiftStart         String?      @map("shift_start")
+  /// Dedupe stamp for the removed no-login cron. Retained so existing rows keep
+  /// their value rather than being dropped; nothing writes or reads it.
+  noLoginHandledOn   DateTime?    @map("no_login_handled_on") @db.Date
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -530,9 +536,19 @@ model Activity {
   assignedToId String? @map("assigned_to_id") @db.Uuid
   assignedTo   User?   @relation("ActivityAssignedTo", fields: [assignedToId], references: [id])
 
+  /// How long the agent spent working the lead, in seconds — set on the
+  /// `lead_processed` disposition the queue writes while live calling is off.
+  /// The queue times from opening the lead to pressing Save, and that elapsed
+  /// time stands in for a call duration in the log and in reporting. Null on
+  /// every other kind of activity, which has no duration to speak of.
+  durationSecs Int?    @map("duration_secs")
+
   @@index([leadId])
   @@index([userId])
   @@index([createdAt])
+  /// The Calls Made log reads dispositions by action + time; without this the
+  /// no-call rows force a scan of the whole activity feed.
+  @@index([action, createdAt])
   @@map("activities")
 }
 

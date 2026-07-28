@@ -9,6 +9,10 @@ export interface AvailabilityStatus {
   lastLoginAt: string | null;
 }
 
+/**
+ * A past automatic handover. History only — automatic reassignment was removed
+ * from the availability module, so no new records are created.
+ */
 export interface Reassignment {
   id: string;
   type: ReassignType;
@@ -35,6 +39,11 @@ export const REASSIGN_LABEL: Record<ReassignType, string> = {
 
 export const OFFLINE_REASONS = ['Leave', 'Holiday', 'Unavailable'];
 
+/**
+ * Availability is a status and nothing more: marking someone offline records that
+ * they are away and does NOT move their leads. Ownership changes only through the
+ * assignments module, where a manager does it deliberately.
+ */
 export const availabilityApi = {
   status: async (): Promise<AvailabilityStatus> => (await api.get('/availability')).data,
   setOffline: async (reason?: string) => (await api.post('/availability/offline', { reason })).data,
@@ -42,7 +51,7 @@ export const availabilityApi = {
   signOut: async () => (await api.post('/availability/sign-out')).data,
   inbox: async (): Promise<Reassignment[]> => (await api.get('/availability/inbox')).data,
   ack: async (id: string) => (await api.post(`/availability/inbox/${id}/ack`)).data,
-  /** Admin-only: set another user's availability. Offline reassigns their work. */
+  /** Admin-only: set another user's availability. A status flip; it moves no leads. */
   adminSet: async (userId: string, online: boolean, reason?: string) =>
     (await api.post(`/availability/user/${userId}`, { online, reason })).data,
 };

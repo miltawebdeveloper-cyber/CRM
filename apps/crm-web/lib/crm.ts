@@ -2,16 +2,48 @@ import { api } from './api';
 import type { Lead } from './leads';
 
 // ─────────────────────────── Metrics ───────────────────────────
+/**
+ * The dashboard's summary cards. The API decides the scope from the caller's
+ * role — an employee's figures cover only their own leads and calls, an
+ * admin's cover the whole organisation — so the client never asks for a scope
+ * and cannot be pointed at someone else's numbers.
+ */
 export interface MetricsSummary {
+  /** Which set of numbers these are, so the cards can be labelled honestly. */
+  scope: 'organization' | 'personal';
+  // ── Leads ──
   totalLeads: number;
-  plannedLeads: number;
-  balanceLeads: number;
+  /** Leads that have an owner. For an employee this equals their total. */
+  assignedLeads: number;
   /** Leads successfully contacted (completed call or contacted-or-beyond status). */
   contactedLeads: number;
+  /** Assigned but not yet reached — total minus contacted. */
+  pendingLeads: number;
+  /** Leads carrying an outstanding callback or a note with a next date. */
+  followUpLeads: number;
+  /** Reached a real opportunity or a deal (interested or closed). */
+  convertedLeads: number;
+  /** Won — the same set the Closed Leads module lists. */
+  closedLeads: number;
+  /** Org-wide only; null on an employee's dashboard. */
+  avgLeadsPerEmployee: number | null;
+  // ── Calls ──
+  totalCalls: number;
+  /** Same definition the Calls Made dashboard uses. */
+  connectedCalls: number;
+  missedCalls: number;
+  /** Zoom meetings still to happen. */
+  scheduledCalls: number;
+  /** Callbacks still owed. */
+  callbackCalls: number;
+  // ── Targets / rates ──
+  plannedLeads: number;
+  balanceLeads: number;
   /** Contacted as a % of total — per-book progress used for the employee view. */
   contactedPct: number;
   progressPct: number;
-  closedLeads: number;
+  /** Converted as a share of the book. */
+  conversionPct: number;
 }
 export interface TimezoneCount {
   timezone: string;
@@ -179,7 +211,7 @@ export interface OutcomeRecord {
   outcome: CallOutcome | null;
   createdAt: string;
   callbackAt: string | null;
-  lead: { id: string; businessName: string; phone: string; status: string; callbackAt: string | null; callbackCompletedAt: string | null } | null;
+  lead: { id: string; businessName: string; phone: string; status: string; timezone: string; callbackAt: string | null; callbackCompletedAt: string | null } | null;
   caller: { id: string; name: string; email: string } | null;
 }
 
@@ -231,6 +263,13 @@ export interface CallsMadeStats {
   totalDurationSecs: number;
   avgDurationSecs: number;
   connectedPct: number;
+  /** Leads worked without a call — listed in the log, counted apart from `total`. */
+  processed: number;
+  /** Every contact in the log, dialled or not — what the table's rows total. */
+  totalContacts: number;
+  /** Time spent working leads in the queue. Handling time, not talk time. */
+  processingSecs: number;
+  avgProcessingSecs: number;
   // ── Funnel report (calls that recorded an outcome) ──
   /** Calls with an outcome — the denominator for every ratio below. */
   given: number;
@@ -262,6 +301,13 @@ export interface LeadBook {
 
 export interface CallRecord {
   id: string;
+  /**
+   * `call` — dialled. `processed` — the lead was worked from the queue with no
+   * call placed (the lead-processing mode used while dialling is switched off).
+   * A processed row has no duration, direction or recording, because no call
+   * happened; it is in the log because the contact itself is real work.
+   */
+  kind: 'call' | 'processed';
   startTime: string;
   endTime: string | null;
   durationSecs: number | null;
@@ -349,12 +395,25 @@ export const callsApi = {
     (await api.post(`/calls/${callId}/end`, { outcome, durationSecs, callbackAt })).data,
   addNote: async (callId: string, noteText: string, nextFollowupDate?: string, callbackAt?: string) =>
     (await api.post(`/calls/${callId}/notes`, { noteText, nextFollowupDate, callbackAt })).data,
+  /**
+   * Correct the outcome on a past call, from the Outcome Records log. Re-applies
+   * the lead-side disposition too, so the lead ends up where it would have been
+   * had the right outcome been picked at the time. `callbackAt` is a wall clock
+   * read in the lead's time zone, like every other scheduling input.
+   */
+  updateOutcome: async (callId: string, outcome: CallOutcome, callbackAt?: string) =>
+    (await api.patch(`/calls/${callId}/outcome`, { outcome, callbackAt })).data,
 
   // ── Lead-processing mode (calling temporarily disabled) ──
   // Same disposition and same note trail as the two above, recorded straight
   // against the lead because no call was placed.
-  logLead: async (leadId: string, outcome: CallOutcome, callbackAt?: string) =>
-    (await api.post(`/calls/lead/${leadId}/log`, { outcome, callbackAt })).data,
+  /**
+   * `durationSecs` is the time the agent spent on the lead in the queue — timed
+   * from opening it to pressing Save. With live calling off there is no call to
+   * measure, so this stands in as the duration for the log and the reports.
+   */
+  logLead: async (leadId: string, outcome: CallOutcome, callbackAt?: string, durationSecs?: number) =>
+    (await api.post(`/calls/lead/${leadId}/log`, { outcome, callbackAt, durationSecs })).data,
   addLeadNote: async (leadId: string, noteText: string, nextFollowupDate?: string, callbackAt?: string) =>
     (await api.post(`/calls/lead/${leadId}/notes`, { noteText, nextFollowupDate, callbackAt })).data,
 };
@@ -613,9 +672,15 @@ export interface MissedCall {
   id: string;
   at: string;
   leadId: string;
+  /** External lead reference (L-YYYY-N), for tracing back to the record. */
+  leadRef: string;
   businessName: string;
+  /** Who rang, where the lead names a contact. */
+  contactName: string | null;
   phone: string;
-  status: string | null;
+  city: string;
+  state: string;
+  status: string;
   assignedTo: string | null;
   assignedToId: string;
 }
@@ -665,7 +730,8 @@ export const communicationsApi = {
    */
   respondToCall: async (callId: string, action: 'attend' | 'decline'): Promise<{ ok: boolean; action: string; rejectedOnCarrier: boolean }> =>
     (await api.post(`/communications/call/${callId}/respond`, { action })).data,
-  missedCalls: async (): Promise<MissedCall[]> => (await api.get('/communications/missed')).data,
+  missedCalls: async (limit?: number): Promise<MissedCall[]> =>
+    (await api.get('/communications/missed', { params: limit ? { limit } : undefined })).data,
   analytics: async (period = 'week'): Promise<CommAnalytics> =>
     (await api.get('/communications/analytics', { params: { period } })).data,
 

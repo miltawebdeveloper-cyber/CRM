@@ -80,6 +80,8 @@ export interface WorkInterval {
 export interface CallSpan {
   startTime: Date;
   endTime: Date | null;
+  /** Recorded talk time — the figure Calls Made totals and averages. */
+  durationSecs?: number | null;
 }
 
 /**
@@ -123,7 +125,14 @@ export function productiveSeconds(calls: CallSpan[], saves: Date[], now = Date.n
       // during the call rather than jumping when it ends. Bounded, because nothing
       // closes a call the agent abandoned until the sweep runs hours later — and
       // the real end time replaces this the moment it's wrapped up.
-      const end = c.endTime ? c.endTime.getTime() : Math.min(now, start + SESSION_GAP_MS);
+      const wallClock = c.endTime ? c.endTime.getTime() : Math.min(now, start + SESSION_GAP_MS);
+      // Never shorter than the talk time the call actually recorded. `endTime` is
+      // stamped when the wrap-up is SAVED while `durationSecs` is the length the
+      // agent ended the call at, and the two are set independently — so taking
+      // the wall clock alone could report less productive time than the very same
+      // dashboard shows as talk time, with Avg Call contradicting Productive Time
+      // on adjacent cards.
+      const end = Math.max(wallClock, start + Math.max(c.durationSecs ?? 0, 0) * 1000);
       return { at: end, span: { start, end } as WorkInterval | null };
     }),
     ...saves.map((at) => ({ at: at.getTime(), span: null as WorkInterval | null })),

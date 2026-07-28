@@ -101,8 +101,11 @@ export class CommunicationsController {
 
   /** Missed inbound calls for the dashboard widget (employees: own only). */
   @Get('missed')
-  missed(@CurrentUser() user: AuthUser) {
-    return this.comms.getMissedCalls(user.id, user.role);
+  missed(@CurrentUser() user: AuthUser, @Query('limit') limit?: string) {
+    // The dashboard widget wants a short list; the Calling Panel's Missed Calls
+    // tab is a history and asks for more. Bounded either way.
+    const take = Math.min(Math.max(Number(limit) || 20, 1), 200);
+    return this.comms.getMissedCalls(user.id, user.role, take);
   }
 
   /** Communication analytics — managers only. */

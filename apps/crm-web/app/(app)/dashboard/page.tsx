@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { RefreshCw, Download, PhoneCall, Target, Percent, Phone, CheckCircle2, DollarSign } from 'lucide-react';
+import { RefreshCw, Download, PhoneCall, Target, Percent, Phone, PhoneMissed, CheckCircle2, Clock, Users, TrendingUp, Video } from 'lucide-react';
 import Link from 'next/link';
 import { leadsApi, type Lead } from '@/lib/leads';
 import { metricsApi, tasksApi, callsApi, communicationsApi, type Task, type Followup, type MissedCall } from '@/lib/crm';
@@ -65,9 +65,14 @@ export default function DashboardPage() {
   const { data: leads = [] } = useQuery({ queryKey: ['leads', 'today'], queryFn: () => leadsApi.list(), retry: false, refetchInterval: LIVE_MS });
   const { data: tasks = [] } = useQuery({ queryKey: ['tasks'], queryFn: tasksApi.list, retry: false });
   const { data: followups = [] } = useQuery({ queryKey: ['followups'], queryFn: () => callsApi.followups(), retry: false });
-  const { data: missed = [] } = useQuery({ queryKey: ['missed-calls'], queryFn: communicationsApi.missedCalls, retry: false, refetchInterval: LIVE_MS });
+  const { data: missed = [] } = useQuery({ queryKey: ['missed-calls'], queryFn: () => communicationsApi.missedCalls(), retry: false, refetchInterval: LIVE_MS });
   const summaryQ = useQuery({ queryKey: ['metrics', 'summary', dateFilter], queryFn: () => metricsApi.summary(range), retry: false, refetchInterval: LIVE_MS, refetchOnWindowFocus: true });
   const s = summaryQ.data;
+  // The API reports which scope it answered in; the cards are labelled from that
+  // rather than from a role the client decides, so the wording can never claim a
+  // scope the figures don't have.
+  const mine = s?.scope === 'personal';
+  const card = (title: string) => (mine ? `My ${title}` : title);
 
   function refreshNow() {
     qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
@@ -99,12 +104,27 @@ export default function DashboardPage() {
             <RefreshCw className={`h-4 w-4 ${summaryQ.isFetching ? 'animate-spin' : ''}`} />
           </button>
           <button
-            onClick={() => downloadCsv('dashboard-snapshot', ['Metric', 'Value'], [
-              ['Total Leads', s?.totalLeads ?? 0],
+            // Exports exactly what the cards show, under the same labels and the
+            // same scope, so a spreadsheet handed on can't imply org-wide figures
+            // when it holds one employee's.
+            onClick={() => downloadCsv(`dashboard-${mine ? 'my' : 'organization'}-snapshot`, ['Metric', 'Value'], [
+              ['Scope', mine ? 'My data only' : 'All employees'],
+              [card('Total Leads'), s?.totalLeads ?? 0],
+              [card('Assigned Leads'), s?.assignedLeads ?? 0],
+              [card('Contacted Leads'), s?.contactedLeads ?? 0],
+              [card('Pending Leads'), s?.pendingLeads ?? 0],
+              [card('Follow-up Leads'), s?.followUpLeads ?? 0],
+              [card('Converted Leads'), s?.convertedLeads ?? 0],
+              [card('Closed Leads'), s?.closedLeads ?? 0],
+              ...(mine ? [] : [['Avg Leads / Employee', s?.avgLeadsPerEmployee ?? 0] as [string, number]]),
+              [mine ? 'My Total Calls' : 'Total Calls Made', s?.totalCalls ?? 0],
+              [card('Connected Calls'), s?.connectedCalls ?? 0],
+              [card('Missed Calls'), s?.missedCalls ?? 0],
+              [card('Scheduled Calls'), s?.scheduledCalls ?? 0],
+              [card('Callback Calls'), s?.callbackCalls ?? 0],
+              ['Conversion Rate', `${s?.conversionPct ?? 0}%`],
               ['Planned Leads', s?.plannedLeads ?? 0],
-              ['Contacted', s?.contactedLeads ?? 0],
-              ['Progress %', `${s?.progressPct ?? 0}%`],
-              ['Closed Leads', s?.closedLeads ?? 0],
+              ['Progress to Target', `${s?.progressPct ?? 0}%`],
               ['Open Tasks', openTasks.length],
               ['Upcoming Follow-Ups', followups.length],
               ['Leads Added Today', todaysLeads.length],
@@ -119,16 +139,46 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* KPI cards */}
-      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard index={0} icon={Target} iconBg="#e7f0f8" iconColor="#2c5d8f" value={<AnimatedNumber value={s?.totalLeads ?? 0} />} label="Total Leads" trend="4.2%" trendDir="up" spark={[40, 42, 45, 43, 50, 55, 58, 62, 70]} sparkColor="#2c5d8f" />
-        <KpiCard index={1} icon={PhoneCall} iconBg="#e3f1ee" iconColor="#2f6f63" value={<AnimatedNumber value={s?.contactedLeads ?? 0} />} label="Contacted" spark={[8, 12, 16, 20, 25, 30, 36, 42, 50]} sparkColor="#2f6f63" />
-        <KpiCard index={2} icon={Percent} iconBg="#e4f2e4" iconColor="#317d34" value={<AnimatedNumber value={s?.progressPct ?? 0} decimals={2} suffix="%" />} label="Progress to Target" trend="0.4%" trendDir="up" spark={[6, 6.5, 7, 7.2, 7.8, 8, 8.2, 8.4, 8.56]} sparkColor="#317d34" />
-        <KpiCard index={3} icon={CheckCircle2} iconBg="#e4f2e4" iconColor="#317d34" value={<AnimatedNumber value={s?.closedLeads ?? 0} />} label="Closed Leads" trend="8%" trendDir="up" spark={[10, 15, 18, 22, 25, 30, 33, 38, 41]} sparkColor="#317d34" />
-        <KpiCard index={4} icon={Phone} iconBg="#e3f1ee" iconColor="#2f6f63" value={openTasks.length} label="Open Tasks" spark={[12, 18, 22, 30, 28, 35, 40, 46, 53]} sparkColor="#2f6f63" />
-        <KpiCard index={5} icon={RefreshCw} iconBg="#fbf3e2" iconColor="#c98a18" value={followups.length} label="Follow-Ups" spark={[20, 22, 25, 28, 30, 29, 31, 33, 34]} sparkColor="#c98a18" />
-        <KpiCard index={6} icon={Percent} iconBg="#d8eed9" iconColor="#266929" value={`${s?.progressPct ?? 0}%`} label="Conversion Rate" trend="0.4%" trendDir="up" spark={[6, 6.5, 7, 7.2, 7.8, 8, 8.2, 8.4, 8.56]} sparkColor="#2b732f" />
-      </div>
+      {/* ── Lead cards ──
+          Labels follow the scope the API reports rather than a role read from
+          the client: an employee sees "My …" because the figures behind the
+          cards are their own book, and an admin sees the plain title because
+          theirs are the organisation's. Nothing here chooses the scope — asking
+          the client to would make the label and the number two separate claims. */}
+      <section>
+        <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
+          {mine ? 'My Leads' : 'Leads — all employees'}
+        </h2>
+        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+          <KpiCard index={0} icon={Target} iconBg="#e7f0f8" iconColor="#2c5d8f" value={<AnimatedNumber value={s?.totalLeads ?? 0} />} label={card('Total Leads')} />
+          <KpiCard index={1} icon={Users} iconBg="#e7f0f8" iconColor="#2c5d8f" value={<AnimatedNumber value={s?.assignedLeads ?? 0} />} label={card('Assigned Leads')} />
+          <KpiCard index={2} icon={PhoneCall} iconBg="#e3f1ee" iconColor="#2f6f63" value={<AnimatedNumber value={s?.contactedLeads ?? 0} />} label={card('Contacted Leads')} />
+          <KpiCard index={3} icon={Clock} iconBg="#fbf3e2" iconColor="#c98a18" value={<AnimatedNumber value={s?.pendingLeads ?? 0} />} label={card('Pending Leads')} />
+          <KpiCard index={4} icon={RefreshCw} iconBg="#fbf3e2" iconColor="#c98a18" value={<AnimatedNumber value={s?.followUpLeads ?? 0} />} label={card('Follow-up Leads')} />
+          <KpiCard index={5} icon={TrendingUp} iconBg="#e4f2e4" iconColor="#317d34" value={<AnimatedNumber value={s?.convertedLeads ?? 0} />} label={card('Converted Leads')} />
+          <KpiCard index={6} icon={CheckCircle2} iconBg="#e4f2e4" iconColor="#317d34" value={<AnimatedNumber value={s?.closedLeads ?? 0} />} label={card('Closed Leads')} />
+          {/* Only meaningful across a team, so it is absent from an employee's
+              dashboard rather than shown as a hollow "1 per employee". */}
+          {!mine && s?.avgLeadsPerEmployee !== null && (
+            <KpiCard index={7} icon={Users} iconBg="#d8eed9" iconColor="#266929" value={<AnimatedNumber value={s?.avgLeadsPerEmployee ?? 0} decimals={1} />} label="Avg Leads / Employee" />
+          )}
+        </div>
+      </section>
+
+      {/* ── Call cards ── same scope, same rules as the Calls Made dashboard. */}
+      <section>
+        <h2 className="mb-2 text-[12px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
+          {mine ? 'My Calls' : 'Calls — all employees'}
+        </h2>
+        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+          <KpiCard index={0} icon={Phone} iconBg="#e7f0f8" iconColor="#2c5d8f" value={<AnimatedNumber value={s?.totalCalls ?? 0} />} label={mine ? 'My Total Calls' : 'Total Calls Made'} />
+          <KpiCard index={1} icon={PhoneCall} iconBg="#e3f1ee" iconColor="#2f6f63" value={<AnimatedNumber value={s?.connectedCalls ?? 0} />} label={card('Connected Calls')} />
+          <KpiCard index={2} icon={PhoneMissed} iconBg="#fbeeec" iconColor="#a8431f" value={<AnimatedNumber value={s?.missedCalls ?? 0} />} label={card('Missed Calls')} />
+          <KpiCard index={3} icon={Video} iconBg="#e7f0f8" iconColor="#2c5d8f" value={<AnimatedNumber value={s?.scheduledCalls ?? 0} />} label={card('Scheduled Calls')} />
+          <KpiCard index={4} icon={RefreshCw} iconBg="#fbf3e2" iconColor="#c98a18" value={<AnimatedNumber value={s?.callbackCalls ?? 0} />} label={card('Callback Calls')} />
+          <KpiCard index={5} icon={Percent} iconBg="#d8eed9" iconColor="#266929" value={<AnimatedNumber value={s?.conversionPct ?? 0} decimals={1} suffix="%" />} label="Conversion Rate" />
+        </div>
+      </section>
 
       {/* Widget grid — all live */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.2 }} className="grid grid-cols-1 gap-5 xl:grid-cols-2">

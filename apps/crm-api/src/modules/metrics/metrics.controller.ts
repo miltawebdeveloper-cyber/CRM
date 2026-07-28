@@ -16,27 +16,27 @@ export class MetricsController {
   }
 
   @Get('by-timezone')
-  byTimezone(@Query() q: MetricsQueryDto) {
-    return this.metrics.byTimezone(q);
+  byTimezone(@Query() q: MetricsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.metrics.byTimezone(q, user);
   }
 
   @Get('by-state')
-  byState(@Query() q: MetricsQueryDto) {
-    return this.metrics.byState(q);
+  byState(@Query() q: MetricsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.metrics.byState(q, user);
   }
 
   @Get('daily')
-  daily(@Query() q: MetricsQueryDto) {
-    return this.metrics.daily(q);
+  daily(@Query() q: MetricsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.metrics.daily(q, user);
   }
 
   @Get('bar')
-  bar(@Query() q: MetricsQueryDto) {
-    return this.metrics.bar(q);
+  bar(@Query() q: MetricsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.metrics.bar(q, user);
   }
 
   @Get('pivot')
-  pivot(@Query() q: MetricsQueryDto) {
-    return this.metrics.pivot(q);
+  pivot(@Query() q: MetricsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.metrics.pivot(q, user);
   }
 }

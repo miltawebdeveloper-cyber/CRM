@@ -6,6 +6,7 @@ import { PhoneIncoming, PhoneOff, CalendarClock, History, ExternalLink, X } from
 import { communicationsApi, type IncomingCall } from '@/lib/crm';
 import { tokenStore } from '@/lib/api';
 import { openQuoApp } from '@/lib/dialer';
+import { useCallingEnabled } from '@/lib/use-calling-enabled';
 
 /**
  * Global incoming-callback popup, shown centre-screen.
@@ -20,6 +21,12 @@ import { openQuoApp } from '@/lib/dialer';
 export function IncomingCallPopup() {
   const [active, setActive] = useState<IncomingCall | null>(null);
   const dismissed = useRef<Set<string>>(new Set());
+  // Live incoming calls are part of the calling feature set, so they follow the
+  // same switch. With calling off this popup must not appear AND must not poll:
+  // it polls once a second, in the background, on every page — leaving that
+  // running while the feature is disabled is a request per second per agent for
+  // a popup that would be suppressed anyway.
+  const { callingEnabled } = useCallingEnabled();
 
   const { data } = useQuery({
     queryKey: ['incoming-latest'],
@@ -28,7 +35,7 @@ export function IncomingCallPopup() {
     // tab is backgrounded — an agent working in another tab must still get the call.
     refetchInterval: 1000,
     refetchIntervalInBackground: true,
-    enabled: typeof window !== 'undefined' && !!tokenStore.access,
+    enabled: callingEnabled && typeof window !== 'undefined' && !!tokenStore.access,
     retry: false,
   });
 
@@ -58,7 +65,10 @@ export function IncomingCallPopup() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
-  if (!active) return null;
+  // Belt and braces alongside the disabled poll: a response already in the cache
+  // when calling is switched off must not raise the popup either, and neither
+  // must the Quo redirect behind it.
+  if (!callingEnabled || !active) return null;
 
   // Attend: launch the Quo/OpenPhone DESKTOP app, where the call is actually
   // picked up, then get the popup out of the way. Logged either way — a failure

@@ -1072,7 +1072,9 @@ export class CommunicationsService {
     const calls = await this.prisma.call.findMany({
       where,
       include: {
-        lead: { select: { id: true, businessName: true, phone: true, city: true, state: true } },
+        // `contactName` is the person who rang — the Missed Calls tab leads with
+        // it and falls back to the company when the contact isn't known.
+        lead: { select: { id: true, leadId: true, businessName: true, contactName: true, phone: true, city: true, state: true } },
         caller: { select: { id: true, name: true } },
       },
       orderBy: { startTime: 'desc' },
@@ -1082,9 +1084,18 @@ export class CommunicationsService {
       id: c.id,
       at: c.startTime,
       leadId: c.lead.id,
+      /** External lead reference, so a missed call can be traced to the record. */
+      leadRef: c.lead.leadId,
       businessName: c.lead.businessName,
+      /** Caller name where the lead names a contact; null when it doesn't. */
+      contactName: c.lead.contactName,
       phone: c.lead.phone,
-      status: c.status,
+      city: c.lead.city,
+      state: c.lead.state,
+      // A provider status is only set on calls that came through OpenPhone; a
+      // zero-length inbound call is the other way one reads as missed, so it is
+      // labelled rather than left blank.
+      status: c.status ?? 'missed',
       assignedTo: c.caller?.name ?? null,
       assignedToId: c.callerId,
     }));

@@ -14,6 +14,7 @@ import { CallsMade } from '@/components/calls-made';
 import { CallsAnalytics } from '@/components/calls-analytics';
 import { CallRecordings } from '@/components/call-recordings';
 import { SmsHistory } from '@/components/sms-history';
+import { MissedCalls } from '@/components/missed-calls';
 import { PageTabs } from '@/components/page-tabs';
 import { PageHead, Avatar } from '@/components/page-head';
 import { StatusPill } from '@/components/status-pill';
@@ -24,6 +25,7 @@ import { useCall } from '@/components/call-provider';
 import { useCanCall } from '@/lib/use-can-call';
 import { launchQuoCall } from '@/lib/dialer';
 import { dayInLeadZone, formatScheduleInLeadZone, nowInLeadZone, zoneLabel } from '@/lib/timezone';
+import { invalidateCallActivity } from '@/lib/sync';
 
 /**
  * How often the panel re-reads its two live sources. The queue is checked more
@@ -86,7 +88,7 @@ export default function CallingPage() {
   const qc = useQueryClient();
   // Which view is showing. The dialer's state lives here, so switching tabs and
   // back doesn't disturb an in-progress call.
-  const [tab, setTab] = useState<'panel' | 'made' | 'analytics' | 'recordings' | 'sms'>('panel');
+  const [tab, setTab] = useState<'panel' | 'made' | 'analytics' | 'recordings' | 'missed' | 'sms'>('panel');
   const [queueFilter, setQueueFilter] = useState<'all' | 'callback' | 'zoom' | 'new_call'>('all');
   const [active, setActive] = useState<{ callId: string; lead: Lead; startedAt: number; from?: string; callerName?: string } | null>(null);
   const [live, setLive] = useState(false);
@@ -106,6 +108,12 @@ export default function CallingPage() {
   // Leads saved in this sitting. See `isDone` — this is what advances the queue
   // when no call was placed to stamp `lastCallEndedAt`.
   const [processed, setProcessed] = useState<Set<string>>(() => new Set());
+  // When the agent started working the lead now on screen. With live calling off
+  // there is no call to time, so this stands in as the duration: it starts the
+  // moment a lead is put in front of them and stops when they press Save. Kept in
+  // a ref because it must not re-render anything — nothing counts up on screen,
+  // the elapsed time is only read once, at the save.
+  const openedAt = useRef<number>(Date.now());
   // A call placed from the dial pad runs in the global docked widget, not this
   // panel. Knowing about it is what stops the two flows starting a second call
   // over the top of the first.
@@ -232,6 +240,14 @@ export default function CallingPage() {
     nextPending ??
     queue[0];
 
+  // Restart the processing clock whenever a different lead comes to the front —
+  // whether the agent picked it or the queue handed it over after a save. Reading
+  // `current.id` rather than the queue array means a background refetch that
+  // leaves the same lead in place doesn't reset the time already spent on it.
+  useEffect(() => {
+    openedAt.current = Date.now();
+  }, [current?.id]);
+
   // No live timer during the call: we don't tick a running clock while `live`.
   // The total duration is computed once, from `startedAt`, when the call ends.
 
@@ -314,9 +330,11 @@ export default function CallingPage() {
         if (note.trim()) await callsApi.addNote(active.callId, note.trim(), callbackAt || undefined, callbackAt || undefined);
       } else {
         // No call was placed — log the same disposition and the same note straight
-        // onto the lead. Nothing is written to the call log, so calls-made figures
-        // stay honest about a session in which nobody dialled.
-        await callsApi.logLead(lead.id, outcome, callbackAt || undefined);
+        // onto the lead. No Call row is written, so Total Calls Made stays honest
+        // about a session in which nobody dialled; the record still appears in the
+        // log, marked "No call", carrying the time spent working the lead.
+        const processingSecs = Math.max(0, Math.round((Date.now() - openedAt.current) / 1000));
+        await callsApi.logLead(lead.id, outcome, callbackAt || undefined, processingSecs);
         if (note.trim()) await callsApi.addLeadNote(lead.id, note.trim(), callbackAt || undefined, callbackAt || undefined);
       }
       // Selecting a Zoom outcome auto-creates the meeting in the Zoom dashboard.
@@ -345,13 +363,12 @@ export default function CallingPage() {
       // hands over the next lead — no refresh, no manual navigation.
       setProcessed((done) => new Set(done).add(lead.id));
       setSelectedId(null); // advance to the next open lead after completing this one
-      qc.invalidateQueries({ queryKey: ['caller-dash'] });
-      qc.invalidateQueries({ queryKey: ['caller-leads'] });
-      qc.invalidateQueries({ queryKey: ['zoom-due'] });
-      qc.invalidateQueries({ queryKey: ['zoom'] });
-      // An outcome can close the lead, moving it out of Lead Management and
-      // into Closed Leads — refresh both lists so the move shows up at once.
-      qc.invalidateQueries({ queryKey: ['leads'] });
+      // One save touches the call log, the lead, its notes and callback, and any
+      // Zoom booked alongside — so every module reading those is refreshed
+      // together. This used to name five keys, which left the panel's own Calls
+      // Made, Analytics and Recordings tabs showing the call as if it never
+      // happened until the page was reloaded. See lib/sync.ts.
+      invalidateCallActivity(qc);
     } catch (err) {
       // Report it rather than just un-busying the button. The resets above are
       // inside the try, so a failure leaves the call open with the outcome, notes
@@ -406,6 +423,9 @@ export default function CallingPage() {
               manager sees the whole team's, an employee sees only their own. */}
           {(([['panel', 'Calling Panel'], ['made', 'Calls Made'], ['analytics', 'Analytics'],
              ['recordings', 'Call Recordings'],
+             // Inbound calls nobody picked up. Its own tab rather than a widget,
+             // so a rep can work the list rather than glance at the newest few.
+             ['missed', 'Missed Calls'],
              ['sms', 'SMS']] as const)).map(([k, label]) => (
             <button
               key={k}
@@ -422,6 +442,7 @@ export default function CallingPage() {
       {tab === 'made' && <CallsMade isManager={isManager} />}
       {tab === 'analytics' && <CallsAnalytics isManager={isManager} />}
       {tab === 'recordings' && <CallRecordings />}
+      {tab === 'missed' && <MissedCalls />}
       {tab === 'sms' && <SmsHistory />}
 
       {tab === 'panel' && (
@@ -732,6 +753,15 @@ export default function CallingPage() {
                     <div className="my-2 rounded-xl bg-white/10 px-3.5 py-3 text-center text-[12.5px] leading-relaxed text-[#d8eed9]">
                       <div className="font-semibold text-white">Calling is temporarily disabled</div>
                       <div className="mt-0.5">{disabledReason || 'Review the lead, log the outcome and save — the queue moves on as usual.'}</div>
+                      {/* Say that the time is being recorded. Without this the
+                          agent has no way to know their handling time counts, and
+                          a hidden measurement that feeds their own numbers is not
+                          something to leave them guessing about. There is
+                          deliberately no ticking clock — a counter on screen turns
+                          the write-up into a race. */}
+                      <div className="mt-1.5 text-[11.5px] text-[#a6c74d]">
+                        Time on this lead is recorded as the call duration when you save.
+                      </div>
                     </div>
                   ) : (
                   <div className="flex flex-wrap justify-center gap-2.5">
