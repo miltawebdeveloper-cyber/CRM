@@ -30,10 +30,40 @@ const MEASURES = [
 ] as const;
 type Measure = (typeof MEASURES)[number]['value'];
 
-/** Bars are one series, so they take one hue. The dimensions that configure their
- *  own colours (outcomes, funnel buckets) keep them, because those colours already
- *  mean something in the pipeline and ratios directly below this chart. */
-const BAR_HUE = '#556b34';
+/** Bars are one series, so they take one hue — the brand's, as a token so it
+ *  steps for the dark card instead of staying a fixed olive that goes muddy on
+ *  it. The dimensions that configure their own colours (outcomes, funnel
+ *  buckets) keep them, because those colours already mean something in the
+ *  pipeline and ratios directly below this chart. */
+const BAR_HUE = 'hsl(var(--primary))';
+
+/**
+ * The y scale: round ticks, evenly spaced, and honest about the gap between them.
+ *
+ * Percentages get a fixed 0–100. The axis used to end just above the tallest bar
+ * (`Math.ceil((max + 3) / 5) * 5`, so 50% produced a 55% ceiling), which had two
+ * faults. Recharts then split that ceiling into four, giving 13.75 a step, and
+ * the `%` formatter rounded those to 0/15/30/45/55 — gridlines evenly spaced on
+ * screen but labelled with uneven values, the last gap two thirds the size of
+ * the others while looking identical. And because the ceiling moved with the
+ * data, a 50% bar drawn for one filter stood exactly as tall as a 100% bar drawn
+ * for another. A fixed scale means bar heights compare across every filter.
+ *
+ * Everything else (call counts, durations) has no natural ceiling, so it takes a
+ * round step just wide enough to clear the data.
+ */
+const NICE_STEPS = [1, 1.5, 2, 2.5, 3, 5, 10];
+function scaleFor(max: number, pct: boolean): { domain: [number, number]; ticks: number[] } {
+  if (pct) return { domain: [0, 100], ticks: [0, 25, 50, 75, 100] };
+  if (!(max > 0)) return { domain: [0, 4], ticks: [0, 1, 2, 3, 4] };
+  const divisions = 4;
+  const mag = 10 ** Math.floor(Math.log10(max / divisions));
+  // Whole numbers only: every non-percentage measure here is a count of calls
+  // or a number of seconds, and neither has a half. Without the floor at 1 a
+  // single call produced ticks at 0.25, 0.5, 0.75 — quarters of a phone call.
+  const step = Math.max(1, Math.round(NICE_STEPS.map((m) => m * mag).find((s) => s * divisions >= max) ?? 10 * mag));
+  return { domain: [0, step * divisions], ticks: Array.from({ length: divisions + 1 }, (_, i) => i * step) };
+}
 
 /** The API's key for "this call has no value on this axis" (no outcome logged, no
  *  known caller). It is never a bar: a share is measured against the calls that
@@ -152,6 +182,10 @@ export function CallsAspects({ filters }: { filters: CallFilters }) {
       : 'All dates';
 
   const hasData = bars.some((b) => b.agg.calls > 0);
+  const scale = useMemo(
+    () => scaleFor(Math.max(0, ...bars.map((b) => b.value)), isPct(measure)),
+    [bars, measure],
+  );
 
   return (
     <div className="mb-[18px] rounded-2xl border bg-card p-5 shadow-sm">
@@ -200,10 +234,25 @@ export function CallsAspects({ filters }: { filters: CallFilters }) {
            every bar and axis label together once there are many categories (e.g.
            24 hour buckets on a phone). With few bars the min-width is under 100%,
            so ResponsiveContainer just fills the card as before. */
+        <>
+        {/* What each axis measures, as a caption rather than as rotated text
+            inside the plot. The y label used to be `who` — the employee's name,
+            which is what the TITLE says and not what the axis quantifies — set
+            at `insideLeft`, where it printed straight over the tick values. An
+            axis title that can collide with its own ticks is one worth not
+            having: here the two names sit above the plot, where nothing can run
+            into them at any width. */}
+        <div className="mb-1 flex items-baseline justify-between gap-3 text-[10px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
+          <span>{MEASURES.find((m) => m.value === measure)!.label}</span>
+          <span className="truncate">{DIMS.find((d) => d.value === dim)?.label ?? 'Aspect'}</span>
+        </div>
+        {/* 72px a bar, not 46: an x tick like "Closed — Won" is about 78px at
+            11px type, so at the old minimum the labels overlapped each other
+            before the scroll ever kicked in. */}
         <div className="h-[260px] overflow-x-auto sm:h-[300px] lg:h-[340px]">
-          <div className="h-full" style={{ minWidth: Math.max(bars.length * 46, 320) }}>
+          <div className="h-full" style={{ minWidth: Math.max(bars.length * 72, 320) }}>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={bars} margin={{ top: 16, right: 12, bottom: 28, left: 8 }} barCategoryGap="22%">
+            <BarChart data={bars} margin={{ top: 16, right: 12, bottom: 4, left: 8 }} barCategoryGap="22%">
               {/* Recessive grid: horizontal only — the bars carry the comparison. */}
               <CartesianGrid vertical={false} stroke="hsl(var(--border))" />
               <XAxis
@@ -212,7 +261,6 @@ export function CallsAspects({ filters }: { filters: CallFilters }) {
                 axisLine={{ stroke: 'hsl(var(--border))' }}
                 tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                 interval={0}
-                label={{ value: 'ASPECTS', position: 'insideBottom', offset: -18, style: { fontSize: 11, fontWeight: 600, fill: 'hsl(var(--muted-foreground))', letterSpacing: '0.08em' } }}
               />
               <YAxis
                 tickLine={false}
@@ -220,8 +268,8 @@ export function CallsAspects({ filters }: { filters: CallFilters }) {
                 width={54}
                 tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }}
                 tickFormatter={(v: number) => fmtMeasure(v, measure)}
-                domain={isPct(measure) ? [0, (max: number) => Math.min(100, Math.ceil((max + 3) / 5) * 5)] : [0, 'auto']}
-                label={{ value: who.toUpperCase(), angle: -90, position: 'insideLeft', style: { fontSize: 11, fontWeight: 600, fill: 'hsl(var(--muted-foreground))', letterSpacing: '0.08em', textAnchor: 'middle' } }}
+                domain={scale.domain}
+                ticks={scale.ticks}
               />
               <Tooltip
                 cursor={{ fill: 'hsl(var(--muted))' }}
@@ -252,6 +300,7 @@ export function CallsAspects({ filters }: { filters: CallFilters }) {
           </ResponsiveContainer>
           </div>
         </div>
+        </>
       )}
     </div>
   );
