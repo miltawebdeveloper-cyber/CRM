@@ -46,17 +46,29 @@ export class LeadIdService {
   /**
    * The next id in the running sequence, e.g. `L-2026-1251` after `L-2026-1250`.
    *
-   * Numbering is per-year, which is what the `L-YYYY-N` format means and what
-   * this CRM has always done: on 1 January the prefix changes and the sequence
-   * starts again at 1. Ids stay unique because the year is part of the id.
+   * The sequence NEVER restarts. It is one continuous counter for the life of
+   * the CRM, and the year in the id records when a lead arrived rather than
+   * scoping the numbering: `L-2026-1250` on 31 December is followed by
+   * `L-2027-1251` on 1 January.
    *
-   * Only ids that match the canonical shape count toward the maximum, so a
+   * That is why the maximum is taken across every year, not just the current
+   * one. Scoping it to the current year would restart at 1 each January, which
+   * still yields unique ids — the year is part of the id — but it means a lead
+   * numbered 1 in one year and another numbered 1 in the next, and the sequence
+   * stops being a running count of leads ever received.
+   *
+   * Only ids of the canonical `L-YYYY-N` shape count toward the maximum, so a
    * legacy `L-M8XK2P9` or a seeded `L-00001` can neither be parsed as a
-   * sequence number nor hold the counter back.
+   * sequence number nor hold the counter back. Soft-deleted leads are counted:
+   * their row still exists and still holds its id, so skipping them would hand
+   * the same number out twice.
    */
   async next(client: Pick<PrismaService, '$queryRaw'> = this.prisma): Promise<string> {
-    const year = new Date().getFullYear();
-    const prefix = `L-${year}-`;
+    const prefix = `L-${new Date().getFullYear()}-`;
+    // Position 8 is the character after `L-YYYY-`, the same for every canonical
+    // id since the year is always four digits — which is what lets one
+    // SUBSTRING read the sequence out of ids from any year.
+    //
     // NB: the start position must be cast to ::int. A bound parameter arrives as
     // text, and `SUBSTRING(x FROM <text>)` is read as the POSIX-regex form
     // (pattern) rather than positional extraction — which silently returns NULL,
@@ -64,11 +76,10 @@ export class LeadIdService {
     // positional form.
     const rows = await client.$queryRaw<Array<{ max_seq: number | null }>>(Prisma.sql`
       SELECT MAX(
-        CAST(SUBSTRING(lead_id FROM ${prefix.length + 1}::int) AS INTEGER)
+        CAST(SUBSTRING(lead_id FROM 8::int) AS INTEGER)
       ) AS max_seq
       FROM leads
-      WHERE lead_id LIKE ${prefix + '%'}
-        AND lead_id ~ ${'^L-' + year + '-[0-9]+$'}
+      WHERE lead_id ~ ${'^L-[0-9]{4}-[0-9]+$'}
     `);
     return `${prefix}${(rows[0]?.max_seq ?? 0) + 1}`;
   }

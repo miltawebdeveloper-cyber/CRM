@@ -543,15 +543,29 @@ export class LeadsService {
       if (prefix !== undefined && (from || to)) {
         const lo = from?.num ?? Number.NEGATIVE_INFINITY;
         const hi = to?.num ?? Number.POSITIVE_INFINITY;
+        // A range between two canonical `L-YYYY-N` ids is a range over the
+        // SEQUENCE, not over one year's prefix. The sequence runs continuously
+        // across years (see LeadIdService), so L-2026-1240..L-2027-1260 is a
+        // contiguous block of leads — matching on the `from` endpoint's prefix
+        // would silently return only the 2026 half of it. Today every sequence
+        // number still lives under exactly one prefix, so this changes nothing
+        // for existing ranges; it is what keeps them whole after a year rolls
+        // over.
+        const canonical = /^L-\d{4}-$/.test(prefix) && (!to || /^L-\d{4}-$/.test(to.prefix));
         const candidates = await this.prisma.lead.findMany({
-          where: { deletedAt: null, leadId: { startsWith: prefix } },
+          where: { deletedAt: null, ...(canonical ? {} : { leadId: { startsWith: prefix } }) },
           select: { id: true, leadId: true },
         });
+        // Canonical ids are read after `L-YYYY-`; a prefix range keeps reading
+        // after whatever prefix the caller typed.
+        const seqOf = (leadId: string) => {
+          const m = canonical ? leadId.match(/^L-\d{4}-(\d+)$/) : leadId.slice(prefix.length).match(/^(\d+)$/);
+          return m ? Number(m[1]) : null;
+        };
         const ids = candidates
           .filter((c) => {
-            const m = c.leadId.slice(prefix.length).match(/^(\d+)$/);
-            if (!m) return false; // ids that don't fit the sequence shape aren't in any range
-            const n = Number(m[1]);
+            const n = seqOf(c.leadId);
+            if (n === null) return false; // ids that don't fit the sequence shape aren't in any range
             return n >= lo && n <= hi;
           })
           .map((c) => c.id);
