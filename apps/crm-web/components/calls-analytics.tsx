@@ -16,9 +16,13 @@ function Dial({ pct }: { pct: number }) {
   return (
     <div className="relative grid h-[86px] w-[86px] shrink-0 place-items-center">
       <svg viewBox="0 0 80 80" className="h-full w-full -rotate-90">
-        <circle cx="40" cy="40" r={r} fill="none" stroke="#eceef4" strokeWidth="9" />
+        {/* Themed tokens, not fixed hex: the track was a light grey that stayed
+            light on the dark card, and the fill was the old cold-stage indigo —
+            which read as a pipeline colour on a card that has nothing to do with
+            the pipeline. Target attainment is brand work, so it wears the brand. */}
+        <circle cx="40" cy="40" r={r} fill="none" stroke="hsl(var(--muted))" strokeWidth="9" />
         <circle
-          cx="40" cy="40" r={r} fill="none" stroke="#6366f1" strokeWidth="9" strokeLinecap="round"
+          cx="40" cy="40" r={r} fill="none" stroke="hsl(var(--primary))" strokeWidth="9" strokeLinecap="round"
           strokeDasharray={`${c * filled} ${c}`}
         />
       </svg>
@@ -77,6 +81,9 @@ function Stage({ label, value, sub, color, tint, dark }: { label: string; value:
 /** Ink used where a heading carries no category colour of its own. */
 const INK = '#27301d';
 
+/** One stage of the pipeline palette — mark, band, and text on that band. */
+type Cat = (typeof CAT)[keyof typeof CAT];
+
 /**
  * A card heading that carries its bucket's colour.
  *
@@ -89,33 +96,40 @@ const INK = '#27301d';
  * The count rides in the heading as a pill, so the card's headline number is
  * legible at a glance rather than only at the foot of a long list of zeroes.
  */
-function CardHead({ title, color, tint, dark, count }: {
-  title: string; color?: string; tint?: string; dark?: boolean; count?: number;
+function CardHead({ title, cat, dark, count }: {
+  title: string; cat?: Cat; dark?: boolean; count?: number;
 }) {
   return (
-    <div
-      className="flex items-center gap-2 px-3 py-2"
-      style={dark ? { background: INK, color: '#fff' } : { background: tint, color }}
-    >
-      <h4 className="truncate text-[11px] font-bold uppercase tracking-[.09em]">{title}</h4>
-      {count !== undefined && (
-        // Lifted off the band rather than given its own colour: the band is
-        // already carrying the identity, and a second colour here would compete.
-        <span className={`ml-auto shrink-0 rounded-full px-2 py-[1px] text-[11px] font-bold tabular-nums ${dark ? 'bg-white/15' : 'bg-white/70'}`}>
-          {count.toLocaleString()}
-        </span>
-      )}
-    </div>
+    <>
+      {/* A 2px rail of the stage's full-strength mark above its tinted band.
+          The tint alone is pale by necessity — it has to hold dark text — so
+          the rail is what carries the colour at full saturation and gives the
+          row of cards an edge to scan along. */}
+      <div className="h-[2px] w-full" style={{ background: dark ? INK : cat?.color }} />
+      <div
+        className="flex items-center gap-2 px-3 py-2"
+        style={dark ? { background: INK, color: '#fff' } : { background: cat?.tint, color: cat?.ink }}
+      >
+        <h4 className="truncate text-[11px] font-bold uppercase tracking-[.09em]">{title}</h4>
+        {count !== undefined && (
+          // Lifted off the band rather than given its own colour: the band is
+          // already carrying the identity, and a second colour here would compete.
+          <span className={`ml-auto shrink-0 rounded-full px-2 py-[1px] text-[11px] font-bold tabular-nums ${dark ? 'bg-white/15' : 'bg-white/70'}`}>
+            {count.toLocaleString()}
+          </span>
+        )}
+      </div>
+    </>
   );
 }
 
 /** One breakdown column: the statuses in a bucket with their counts. */
-function Breakdown({ title, color, tint, dark, rows, total, totalLabel = 'Total' }: {
-  title: string; color?: string; tint?: string; dark?: boolean; rows: CallStatusCount[]; total: number; totalLabel?: string;
+function Breakdown({ title, cat, dark, rows, total, totalLabel = 'Total' }: {
+  title: string; cat?: Cat; dark?: boolean; rows: CallStatusCount[]; total: number; totalLabel?: string;
 }) {
   return (
     <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
-      <CardHead title={title} color={color} tint={tint} dark={dark} count={total} />
+      <CardHead title={title} cat={cat} dark={dark} count={total} />
       <div className="px-3">
         {rows.length === 0 ? (
           <p className="py-3 text-center text-[11.5px] text-muted-foreground">No statuses in this bucket.</p>
@@ -436,17 +450,17 @@ export function CallsAnalytics({ isManager }: { isManager: boolean }) {
       <div className="grid gap-3 xl:grid-cols-[3fr_1fr]">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <Breakdown title="Given Leads" dark rows={byStatus} total={given} />
-          <Breakdown title={CAT.cold.label} color={CAT.cold.color} tint={CAT.cold.tint} rows={inCat('cold')} total={cats?.cold ?? 0} />
+          <Breakdown title={CAT.cold.label} cat={CAT.cold} rows={inCat('cold')} total={cats?.cold ?? 0} />
           <div className="space-y-3">
-            <Breakdown title={CAT.warm.label} color={CAT.warm.color} tint={CAT.warm.tint} rows={inCat('warm')} total={cats?.warm ?? 0} />
-            <Breakdown title={CAT.hot.label} color={CAT.hot.color} tint={CAT.hot.tint} rows={inCat('hot')} total={cats?.hot ?? 0} />
+            <Breakdown title={CAT.warm.label} cat={CAT.warm} rows={inCat('warm')} total={cats?.warm ?? 0} />
+            <Breakdown title={CAT.hot.label} cat={CAT.hot} rows={inCat('hot')} total={cats?.hot ?? 0} />
           </div>
           <div className="space-y-3">
-            <Breakdown title="Connected / Follow-ups" color={CAT.connected.color} tint={CAT.connected.tint} rows={inCat('connected')} total={cats?.connected ?? 0} />
+            <Breakdown title="Connected / Follow-ups" cat={CAT.connected} rows={inCat('connected')} total={cats?.connected ?? 0} />
             {/* Green, matching the ring's Closed slice. It was rust, which is the
                 Closed-Lost colour — the same bucket wearing two colours across
                 two cards in one row. */}
-            <Breakdown title="Closed" color={CAT.closed_positive.color} tint={CAT.closed_positive.tint} rows={[...inCat('closed_positive'), ...inCat('closed_negative')]} total={(cats?.closedPositive ?? 0) + (cats?.closedNegative ?? 0)} />
+            <Breakdown title="Closed" cat={CAT.closed_positive} rows={[...inCat('closed_positive'), ...inCat('closed_negative')]} total={(cats?.closedPositive ?? 0) + (cats?.closedNegative ?? 0)} />
           </div>
         </div>
         {/* Self-start so the ring keeps its own height instead of stretching to

@@ -64,11 +64,11 @@
      Connected / Follow-ups takes the neutral: it isn't a temperature on the
      Cold → Warm → Hot → Closed funnel, and a fifth hue that separates from
      these four doesn't exist in this brand's range. */
-  --viz-cold: #6366f1;
-  --viz-warm: #f59e0b;
-  --viz-hot: #ef4444;
-  --viz-closed: #008300;
-  --viz-working: #8b8f86;
+  --viz-cold: #3e63dd;
+  --viz-warm: #dc9200;
+  --viz-hot: #e5484d;
+  --viz-closed: #0d8a55;
+  --viz-working: #7c8296;
 }
 
 .dark {
@@ -86,11 +86,11 @@
 
   /* Re-stepped for the dark card, not flipped: the light steps sit above the
      dark lightness band and would glow. Validated as its own set. */
-  --viz-cold: #6d76e8;
+  --viz-cold: #6f86ee;
   --viz-warm: #b08600;
   --viz-hot: #e46464;
-  --viz-closed: #189e6a;
-  --viz-working: #9aa08e;
+  --viz-closed: #12a06e;
+  --viz-working: #949aa8;
 }
 
 @layer base {

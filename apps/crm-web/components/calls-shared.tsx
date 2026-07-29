@@ -12,13 +12,34 @@ import { usePersistedState } from '@/lib/use-persisted-state';
  * Funnel colours — one source of truth for the pipeline, the ratio bars and the
  * breakdown headings, so a bucket reads the same everywhere it appears.
  */
+/**
+ * The pipeline palette — three steps per stage.
+ *
+ * `color` is the mark: the fill of a bar, a ring slice, a rail. `tint` is the
+ * band a heading or chip sits on. `ink` is text on that band — dark enough to
+ * read (every pair clears 4.5:1) while still carrying the stage's hue, which a
+ * muted grey wouldn't.
+ *
+ * The marks are chosen as a set rather than picked one at a time: the four
+ * temperatures validate together for a chart surface — lightness band, chroma
+ * floor, and separation both in normal vision and under colour blindness. The
+ * predecessors were stock framework defaults (indigo-500, amber-500, red-500)
+ * plus two near-identical dark greens, which failed on separation: Won and Lost
+ * were ΔE 2.6 apart under deuteranopia, and the teal read as grey once it was a
+ * fill instead of a label.
+ *
+ * Hot and Closed remain a red/green pair — unavoidable when hot means red and
+ * won means green. They clear every hard gate but sit in the warning band for
+ * protanopia, so anywhere these become areas rather than labels, identity must
+ * carry a second encoding too: a name, a count, a gap.
+ */
 export const CAT = {
-  cold: { label: 'Cold', color: '#6366f1', tint: '#eef0fe' },
-  warm: { label: 'Warm', color: '#f59e0b', tint: '#fef6e7' },
-  hot: { label: 'Hot', color: '#ef4444', tint: '#fdeeee' },
-  connected: { label: 'Connected', color: '#2f6f63', tint: '#e3f1ee' },
-  closed_positive: { label: 'Closed — Won', color: '#3f7a32', tint: '#e8f2e4' },
-  closed_negative: { label: 'Closed — Lost', color: '#a8431f', tint: '#fbeeec' },
+  cold: { label: 'Cold', color: '#3e63dd', tint: '#e4e9fb', ink: '#2a44a8' },
+  warm: { label: 'Warm', color: '#dc9200', tint: '#fbf0dc', ink: '#8a5a00' },
+  hot: { label: 'Hot', color: '#e5484d', tint: '#fdeae9', ink: '#a8322f' },
+  connected: { label: 'Connected', color: '#0e7c86', tint: '#e0f1f3', ink: '#0a5c63' },
+  closed_positive: { label: 'Closed — Won', color: '#0d8a55', tint: '#e0f2e9', ink: '#0a6640' },
+  closed_negative: { label: 'Closed — Lost', color: '#b3541e', tint: '#fbeee6', ink: '#8a3d12' },
 } as const;
 
 /**
