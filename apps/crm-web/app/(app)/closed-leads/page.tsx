@@ -4,15 +4,22 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Download, Eye, Clock, MapPin, Building2, PhoneCall, Info } from 'lucide-react';
-import { leadsApi, type Lead } from '@/lib/leads';
+import { leadsApi, type Lead, type LeadListQuery } from '@/lib/leads';
+import { useDebounced } from '@/lib/use-debounced';
+import { useInfiniteLeads, useLeadScrollSentinel } from '@/lib/use-infinite-leads';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { api } from '@/lib/api';
 import { PageHead, Avatar } from '@/components/page-head';
 import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
 import { downloadCsv, downloadXlsx } from '@/lib/export';
-import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
+import { EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { usePersistedState } from '@/lib/use-persisted-state';
+import { pushToast } from '@/lib/toast';
+
+/** Ceiling for an export — the API's `limit` cap. Beyond it the user is told
+ *  what was left out rather than handed a short file that looks complete. */
+const EXPORT_LIMIT = 5000;
 
 const CALL_STATUS_OPTS = [
   { label: 'All Call Statuses', value: '' },
@@ -37,17 +44,38 @@ export default function ClosedLeadsPage() {
   const [q, setQ] = useState('');
   const [activityLead, setActivityLead] = useState<Lead | null>(null);
 
-  // The API scopes this list by role: admins & team leaders get every closed
-  // lead in the org, employees only the ones they personally closed.
-  // Still a bulk read, filtered in the browser — unlike Lead Management, which
-  // now pages server-side. The limit is explicit because the API's default page
-  // is 50 now, and inheriting it here would silently drop this list to its first
-  // fifty rows. It does gain the other two wins: the response carries only the
-  // columns the grid renders (about a third of the bytes it used to), and the
-  // query behind it is now an index scan rather than a scan of the table.
-  const { data: allLeads = [], isLoading } = useQuery({
-    queryKey: ['leads', 'closed'],
-    queryFn: () => leadsApi.list({ closed: true, limit: 1000 }),
+  // One continuous list of every closed lead, filled in as it is scrolled — the
+  // same panel Lead Management uses, with the same filters applied by the API.
+  //
+  // The API scopes it by role: admins & team leaders get every closed lead in
+  // the org, employees only the ones they personally closed. Dates here are
+  // CLOSURE dates, not creation dates; for anything that took work to win the
+  // two are months apart.
+  const debouncedQ = useDebounced(q, 250);
+  const listQuery = useMemo<LeadListQuery>(() => ({
+    closed: true,
+    q: debouncedQ || undefined,
+    timezone: tz || undefined,
+    state: state || undefined,
+    city: city || undefined,
+    callStatus: callStatus || undefined,
+    closedBy: closedBy || undefined,
+    closedFrom: dateFilter.from || undefined,
+    closedTo: dateFilter.to || undefined,
+    sortBy: 'closedAt',
+    sortDir: 'desc',
+  }), [debouncedQ, tz, state, city, callStatus, closedBy, dateFilter.from, dateFilter.to]);
+
+  const leadsQuery = useInfiniteLeads(listQuery);
+  const { rows: leads, total, isLoading, isFetchingNextPage, hasNextPage } = leadsQuery;
+  const sentinelRef = useLeadScrollSentinel(leadsQuery);
+
+  // Dropdown values come from the whole closed book, not from the rows loaded
+  // so far — a filter offering only what has been scrolled past is no filter.
+  const { data: filterOpts } = useQuery({
+    queryKey: ['leads', 'filter-options', 'closed', tz, state],
+    queryFn: () => leadsApi.filterOptions({ closed: true, timezone: tz || undefined, state: state || undefined }),
+    staleTime: 5 * 60_000,
   });
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   const canManage = me?.role === 'admin' || me?.role === 'team_leader';
@@ -73,7 +101,7 @@ export default function ClosedLeadsPage() {
     'Lost Reason',
     'Created Date',
   ];
-  const exportRows = () => leads.map((l) => [
+  const exportRows = (rows: Lead[]) => rows.map((l: Lead) => [
     l.leadId,
     l.closedAt ? new Date(l.closedAt).toLocaleDateString() : '',
     l.closedBy?.name ?? '',
@@ -95,20 +123,12 @@ export default function ClosedLeadsPage() {
     l.createdAt ? new Date(l.createdAt).toLocaleDateString() : '',
   ]);
 
-  // States cascade from the selected timezone; cities from timezone + state.
-  const stateOpts = optionsFrom(
-    allLeads.filter((l) => !tz || l.timezone === tz).map((l) => l.state),
-    'All States',
-  );
-  const cityOpts = optionsFrom(
-    allLeads.filter((l) => (!tz || l.timezone === tz) && (!state || l.state === state)).map((l) => l.city),
-    'All Cities',
-  );
+  // States cascade from the selected timezone; cities from timezone + state —
+  // the same cascade the API applies when it groups them.
+  const stateOpts = optionsFrom(filterOpts?.states ?? [], 'All States');
+  const cityOpts = optionsFrom(filterOpts?.cities ?? [], 'All Cities');
   // Managers can narrow to a single closer; an employee's list is all their own.
-  const closerOpts = optionsFrom(
-    allLeads.map((l) => l.closedBy?.name).filter((n): n is string => !!n),
-    'All Employees',
-  );
+  const closerOpts = optionsFrom(filterOpts?.closers ?? [], 'All Employees');
 
   const columns = useMemo<ColumnDef<Lead>[]>(() => [
     {
@@ -163,34 +183,40 @@ export default function ClosedLeadsPage() {
   ], [router, canManage]);
 
   const prefs = useColumnPrefs('closed-leads', columns);
-  const term = q.trim().toLowerCase();
-  // Search runs across every searchable column regardless of which are visible.
-  const searchCols = useMemo(() => columns.filter((c) => c.searchable && c.searchValue), [columns]);
-  const leads = allLeads.filter((l) => {
-    if (callStatus && (l.callStatus ?? '').toLowerCase() !== callStatus.toLowerCase()) return false;
-    if (closedBy && l.closedBy?.name !== closedBy) return false;
-    if (tz && l.timezone !== tz) return false;
-    if (state && l.state !== state) return false;
-    if (city && l.city !== city) return false;
-    // Closed leads are filtered on when they closed, not when they were created.
-    if (!inDateBounds(l.closedAt, dateFilter)) return false;
-    if (term && !searchCols.some((c) => String(c.searchValue!(l) ?? '').toLowerCase().includes(term))) return false;
-    return true;
-  });
+
+  // Filtering used to happen here, over whatever slice of the closed book had
+  // been downloaded. It is all in `listQuery` now, so the list being scrolled is
+  // the filtered one rather than a filtered view of a partial download.
+
+  // Re-runs the current filters unpaged, so the file holds every matching lead
+  // rather than only the chunks that happen to have been scrolled into view.
+  const [exporting, setExporting] = useState(false);
+  const runExport = async (write: (rows: (string | number)[][]) => void) => {
+    setExporting(true);
+    try {
+      const all = await leadsApi.page({ ...listQuery, page: 1, limit: EXPORT_LIMIT });
+      write(exportRows(all.rows));
+      if (all.total > all.rows.length) {
+        pushToast('info', `Exported the first ${all.rows.length.toLocaleString()} of ${all.total.toLocaleString()} leads. Narrow the filters to export the rest.`);
+      }
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div>
       <PageHead>
         <button
-          onClick={() => downloadCsv('closed-leads', EXPORT_HEADERS, exportRows())}
-          disabled={leads.length === 0}
+          onClick={() => runExport((rows) => downloadCsv('closed-leads', EXPORT_HEADERS, rows))}
+          disabled={total === 0 || exporting}
           className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
         >
-          <Download className="h-4 w-4" /> Export CSV
+          <Download className="h-4 w-4" /> {exporting ? 'Preparing…' : 'Export CSV'}
         </button>
         <button
-          onClick={() => downloadXlsx('closed-leads', EXPORT_HEADERS, exportRows())}
-          disabled={leads.length === 0}
+          onClick={() => runExport((rows) => downloadXlsx('closed-leads', EXPORT_HEADERS, rows))}
+          disabled={total === 0 || exporting}
           className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
         >
           <Download className="h-4 w-4" /> Export Excel
@@ -215,12 +241,35 @@ export default function ClosedLeadsPage() {
         rows={leads}
         getRowKey={(l) => l.id}
         title="Closed Leads"
-        subtitle={`${leads.length} shown`}
+        subtitle={
+          total === 0
+            ? 'No closed leads'
+            : leads.length >= total
+              ? `${total.toLocaleString()} closed lead${total === 1 ? '' : 's'}`
+              : `${leads.length.toLocaleString()} of ${total.toLocaleString()} loaded — scroll for more`
+        }
         loading={isLoading}
-        emptyText={allLeads.length === 0 ? 'No closed leads yet.' : 'No closed leads match the current filters.'}
+        emptyText="No closed leads match the current filters."
         prefs={prefs}
         selectable={false}
       />
+
+      {/* Same end-of-list marker as Lead Management: scrolling to it brings the
+          next chunk, and the button covers anyone who never reaches it. */}
+      <div ref={sentinelRef} className="mt-3 flex items-center justify-center gap-3 py-2">
+        {hasNextPage ? (
+          <button
+            type="button"
+            onClick={() => leadsQuery.fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
+          >
+            {isFetchingNextPage ? 'Loading more…' : `Load more (${(total - leads.length).toLocaleString()} left)`}
+          </button>
+        ) : (
+          total > 0 && <p className="text-[12px] text-muted-foreground">All {total.toLocaleString()} closed leads loaded.</p>
+        )}
+      </div>
 
       {/* Lead History drawer — Admin & Team Leader only. */}
       {canManage && activityLead && (

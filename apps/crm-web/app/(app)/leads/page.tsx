@@ -2,8 +2,8 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, X, Hourglass, Lock, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, X, Hourglass, Lock } from 'lucide-react';
 import { leadsApi, type CreateLeadInput, type Lead, type LeadListQuery } from '@/lib/leads';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { LeadAssignDialog } from '@/components/lead-assign-dialog';
@@ -24,11 +24,8 @@ import { downloadCsv, downloadXlsx } from '@/lib/export';
 import { EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { usePersistedState } from '@/lib/use-persisted-state';
 import { useDebounced } from '@/lib/use-debounced';
+import { useInfiniteLeads, useLeadScrollSentinel } from '@/lib/use-infinite-leads';
 import { pushToast } from '@/lib/toast';
-
-/** Rows per page. A screenful and a little to scroll, which is what makes the
- *  module open in one small response instead of one large one. */
-const PAGE_SIZE = 50;
 
 /** Ceiling for an export — the API's own `limit` cap, and five times what the
  *  module could reach before. Beyond it the user is told what was left out
@@ -99,16 +96,16 @@ export default function LeadsPage() {
   // manager gets the whole book, which is what makes the select-and-distribute
   // flow below possible at all. Asking for `mine` here would leave a manager with
   // nothing to hand out.
-  // One page at a time, filtered, sorted and counted by the API.
+  // One continuous list of every lead, filled in as it is scrolled.
   //
-  // This used to fetch the book — up to a thousand leads, every column of each,
-  // about 1.2 MB — and then filter, sort and paginate it in the browser. That is
-  // why the module took so long to open: nothing could be shown until all of it
-  // had arrived and a thousand rows had been laid out. Every input below is now
-  // a query parameter, so what comes back is the page being looked at.
-  const [page, setPage] = useState(1);
-  // The typed term, debounced. Sending a request per keystroke put the search
-  // behind a queue of its own outdated requests.
+  // No page numbers: the panel reads as the whole book, and scrolling to the
+  // bottom brings the next chunk. The wire still carries a chunk at a time,
+  // which is the point — this module used to download the entire book before it
+  // could show anything, and removing the paging controls by going back to that
+  // would just trade the controls for the wait.
+  //
+  // Every filter below is a query parameter, so the list being scrolled is the
+  // filtered one, not a filtered view of whatever happened to be downloaded.
   const debouncedQ = useDebounced(q, 250);
 
   const listQuery = useMemo<LeadListQuery>(() => ({
@@ -126,28 +123,13 @@ export default function LeadsPage() {
     createdTo: dateFilter.to || undefined,
     sortBy: sort.key,
     sortDir: sort.dir,
-    page,
-    pageSize: PAGE_SIZE,
-  }), [debouncedQ, tz, state, city, status, callStatus, dateFilter.from, dateFilter.to, sort.key, sort.dir, page]);
+  }), [debouncedQ, tz, state, city, status, callStatus, dateFilter.from, dateFilter.to, sort.key, sort.dir]);
 
-  const { data: pageData, isLoading, isFetching } = useQuery({
-    queryKey: ['leads', 'scoped', 'active', listQuery],
-    queryFn: () => leadsApi.page(listQuery),
-    // Hold the previous page on screen while the next one loads, so paging and
-    // filtering don't blank the table and jump the scroll position.
-    placeholderData: keepPreviousData,
-  });
-  const leads = useMemo(() => pageData?.rows ?? [], [pageData]);
-  const total = pageData?.total ?? 0;
-
-  // Any change to the filters puts you back on page 1 — page 7 of the old
-  // result set is meaningless against the new one, and often past its end.
-  const filterSig = `${debouncedQ}|${tz}|${state}|${city}|${status}|${callStatus}|${dateFilter.from}|${dateFilter.to}`;
-  const lastSig = useRef(filterSig);
-  if (lastSig.current !== filterSig) {
-    lastSig.current = filterSig;
-    if (page !== 1) setPage(1);
-  }
+  // Changing a filter or the sort changes the query key, so the list starts
+  // again from the top on its own — no page number to reset.
+  const leadsQuery = useInfiniteLeads(listQuery);
+  const { rows: leads, total, isLoading, isFetchingNextPage, hasNextPage } = leadsQuery;
+  const sentinelRef = useLeadScrollSentinel(leadsQuery);
 
   // The dropdown values come from the whole book, not from the page on screen —
   // a filter offering only the cities that happen to be on page 3 is no filter.
@@ -442,11 +424,7 @@ export default function LeadsPage() {
   // Filtering and sorting used to happen here, over the whole downloaded book —
   // a pass across every lead on every keystroke, followed by a re-render of
   // every row. Both are the API's job now (see `listQuery`), which is what lets
-  // this page hold fifty rows instead of a thousand.
-
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const firstOnPage = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const lastOnPage = Math.min(page * PAGE_SIZE, total);
+  // this list start with a screenful rather than the whole book.
 
   // Re-runs the current query unpaged so the file holds every matching lead.
   // Capped at the API's ceiling; if the filter selects more than that, say so
@@ -627,9 +605,16 @@ export default function LeadsPage() {
         rows={leads}
         getRowKey={(l) => l.id}
         title="All Leads"
-        // The count is the whole result set, not the page: "50 shown" out of
-        // 40,000 would read as a filter that had thrown almost everything away.
-        subtitle={total === 0 ? 'No leads' : `${firstOnPage.toLocaleString()}–${lastOnPage.toLocaleString()} of ${total.toLocaleString()}`}
+        // How many are in the list, and how many the list holds in total. Both,
+        // because "50 leads" under a filter matching 40,000 would read as a
+        // filter that had thrown almost everything away.
+        subtitle={
+          total === 0
+            ? 'No leads'
+            : leads.length >= total
+              ? `${total.toLocaleString()} lead${total === 1 ? '' : 's'}`
+              : `${leads.length.toLocaleString()} of ${total.toLocaleString()} loaded — scroll for more`
+        }
         loading={isLoading}
         emptyText="No leads match the current filters."
         prefs={prefs}
@@ -668,36 +653,24 @@ export default function LeadsPage() {
         ) : undefined}
       />
 
-      {/* Pager. Only when there is more than one page — a single page of results
-          needs no controls, and showing dead ones invites clicking them. */}
-      {pageCount > 1 && (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[12.5px] text-muted-foreground">
-            Page <b className="text-foreground">{page.toLocaleString()}</b> of {pageCount.toLocaleString()}
-            {/* The previous page stays on screen while the next one loads, so
-                without this the table would look idle mid-fetch. */}
-            {isFetching && <span className="ml-2 opacity-70">updating…</span>}
-          </p>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-              className="inline-flex items-center gap-1 rounded-md border bg-card px-2.5 py-1.5 text-[12.5px] font-semibold hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
-            >
-              <ChevronLeft className="h-4 w-4" /> Previous
-            </button>
-            <button
-              type="button"
-              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
-              disabled={page >= pageCount}
-              className="inline-flex items-center gap-1 rounded-md border bg-card px-2.5 py-1.5 text-[12.5px] font-semibold hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
-            >
-              Next <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      )}
+      {/* End of the list. The marker is what asks for the next chunk when it
+          scrolls into view; the button beside it is for anyone who never
+          reaches it — a keyboard user, or a viewport the observer can't see
+          into. Both do the same thing, so neither is the only way through. */}
+      <div ref={sentinelRef} className="mt-3 flex items-center justify-center gap-3 py-2">
+        {hasNextPage ? (
+          <button
+            type="button"
+            onClick={() => leadsQuery.fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
+          >
+            {isFetchingNextPage ? 'Loading more…' : `Load more (${(total - leads.length).toLocaleString()} left)`}
+          </button>
+        ) : (
+          total > 0 && <p className="text-[12px] text-muted-foreground">All {total.toLocaleString()} leads loaded.</p>
+        )}
+      </div>
 
       {/* Lead History drawer — Admin & Team Leader only. */}
       {canManage && activityLead && (

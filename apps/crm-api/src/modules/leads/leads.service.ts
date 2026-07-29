@@ -844,13 +844,35 @@ export class LeadsService {
     // A ranged read is listed oldest-first: lead ids are handed out in creation
     // order, so that IS ascending sequence order — and unlike `leadId: 'asc'` it
     // doesn't put L-2026-10 ahead of L-2026-2.
-    const orderBy: Prisma.LeadOrderByWithRelationInput = ranged
+    const primaryOrder: Prisma.LeadOrderByWithRelationInput = ranged
       ? { createdAt: 'asc' }
       : query.sortBy
         ? sortClause(query.sortBy, query.sortDir === 'asc' ? 'asc' : 'desc')
         : query.closed === true
           ? { closedAt: 'desc' }
           : { createdAt: 'desc' };
+
+    /**
+     * The sort, made total by `id`.
+     *
+     * Every sortable column here has ties — leads created in the same
+     * millisecond by an import, a whole state's worth of one city, any column
+     * that is mostly null. SQL defines no order among tied rows, so `ORDER BY
+     * <col> LIMIT n OFFSET m` may place a tied row in one chunk on one request
+     * and a different chunk on the next. The list is read chunk by chunk as it
+     * scrolls, so that would show one lead twice and silently skip another —
+     * with nothing wrong in any single response, only at the seam between two.
+     *
+     * `id` is unique, which makes the ordering total and every chunk boundary
+     * deterministic. It never changes the visible order; it only decides what
+     * was previously undefined.
+     *
+     * This is a guarantee, not a repair: walking 180 leads that share a single
+     * createdAt returned each exactly once without it too, because nothing
+     * forced Postgres to change plan between chunks. Relying on that is relying
+     * on the planner not to do something it is entitled to do.
+     */
+    const orderBy: Prisma.LeadOrderByWithRelationInput[] = [primaryOrder, { id: 'asc' }];
 
     // `idsOnly` exists for the callers that must reach across the whole book but
     // render none of it — the assign-by-range dialog wants 5,000 ids, not 5,000
@@ -957,7 +979,7 @@ export class LeadsService {
       ...scope,
       ...(query.closed === true ? { status: LeadStatus.closed } : query.closed === false ? { status: { not: LeadStatus.closed } } : {}),
     };
-    const [zones, states, cities] = await Promise.all([
+    const [zones, states, cities, closers] = await Promise.all([
       this.prisma.lead.groupBy({ by: ['timezone'], where: base, orderBy: { timezone: 'asc' } }),
       this.prisma.lead.groupBy({ by: ['state'], where: { ...base, ...(query.timezone ? { timezone: query.timezone } : {}) }, orderBy: { state: 'asc' } }),
       this.prisma.lead.groupBy({
@@ -965,11 +987,23 @@ export class LeadsService {
         where: { ...base, ...(query.timezone ? { timezone: query.timezone } : {}), ...(query.state ? { state: query.state } : {}) },
         orderBy: { city: 'asc' },
       }),
+      // Who has closed anything — the Closed Leads module's employee filter.
+      // Read from the users who actually appear as closers rather than from the
+      // whole staff list, so the filter never offers a name with no leads
+      // behind it. Only asked for when that module is the one asking.
+      query.closed === true
+        ? this.prisma.user.findMany({
+            where: { closedLeads: { some: { deletedAt: null, status: LeadStatus.closed } } },
+            select: { name: true },
+            orderBy: { name: 'asc' },
+          })
+        : Promise.resolve([]),
     ]);
     return {
       timezones: zones.map((z) => z.timezone as string).filter(Boolean),
       states: states.map((s) => s.state).filter(Boolean),
       cities: cities.map((c) => c.city).filter(Boolean),
+      closers: closers.map((c) => c.name).filter(Boolean),
     };
   }
 
