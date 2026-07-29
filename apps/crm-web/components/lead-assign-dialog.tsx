@@ -3,10 +3,12 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X, Check, Users, SlidersHorizontal, AlertTriangle, MapPin, Building2, Clock, Globe, ArrowRight } from 'lucide-react';
-import { assignmentsApi } from '@/lib/crm';
+import { assignmentsApi, sameDayConflicts, type SameDayConflict } from '@/lib/crm';
 import { leadsApi, isAssignedToday, SAME_DAY_LOCK_MESSAGE, type Lead } from '@/lib/leads';
 import { MultiSelect } from '@/components/multi-select';
 import { Avatar } from '@/components/page-head';
+import { ReassignConfirm } from '@/components/reassign-confirm';
+import { pushToast } from '@/lib/toast';
 
 const distinct = (vals: (string | null | undefined)[]) =>
   [...new Set(vals.map((v) => (v ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
@@ -63,7 +65,8 @@ export function LeadAssignDialog({
   // counted apart so the dialog can say which rule is holding a lead back.
   const rangeLockedToday = useMemo(() => rangeLeads.filter(isAssignedToday), [rangeLeads]);
   const rangeTaken = useMemo(() => rangeLeads.filter((l) => l.assignedTo && !isAssignedToday(l)), [rangeLeads]);
-  const rangeAssignable = useMemo(() => rangeLeads.filter((l) => !l.assignedTo && !isAssignedToday(l)), [rangeLeads]);
+  // Same-day leads stay in: the server decides whether they may move and asks.
+  const rangeAssignable = useMemo(() => rangeLeads.filter((l) => !l.assignedTo), [rangeLeads]);
   const rangeFree = rangeAssignable.length;
   // Owned leads are never reassigned by a range: the manager must consciously choose
   // to skip them and take the rest, or back out.
@@ -105,10 +108,15 @@ export function LeadAssignDialog({
     () =>
       leads.filter(
         (l) =>
-          // Never distribute a lead that already has an owner, or one handed over
-          // earlier today (locked to its owner until tomorrow).
+          // Never distribute a lead that already has an owner — that is a
+          // transfer, and this dialog hands out unowned work.
+          //
+          // Leads assigned earlier today are NOT filtered out here any more. The
+          // daily restriction is the server's to apply: it refuses and names
+          // them, and the manager is asked. Hiding them client-side meant a lead
+          // that had been assigned and then unassigned the same day silently
+          // vanished from the pool with nothing said.
           !l.assignedTo &&
-          !isAssignedToday(l) &&
           (tzSel.length === 0 || tzSel.includes(l.timezone)) &&
           (stateSel.length === 0 || stateSel.includes(l.state)) &&
           (citySel.length === 0 || citySel.includes(l.city)) &&
@@ -180,26 +188,67 @@ export function LeadAssignDialog({
     qc.invalidateQueries({ queryKey: ['caller-dash'] });
   };
 
+  /**
+   * The daily restriction, handled by asking rather than by pre-filtering.
+   *
+   * The first attempt goes without confirmation. If the server refuses because
+   * some of the leads already moved today it says which ones, and that becomes
+   * the prompt; answering "Yes, Reassign" retries the identical request with the
+   * confirmation attached. The client never decides for itself what counts as
+   * "assigned today" — the server owns that, and it is the only party that can
+   * see a handover made from another screen a moment ago.
+   */
+  const [confirmSameDay, setConfirmSameDay] = useState<{ conflicts: SameDayConflict[]; retry: (confirmed: boolean) => void } | null>(null);
+  const onAssignError = (err: unknown, retry: (confirmed: boolean) => void) => {
+    const conflicts = sameDayConflicts(err);
+    if (conflicts) {
+      setConfirmSameDay({ conflicts, retry });
+      return true;
+    }
+    return false; // anything else is a real error; let the toast handle it
+  };
+
   const assign = useMutation({
-    mutationFn: () => assignmentsApi.batch({ allocations }),
-    meta: { successMessage: `Assigned ${totalAssigned} lead${totalAssigned === 1 ? '' : 's'} to ${allocations.length} employee${allocations.length === 1 ? '' : 's'}` },
+    mutationFn: (confirmed: boolean) => assignmentsApi.batch({ allocations, confirmSameDayReassign: confirmed || undefined }),
+    // Its own error handling, so a request that merely needs confirming raises a
+    // question instead of an error toast.
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
+      setConfirmSameDay(null);
       invalidateAfterAssign();
+      pushToast('success', `Assigned ${totalAssigned} lead${totalAssigned === 1 ? '' : 's'} to ${allocations.length} employee${allocations.length === 1 ? '' : 's'}`);
       onAssigned?.();
       onClose();
+    },
+    onError: (err) => {
+      if (!onAssignError(err, (confirmed) => assign.mutate(confirmed))) {
+        pushToast('error', (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Assignment failed.');
+      }
     },
   });
 
   const assignRange = useMutation({
     // Only the unowned leads in the window are sent; skipAssigned makes the server
     // enforce the same rule rather than trusting the client's filtering.
-    mutationFn: () =>
-      assignmentsApi.manual({ leadIds: rangeAssignable.map((l) => l.id), callerId: rangeCaller, skipAssigned: true }),
-    meta: { successMessage: `Assigned ${rangeFree} lead${rangeFree === 1 ? '' : 's'} (${fromLead.trim()} → ${toLead.trim()})` },
+    mutationFn: (confirmed: boolean) =>
+      assignmentsApi.manual({
+        leadIds: rangeAssignable.map((l) => l.id),
+        callerId: rangeCaller,
+        skipAssigned: true,
+        confirmSameDayReassign: confirmed || undefined,
+      }),
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
+      setConfirmSameDay(null);
       invalidateAfterAssign();
+      pushToast('success', `Assigned ${rangeFree} lead${rangeFree === 1 ? '' : 's'} (${fromLead.trim()} → ${toLead.trim()})`);
       onAssigned?.();
       onClose();
+    },
+    onError: (err) => {
+      if (!onAssignError(err, (confirmed) => assignRange.mutate(confirmed))) {
+        pushToast('error', (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Assignment failed.');
+      }
     },
   });
 
@@ -301,15 +350,18 @@ export function LeadAssignDialog({
                       <span className="font-semibold tabular-nums text-foreground">{rangeTaken.length}</span> already assigned
                       {rangeLockedToday.length > 0 && (
                         <>
-                          {' '}· <span className="font-semibold tabular-nums text-foreground">{rangeLockedToday.length}</span> locked
+                          {' '}· <span className="font-semibold tabular-nums text-foreground">{rangeLockedToday.length}</span> assigned
                           today
                         </>
                       )}
                     </p>
+                    {/* Forewarning, not a refusal: these can be assigned, but
+                        doing so will ask for confirmation first. */}
                     {rangeLockedToday.length > 0 && (
                       <p className="mt-1.5 rounded-lg bg-[#fbf3e2] px-2.5 py-2 text-[12px] text-[#8a5d0a]">
                         <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
-                        {SAME_DAY_LOCK_MESSAGE} ({rangeLockedToday.length} in this range.)
+                        {rangeLockedToday.length === 1 ? 'One lead in this range was' : `${rangeLockedToday.length} leads in this range were`}{' '}
+                        already assigned today. You&apos;ll be asked to confirm before {rangeLockedToday.length === 1 ? 'it moves' : 'they move'} again.
                       </p>
                     )}
                     {rangeTaken.length > 0 && (
@@ -391,14 +443,14 @@ export function LeadAssignDialog({
               <div className="mb-3 rounded-xl bg-[#fbeeec] px-3 py-2.5 text-[12px] text-[#a8431f]">
                 <p className="font-medium">
                   <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
-                  {selectedLockedToday.length === selectedTaken.length
-                    ? SAME_DAY_LOCK_MESSAGE
-                    : selectedTaken.length === 1
-                      ? `This lead is already assigned to ${selectedTaken[0].assignedTo?.name}. A lead can only be assigned to one employee.`
-                      : 'Some selected leads are already assigned to other employees. Duplicate lead assignment is not allowed.'}
+                  {selectedTaken.length === 1
+                    ? `This lead is already assigned to ${selectedTaken[0].assignedTo?.name}. A lead can only be assigned to one employee.`
+                    : 'Some selected leads are already assigned to other employees. Duplicate lead assignment is not allowed.'}
                 </p>
-                {selectedLockedToday.length > 0 && selectedLockedToday.length !== selectedTaken.length && (
-                  <p className="mt-1">{selectedLockedToday.length} of them were assigned today and are locked until tomorrow.</p>
+                {/* Assigned today is no longer a refusal — it is a question the
+                    manager will be asked when they assign. */}
+                {selectedLockedToday.length > 0 && (
+                  <p className="mt-1">{selectedLockedToday.length} of them were assigned today; reassigning those will ask for confirmation.</p>
                 )}
                 <p className="mt-1">
                   {selectedTaken.length} of {leads.length} excluded — the remaining {pool.length} can be distributed below.
@@ -534,7 +586,7 @@ export function LeadAssignDialog({
             </button>
             {mode === 'range' ? (
               <button
-                onClick={() => assignRange.mutate()}
+                onClick={() => assignRange.mutate(false)}
                 disabled={!canAssignRange}
                 className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
               >
@@ -550,7 +602,7 @@ export function LeadAssignDialog({
               </button>
             ) : (
               <button
-                onClick={() => assign.mutate()}
+                onClick={() => assign.mutate(false)}
                 disabled={!canAssign}
                 className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
               >
@@ -560,6 +612,19 @@ export function LeadAssignDialog({
           </div>
         </div>
       </div>
+
+      {/* The daily restriction. Raised by the server's refusal, which is also
+          where the list of affected leads comes from. Cancel simply drops it and
+          leaves every existing assignment exactly as it was. */}
+      {confirmSameDay && (
+        <ReassignConfirm
+          conflicts={confirmSameDay.conflicts}
+          employee={mode === 'range' ? callers.find((c) => c.id === rangeCaller)?.name : undefined}
+          busy={assign.isPending || assignRange.isPending}
+          onConfirm={() => confirmSameDay.retry(true)}
+          onCancel={() => setConfirmSameDay(null)}
+        />
+      )}
     </>
   );
 }

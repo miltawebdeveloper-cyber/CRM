@@ -118,13 +118,45 @@ export interface AssignmentSummary {
   unassigned: number;
   callers: { id: string; name: string; email: string; leadCount: number }[];
 }
+/**
+ * The API's code for "this lead was already assigned today — confirm first".
+ *
+ * Matched on rather than the message text, which is wording and will change.
+ * Mirrors SAME_DAY_CONFIRM_CODE in the API.
+ */
+export const SAME_DAY_CONFIRM_CODE = 'SAME_DAY_REASSIGN_CONFIRM_REQUIRED';
+
+/** The leads a same-day refusal names, so the prompt can list them. */
+export interface SameDayConflict {
+  id: string;
+  leadId: string;
+  assignedTo: string | null;
+}
+
+/**
+ * Reads a same-day-confirmation refusal off a failed request.
+ *
+ * Returns the leads that need confirming, or null when the failure was
+ * something else entirely — which must still surface as a normal error rather
+ * than as a reassignment prompt.
+ */
+export function sameDayConflicts(err: unknown): SameDayConflict[] | null {
+  const body = (err as { response?: { data?: { code?: string; leads?: SameDayConflict[] } } })?.response?.data;
+  if (body?.code !== SAME_DAY_CONFIRM_CODE) return null;
+  return body.leads ?? [];
+}
+
 export const assignmentsApi = {
   summary: async (): Promise<AssignmentSummary> => (await api.get('/assignments/summary')).data,
   // Manually (re)assign a batch of leads to a single caller. Records history.
-  manual: async (body: { leadIds: string[]; callerId: string; batchName?: string; skipAssigned?: boolean; allowReassign?: boolean }): Promise<{ assigned: number; callerId: string }> =>
+  //
+  // `confirmSameDayReassign` answers the daily restriction and nothing else:
+  // without it, leads already assigned today come back as a refusal carrying
+  // SAME_DAY_CONFIRM_CODE, which is the cue to ask before retrying with it.
+  manual: async (body: { leadIds: string[]; callerId: string; batchName?: string; skipAssigned?: boolean; allowReassign?: boolean; confirmSameDayReassign?: boolean }): Promise<{ assigned: number; callerId: string }> =>
     (await api.post('/assignments', body)).data,
   // Manual multi-employee distribution: each allocation names a caller and the exact leads they receive.
-  batch: async (body: { allocations: { callerId: string; leadIds: string[] }[]; batchName?: string }): Promise<{ assigned: number; perCaller: Record<string, number> }> =>
+  batch: async (body: { allocations: { callerId: string; leadIds: string[] }[]; batchName?: string; allowReassign?: boolean; confirmSameDayReassign?: boolean }): Promise<{ assigned: number; perCaller: Record<string, number> }> =>
     (await api.post('/assignments/batch', body)).data,
   auto: async (body: { callerIds: string[]; strategy: 'equal' | 'state' | 'timezone'; timezone?: string; state?: string }) =>
     (await api.post('/assignments/auto', body)).data,

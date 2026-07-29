@@ -170,7 +170,25 @@ export class CreateLeadDto {
  * diffs against the current record and writes a field-level activity per change.
  * `caller` (name/email) reassigns the lead; `leadId` is ignored (immutable).
  */
-export class UpdateLeadDto extends PartialType(CreateLeadDto) {}
+export class UpdateLeadDto extends PartialType(CreateLeadDto) {
+  /**
+   * Go ahead with a reassignment even though this lead was already assigned
+   * today.
+   *
+   * A lead is assigned once a day by default. Without this flag a same-day
+   * change of owner is refused with SAME_DAY_CONFIRM_CODE, which is the client's
+   * cue to ask "this lead has already been assigned today — reassign?"; sending
+   * it is that confirmation, and it is recorded against the handover.
+   *
+   * Deliberately not sticky: it confirms THIS reassignment, not a standing
+   * permission to bypass the restriction.
+   */
+  @ApiPropertyOptional({ description: 'Confirm a reassignment on a day the lead was already assigned' })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  confirmSameDayReassign?: boolean;
+}
 
 /** IMP-001/005 — bulk import. Rows are validated per-row in the service so a
  * single bad row never rejects the whole file; errors are returned per row. */

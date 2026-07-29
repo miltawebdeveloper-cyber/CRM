@@ -78,7 +78,7 @@ export interface Lead {
  * message so the client blocks with the same wording the server would.
  */
 export const SAME_DAY_LOCK_MESSAGE =
-  'This lead has already been assigned today. Reassignment is allowed only from the next day.';
+  'This lead has already been assigned today to another employee. Do you want to reassign it?';
 
 /**
  * True when the lead changed hands earlier today, which locks it to its current
@@ -102,6 +102,22 @@ export interface LeadComment {
   at: string;
   user: string;
   source: 'Manual Update' | 'Call Notes';
+}
+
+/** One handover in a lead's ownership history. */
+export interface LeadAssignment {
+  id: string;
+  leadId: string;
+  leadName: string;
+  /** Null on a first assignment — there was nobody to take it from. */
+  previousEmployee: string | null;
+  newEmployee: string;
+  assignedBy: string;
+  assignedAt: string;
+  type: 'new_assignment' | 'reassignment';
+  remarks: string | null;
+  /** The row naming the lead's owner right now. */
+  current: boolean;
 }
 
 export interface LeadActivity {
@@ -253,6 +269,11 @@ export const leadsApi = {
   // Managers-only edit. Any subset of fields; `status` and `caller` (reassign)
   // are accepted in addition to the create fields.
   update: async (id: string, input: UpdateLeadInput): Promise<Lead> => (await api.patch(`/leads/${id}`, input)).data,
+  /** Complete ownership trail for a lead, newest first. Never rewritten — each
+   *  handover appends a row, so this is the audit trail of who assigned the
+   *  lead, when, from whom, to whom, and why. */
+  assignmentHistory: async (id: string): Promise<LeadAssignment[]> => (await api.get(`/leads/${id}/assignments`)).data,
+
   /** Comment trail (manual edits + call notes), newest first. */
   commentHistory: async (id: string): Promise<LeadComment[]> => (await api.get(`/leads/${id}/comments`)).data,
   /** Delete many leads in one transaction. Import rollback posts the import's createdIds here. */

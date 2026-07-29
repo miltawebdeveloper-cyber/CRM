@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Timezone, LeadStatus, Role, Prisma } from '@crm/database';
+import { AssignmentType, Timezone, LeadStatus, Role, Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto';
@@ -7,12 +7,38 @@ import { closureCreateFields, closureFields } from './lead-closure';
 import { LeadIdService } from './lead-id.service';
 
 /**
- * Shown wherever a same-day reassignment is refused. A lead keeps one owner for
- * the whole day it was handed over, so the work isn't pulled out from under
- * whoever started on it; the next calendar day it's free again.
+ * Shown when a same-day reassignment is refused for want of confirmation.
+ *
+ * A lead is assigned once a day by default, so work isn't pulled out from under
+ * whoever started on it. The restriction is no longer absolute: a manager may
+ * reassign the same day by confirming it deliberately, and the confirmation is
+ * recorded on the history row. Come the next calendar day the lead is freely
+ * assignable again, and the cycle resets on its own — nothing has to run.
  */
 export const SAME_DAY_LOCK_MESSAGE =
-  'This lead has already been assigned today. Reassignment is allowed only from the next day.';
+  'This lead has already been assigned today to another employee. Do you want to reassign it?';
+
+/**
+ * Error code carried alongside that message, so the client can tell "needs
+ * confirmation" apart from every other reason an assignment can fail.
+ *
+ * Matching on the message text would work until the wording changed, and the
+ * wording is the sort of thing that changes. A prompt shown for the wrong reason
+ * — or, worse, not shown for the right one — is how a manager ends up unable to
+ * reassign at all, so the client keys off this.
+ */
+export const SAME_DAY_CONFIRM_CODE = 'SAME_DAY_REASSIGN_CONFIRM_REQUIRED';
+
+/** The 400 body a caller gets when confirmation is what's missing. */
+export function sameDayConfirmError(leads: { id: string; leadId: string; assignedTo: string | null }[]) {
+  return {
+    statusCode: 400,
+    code: SAME_DAY_CONFIRM_CODE,
+    message: SAME_DAY_LOCK_MESSAGE,
+    /** Which leads need the confirmation, so the prompt can name them. */
+    leads,
+  };
+}
 
 /** Rows a page holds when the caller doesn't say. Enough to fill a screen and
  *  scroll a little; small enough that opening the module is one small response. */
@@ -167,17 +193,48 @@ export class LeadsService {
    * read. Every path that sets `assignedToId` records one now, so "was this
    * assigned today?" has the same answer however it happened.
    */
-  private async recordAssignment(leadId: string, callerId: string, assignedById: string, batchName?: string) {
+  private async recordAssignment(
+    leadId: string,
+    callerId: string,
+    assignedById: string,
+    batchName?: string,
+    opts?: { previousCallerId?: string | null; remarks?: string },
+  ) {
+    // The previous owner is read from the lead itself rather than from the last
+    // history row: the lead is the record of who held it, and a history row
+    // could be missing for a lead assigned before any of this was recorded.
+    const previousCallerId =
+      opts?.previousCallerId !== undefined
+        ? opts.previousCallerId
+        : (await this.prisma.lead.findUnique({ where: { id: leadId }, select: { assignedToId: true } }))?.assignedToId ?? null;
+
     await this.prisma.assignment.updateMany({ where: { leadId, isActive: true }, data: { isActive: false } });
-    await this.prisma.assignment.create({ data: { leadId, callerId, assignedById, batchName } });
+    await this.prisma.assignment.create({
+      data: {
+        leadId,
+        callerId,
+        previousCallerId: previousCallerId && previousCallerId !== callerId ? previousCallerId : null,
+        assignedById,
+        batchName,
+        // "Reassignment" means it came from someone else. Handing a lead back to
+        // the person who already holds it is not a transfer of anything.
+        type: previousCallerId && previousCallerId !== callerId ? AssignmentType.reassignment : AssignmentType.new_assignment,
+        remarks: opts?.remarks,
+      },
+    });
   }
 
-  /** Was this lead handed to someone today? If so it's locked until tomorrow. */
+  /**
+   * Was this lead handed to someone today?
+   *
+   * Every history row counts, not just the active one. Reassigning twice in a
+   * day closes the first row, and if only the active row were checked the second
+   * handover would look like the first — so the third would go through with no
+   * confirmation at all, on the day the lead had already moved twice.
+   */
   private async assignedToday(leadId: string): Promise<boolean> {
     const since = LeadsService.startOfToday();
-    const n = await this.prisma.assignment.count({
-      where: { leadId, isActive: true, assignedAt: { gte: since } },
-    });
+    const n = await this.prisma.assignment.count({ where: { leadId, assignedAt: { gte: since } } });
     return n > 0;
   }
 
@@ -267,7 +324,9 @@ export class LeadsService {
       await this.log(lead.id, userId, 'lead_created', null, lead.status, `Lead ${lead.leadId} created`);
       if (assignedToId) {
         await this.log(lead.id, userId, 'lead_assigned', null, assignedToId, 'Initial assignment');
-        await this.recordAssignment(lead.id, assignedToId, userId);
+        // A lead being created has no prior owner, so this is explicitly a first
+        // assignment rather than something inferred from the row it just wrote.
+        await this.recordAssignment(lead.id, assignedToId, userId, undefined, { previousCallerId: null });
       }
     }
     return lead;
@@ -510,12 +569,21 @@ export class LeadsService {
         } else if (assignedToId) {
           assignOk++;
         }
-        // Same-day lock: a lead handed over earlier today stays with its owner even
-        // if the sheet names someone else, so a re-import can't shuffle ownership
-        // mid-day.
+        // The daily restriction, as it applies to an import: a lead handed over
+        // earlier today keeps its owner even if the sheet names someone else, so
+        // a re-import can't shuffle ownership mid-day.
+        //
+        // No confirmation path here, unlike the interactive routes. A file of a
+        // few thousand rows is not something a manager can meaningfully confirm
+        // lead by lead, and one blanket "yes" over a whole import is exactly the
+        // accident the restriction exists to prevent. The row is reported and
+        // ownership left alone; reassigning is then a deliberate act in the UI.
         const lockedToday = !ownedByOther && !!assignedToId && existing.assignedToId !== assignedToId && (await this.assignedToday(existing.id));
         if (lockedToday) {
-          errors.push({ row: n, reason: SAME_DAY_LOCK_MESSAGE });
+          errors.push({
+            row: n,
+            reason: 'Already assigned today — ownership left unchanged. Reassign from Lead Management if this is intended.',
+          });
           assignFailed++;
         }
         const keepOwner = ownedByOther || lockedToday ? {} : assignRel;
@@ -526,8 +594,15 @@ export class LeadsService {
         const closure = closureFields(data.status as LeadStatus | undefined, existing.status, assignedToId ?? null);
         const updatedLead = await this.prisma.lead.update({ where: { id: existing.id }, data: { ...data, ...keepOwner, ...closure } });
         if (userId) await this.log(updatedLead.id, userId, 'lead_updated', null, null, 'Imported row updated lead');
-        // Record the handover so the lock applies to it from here on.
-        if (changedOwner && userId) await this.recordAssignment(existing.id, assignedToId!, userId, 'Excel import');
+        // Record the handover so the daily restriction applies to it from here
+        // on. The previous owner is passed explicitly: the update above has
+        // already put the new one on the lead, so reading it back would record
+        // the handover as having come from the person it went to.
+        if (changedOwner && userId) {
+          await this.recordAssignment(existing.id, assignedToId!, userId, 'Excel import', {
+            previousCallerId: existing.assignedToId ?? null,
+          });
+        }
         updated++;
       } else {
         // No required columns: missing core fields default to empty (fill later).
@@ -553,7 +628,7 @@ export class LeadsService {
         // A brand-new lead has no prior owner, so the sheet's employee always wins.
         if (assignedToId) {
           assignOk++;
-          if (userId) await this.recordAssignment(created.id, assignedToId, userId, 'Excel import');
+          if (userId) await this.recordAssignment(created.id, assignedToId, userId, 'Excel import', { previousCallerId: null });
         }
       }
     }
@@ -814,6 +889,57 @@ export class LeadsService {
   }
 
   /**
+   * A lead's complete ownership history, newest first.
+   *
+   * Every handover, by whatever route — manual assignment, a batch, an import,
+   * an edit to the lead — writes a row, and no row is ever rewritten. Deleting a
+   * lead cascades them away with it, but nothing else removes one, so this is
+   * the full audit trail of who assigned the lead, when, and to whom.
+   *
+   * The lead's own details are untouched by any of it: a handover changes the
+   * owner and appends here, and nothing else about the lead moves.
+   */
+  async assignmentHistory(id: string) {
+    const lead = await this.prisma.lead.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true, leadId: true, businessName: true },
+    });
+    if (!lead) throw new NotFoundException('Lead not found');
+
+    const rows = await this.prisma.assignment.findMany({
+      where: { leadId: id },
+      orderBy: { assignedAt: 'desc' },
+      select: {
+        id: true,
+        assignedAt: true,
+        type: true,
+        remarks: true,
+        batchName: true,
+        isActive: true,
+        caller: { select: { id: true, name: true, email: true } },
+        previousCaller: { select: { id: true, name: true, email: true } },
+        assignedBy: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    return rows.map((r) => ({
+      id: r.id,
+      // The lead is repeated on every row so a history entry can be read, or
+      // exported, without needing the lead fetched alongside it.
+      leadId: lead.leadId,
+      leadName: lead.businessName,
+      previousEmployee: r.previousCaller?.name ?? null,
+      newEmployee: r.caller.name,
+      assignedBy: r.assignedBy.name,
+      assignedAt: r.assignedAt,
+      type: r.type,
+      remarks: r.remarks ?? (r.batchName ? `Batch: ${r.batchName}` : null),
+      /** The row naming the lead's owner right now. */
+      current: r.isActive,
+    }));
+  }
+
+  /**
    * Distinct timezones, states and cities for the filter dropdowns.
    *
    * The pages built these lists by mapping over every lead they held, which
@@ -978,13 +1104,20 @@ export class LeadsService {
 
     // Reassignment: resolve the free-text caller (name/email) to a user.
     let reassignedTo: string | null = null;
+    let sameDayConfirmed = false;
     if (dto.caller !== undefined) {
       const assignedToId = (await this.resolveCaller(dto.caller)) ?? null;
       if (assignedToId !== (existing.assignedToId ?? null)) {
-        // A lead assigned earlier today is held by its owner for the rest of the
-        // day, whichever route the reassignment comes through.
+        // One assignment a day by default, whichever route the change comes
+        // through. Not a refusal any more: the caller may confirm it, and the
+        // confirmation is what gets recorded against the handover.
         if (assignedToId && (await this.assignedToday(id))) {
-          throw new BadRequestException(SAME_DAY_LOCK_MESSAGE);
+          if (!dto.confirmSameDayReassign) {
+            throw new BadRequestException(
+              sameDayConfirmError([{ id, leadId: existing.leadId, assignedTo: existing.assignedTo?.name ?? null }]),
+            );
+          }
+          sameDayConfirmed = true;
         }
         data.assignedTo = assignedToId ? { connect: { id: assignedToId } } : { disconnect: true };
         reassignedTo = assignedToId;
@@ -1000,8 +1133,14 @@ export class LeadsService {
       include: { assignedTo: { select: { id: true, name: true, email: true } } },
     });
     for (const l of logs) await this.log(id, user.id, l.action, l.oldValue, l.newValue, l.field);
-    // Stamp the handover so the same-day lock can see it tomorrow morning.
-    if (reassignedTo) await this.recordAssignment(id, reassignedTo, user.id);
+    // Stamp the handover, carrying the owner it came FROM — read before the
+    // update, since the lead now names the new one.
+    if (reassignedTo) {
+      await this.recordAssignment(id, reassignedTo, user.id, undefined, {
+        previousCallerId: existing.assignedToId ?? null,
+        remarks: sameDayConfirmed ? 'Same-day reassignment, confirmed by the assigner' : undefined,
+      });
+    }
 
     // Comment history. `Lead.comments` only ever holds the LATEST remark (it's what
     // the Lead Management column reads), so each edit is also appended to `notes` —

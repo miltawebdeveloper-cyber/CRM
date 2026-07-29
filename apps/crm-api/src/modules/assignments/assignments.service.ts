@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { Prisma } from '@crm/database';
+import { AssignmentType, Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ManualAssignDto, AutoAssignDto, AssignStrategy, BatchAssignDto } from './dto/assignment.dto';
-import { SAME_DAY_LOCK_MESSAGE } from '../leads/leads.service';
+import { sameDayConfirmError } from '../leads/leads.service';
 
 /** Midnight today — the boundary the same-day reassignment lock is measured from. */
 function startOfToday(): Date {
@@ -55,6 +55,7 @@ export class AssignmentsService {
     assignedById: string,
     batchName?: string,
     allowReassign = false,
+    confirmSameDayReassign = false,
   ) {
     // Snapshot prior owners so we can label new assignment vs. reassignment.
     const prior = await this.prisma.lead.findMany({
@@ -71,19 +72,37 @@ export class AssignmentsService {
       : takenBySomeoneElse.map((p) => ({ id: p.id, leadId: p.leadId, assignedTo: p.assignedTo?.name ?? 'another employee' }));
     const blocked = new Set(skipped.map((s) => s.id));
 
-    // Same-day lock: a lead handed over earlier today keeps its owner until
-    // tomorrow, so nobody has work pulled out from under them mid-shift. This one
-    // is absolute — a deliberate transfer doesn't override it either, or the rule
-    // would only hold until someone ticked the box.
-    const lockedToday = await this.prisma.assignment.findMany({
-      where: { leadId: { in: leadIds }, isActive: true, assignedAt: { gte: startOfToday() } },
+    // The daily restriction: a lead is assigned once a day. Anything handed over
+    // since midnight needs the assigner to confirm it explicitly before it moves
+    // again, so work isn't pulled out from under someone mid-shift by accident.
+    //
+    // EVERY history row counts, not just the active one — reassigning twice in a
+    // day closes the first, and reading only the active row would make the third
+    // handover of the day look like the first.
+    //
+    // `confirmSameDayReassign` is the confirmation. It is separate from
+    // `allowReassign` on purpose: one is about whose lead it is, the other about
+    // how recently it moved, and a lead can be caught by both.
+    const assignedTodayRows = await this.prisma.assignment.findMany({
+      where: { leadId: { in: leadIds }, assignedAt: { gte: startOfToday() } },
       select: { leadId: true, lead: { select: { leadId: true } } },
+      distinct: ['leadId'],
     });
-    for (const l of lockedToday) {
-      if (blocked.has(l.leadId)) continue;
-      blocked.add(l.leadId);
-      skipped.push({ id: l.leadId, leadId: l.lead.leadId, assignedTo: 'today (locked until tomorrow)' });
+    const sameDay = assignedTodayRows.filter((l) => !blocked.has(l.leadId));
+    if (sameDay.length > 0 && !confirmSameDayReassign) {
+      throw new BadRequestException(
+        sameDayConfirmError(
+          sameDay.map((l) => ({
+            id: l.leadId,
+            leadId: l.lead.leadId,
+            assignedTo: priorById.get(l.leadId)?.assignedTo?.name ?? null,
+          })),
+        ),
+      );
     }
+    // Which leads the confirmation actually covers, so only their history rows
+    // are annotated with it.
+    const confirmedSameDay = new Set(sameDay.map((l) => l.leadId));
     leadIds = leadIds.filter((id) => !blocked.has(id));
 
     if (leadIds.length === 0) {
@@ -121,7 +140,24 @@ export class AssignmentsService {
       // has exactly one active assignment naming its current owner.
       await tx.assignment.updateMany({ where: { leadId: { in: ids }, isActive: true }, data: { isActive: false } });
       await tx.assignment.createMany({
-        data: ids.map((leadId) => ({ leadId, callerId, assignedById, batchName })),
+        data: ids.map((leadId) => {
+          // The owner it came FROM, snapshotted before the update above.
+          const from = priorById.get(leadId)?.assignedToId ?? null;
+          const moved = !!from && from !== callerId;
+          const notes = [
+            batchName ? `Batch: ${batchName}` : null,
+            confirmedSameDay.has(leadId) ? 'Same-day reassignment, confirmed by the assigner' : null,
+          ].filter(Boolean);
+          return {
+            leadId,
+            callerId,
+            previousCallerId: moved ? from : null,
+            assignedById,
+            batchName,
+            type: moved ? AssignmentType.reassignment : AssignmentType.new_assignment,
+            remarks: notes.length ? notes.join(' · ') : null,
+          };
+        }),
       });
       // Lead Activity Log entry per lead (admin/TL audit trail).
       await tx.activity.createMany({
@@ -164,14 +200,9 @@ export class AssignmentsService {
    * and reports the rest; `allowReassign` is the deliberate transfer.
    */
   async manual(dto: ManualAssignDto, assignedById: string) {
-    // The day lock is reported before the ownership check: it's the more specific
-    // reason, and it applies even when the lead is going back to the same person.
-    if (!dto.skipAssigned) {
-      const locked = await this.prisma.assignment.count({
-        where: { leadId: { in: dto.leadIds }, isActive: true, assignedAt: { gte: startOfToday() } },
-      });
-      if (locked > 0) throw new BadRequestException(SAME_DAY_LOCK_MESSAGE);
-    }
+    // The daily restriction is checked inside assignMany, which is the one place
+    // that knows which leads survive the ownership filter — raising it here as
+    // well would prompt about leads that were going to be skipped anyway.
     if (!dto.allowReassign && !dto.skipAssigned) {
       const taken = await this.prisma.lead.findMany({
         where: { id: { in: dto.leadIds }, assignedToId: { not: null, notIn: [dto.callerId] } },
@@ -188,7 +219,7 @@ export class AssignmentsService {
         );
       }
     }
-    return this.assignMany(dto.leadIds, dto.callerId, assignedById, dto.batchName, dto.allowReassign);
+    return this.assignMany(dto.leadIds, dto.callerId, assignedById, dto.batchName, dto.allowReassign, dto.confirmSameDayReassign);
   }
 
   /**
@@ -214,7 +245,7 @@ export class AssignmentsService {
     let assigned = 0;
     for (const alloc of dto.allocations) {
       if (!alloc.leadIds.length) continue;
-      const res = await this.assignMany(alloc.leadIds, alloc.callerId, assignedById, dto.batchName, dto.allowReassign);
+      const res = await this.assignMany(alloc.leadIds, alloc.callerId, assignedById, dto.batchName, dto.allowReassign, dto.confirmSameDayReassign);
       perCaller[alloc.callerId] = (perCaller[alloc.callerId] ?? 0) + res.assigned;
       assigned += res.assigned;
       skipped.push(...res.skipped);

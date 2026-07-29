@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { ShieldCheck, X } from 'lucide-react';
 import { activitiesApi, type Activity } from '@/lib/crm';
+import { LeadAssignmentHistory } from '@/components/lead-assignment-history';
 
 const fmt = (iso: string) =>
   new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -117,6 +118,12 @@ export function LeadActivityDrawer({ leadId, leadName, onClose }: { leadId: stri
         <button onClick={onClose} className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:underline">
           <X className="h-4 w-4" /> Close
         </button>
+        {/* Ownership first, then the general activity log. Who holds a lead and
+            how it got there is the question this drawer is usually opened for,
+            and it was previously only inferable from scattered log lines. */}
+        <div className="mb-4">
+          <LeadAssignmentHistory leadId={leadId} />
+        </div>
         <LeadActivityLog leadId={leadId} title={leadName} />
       </div>
     </div>

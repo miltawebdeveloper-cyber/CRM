@@ -169,6 +169,8 @@ model User {
   activityAssignedTo Activity[]          @relation("ActivityAssignedTo")
   assignmentsMade   Assignment[]        @relation("AssignmentAssignedBy")
   assignmentsTaken  Assignment[]        @relation("AssignmentCaller")
+  /** History rows where this user is the one the lead moved AWAY from. */
+  assignmentsLost   Assignment[]        @relation("AssignmentPreviousCaller")
   calls             Call[]
   sentMessages      Message[]           @relation("MessageSender")
   notes             Note[]
@@ -584,20 +586,49 @@ model WorkReassignment {
 // ─────────────────────────── Calling ─────────────────────────
 
 /// DB-005 — lead → caller assignment (history-trackable)
+/** New assignment vs. a lead changing hands — see Assignment.type. */
+enum AssignmentType {
+  new_assignment
+  reassignment
+}
+
+/**
+ * One entry in a lead's ownership history.
+ *
+ * A row is written every time a lead changes hands, by whatever route, and is
+ * never updated afterwards except to clear `isActive` when the next one opens.
+ * That is what makes this an audit trail rather than a current-state table: the
+ * lead's own row holds who owns it now, and this holds how it got there.
+ *
+ * `previousCallerId`, `type` and `remarks` exist so a history row can be read on
+ * its own. Before them, "who held this before?" could only be answered by
+ * finding the preceding row and hoping none had been pruned, and "was this a new
+ * assignment or a transfer?" could only be inferred from whether one existed.
+ */
 model Assignment {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   leadId       String   @map("lead_id") @db.Uuid
   lead         Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
   callerId     String   @map("caller_id") @db.Uuid
   caller       User     @relation("AssignmentCaller", fields: [callerId], references: [id])
+  /** Who held the lead immediately before this. Null on a first assignment. */
+  previousCallerId String? @map("previous_caller_id") @db.Uuid
+  previousCaller   User?   @relation("AssignmentPreviousCaller", fields: [previousCallerId], references: [id])
   assignedById String   @map("assigned_by") @db.Uuid
   assignedBy   User     @relation("AssignmentAssignedBy", fields: [assignedById], references: [id])
+  type         AssignmentType @default(new_assignment)
+  /** Why, when there is a why — the batch it came from, or that a manager
+   *  confirmed a same-day reassignment past the daily restriction. */
+  remarks      String?
   batchName    String?  @map("batch_name")
   isActive     Boolean  @default(true) @map("is_active")
   assignedAt   DateTime @default(now()) @map("assigned_at")
 
   @@index([leadId])
   @@index([callerId])
+  // The history view reads a lead's rows newest-first; the daily restriction
+  // asks whether any row for a lead falls after midnight.
+  @@index([leadId, assignedAt])
   @@map("assignments")
 }
 

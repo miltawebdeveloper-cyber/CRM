@@ -68,6 +68,13 @@ export class LeadsController {
     return this.leads.findOne(id, user);
   }
 
+  /** Complete ownership history for a lead — every assignment and reassignment,
+   *  newest first, with who it came from, who it went to and who did it. */
+  @Get(':id/assignments')
+  assignmentHistory(@Param('id') id: string) {
+    return this.leads.assignmentHistory(id);
+  }
+
   /** Full comment trail for a lead — manual edits and call notes, newest first. */
   @Get(':id/comments')
   commentHistory(@Param('id') id: string) {

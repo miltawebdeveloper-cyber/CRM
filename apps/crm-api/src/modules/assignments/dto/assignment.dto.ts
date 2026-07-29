@@ -19,6 +19,24 @@ class AssignOwnershipFlags {
   @IsOptional()
   @IsBoolean()
   allowReassign?: boolean;
+
+  /**
+   * Go ahead even though some of these leads were already assigned today.
+   *
+   * The daily restriction is separate from ownership: `allowReassign` answers
+   * "may this leave its current owner", this answers "may it move again today".
+   * A lead can need both — it belongs to someone AND changed hands this morning
+   * — and confirming one must not silently confirm the other, or the daily rule
+   * would evaporate every time a manager ticked the transfer box.
+   *
+   * Without it a same-day move is refused with SAME_DAY_CONFIRM_CODE, which is
+   * the client's cue to prompt. Sending it is the confirmation, and it is
+   * recorded on each history row it applies to.
+   */
+  @ApiPropertyOptional({ description: 'Confirm reassignment of leads already assigned today' })
+  @IsOptional()
+  @IsBoolean()
+  confirmSameDayReassign?: boolean;
 }
 
 export class ManualAssignDto extends AssignOwnershipFlags {
