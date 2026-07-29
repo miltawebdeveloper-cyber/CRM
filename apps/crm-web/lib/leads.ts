@@ -164,6 +164,48 @@ export interface CreateLeadInput {
 /** Lead edit payload — any subset of the create fields, plus editable status. */
 export type UpdateLeadInput = Partial<CreateLeadInput> & { status?: string };
 
+/** Everything the list can be narrowed, ordered and paged by — all of it applied
+ *  by the API, so a caller only ever receives the rows it is going to show. */
+export interface LeadListQuery {
+  mine?: boolean;
+  closed?: boolean;
+  fromLeadId?: string;
+  toLeadId?: string;
+  limit?: number;
+  q?: string;
+  status?: string;
+  state?: string;
+  city?: string;
+  timezone?: string;
+  callStatus?: string;
+  assigned?: 'assigned' | 'unassigned';
+  createdFrom?: string;
+  createdTo?: string;
+  /** Closed Leads dates rows by when they closed, not when they were created. */
+  closedFrom?: string;
+  closedTo?: string;
+  closedBy?: string;
+  page?: number;
+  pageSize?: number;
+  sortBy?: string;
+  sortDir?: 'asc' | 'desc';
+  idsOnly?: boolean;
+}
+
+/** One page, and how many rows there are behind it. */
+export interface LeadPage {
+  rows: Lead[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+const LIST_KEYS: (keyof LeadListQuery)[] = [
+  'mine', 'closed', 'fromLeadId', 'toLeadId', 'limit', 'q', 'status', 'state', 'city',
+  'timezone', 'callStatus', 'assigned', 'createdFrom', 'createdTo', 'closedFrom', 'closedTo',
+  'closedBy', 'page', 'pageSize', 'sortBy', 'sortDir', 'idsOnly',
+];
+
 export const leadsApi = {
   // `mine` narrows the result to the caller's OWN assigned leads whatever their
   // role — managers included, who otherwise see every lead. Employees are scoped
@@ -171,18 +213,39 @@ export const leadsApi = {
   // `closed` splits the two lead modules: false lists the active book, true the
   // Closed Leads module (scoped for employees to the leads they closed). Omit
   // both to list every record the caller may see.
-  list: async (opts?: { mine?: boolean; closed?: boolean; fromLeadId?: string; toLeadId?: string; limit?: number; q?: string }): Promise<Lead[]> => {
-    const params: Record<string, boolean | string | number> = {};
-    // Free-text search across company, contact, phone, email and lead id.
-    // Server-side, so it reaches the whole book rather than the loaded page.
-    if (opts?.q?.trim()) params.q = opts.q.trim();
-    if (opts?.mine) params.mine = true;
+  //
+  // Returns ONE PAGE plus the total. It used to return an array of up to a
+  // thousand leads and leave the browser to filter, sort and paginate them,
+  // which is why opening Lead Management meant downloading the book first.
+  page: async (opts?: LeadListQuery): Promise<LeadPage> => {
+    const params: Record<string, string | number | boolean> = {};
+    for (const k of LIST_KEYS) {
+      const v = opts?.[k];
+      if (v === undefined || v === '' || v === false) continue;
+      params[k] = typeof v === 'string' ? v.trim() : v;
+    }
+    // `closed` is meaningful when false — it is what selects Lead Management
+    // over Closed Leads — so it can't be dropped with the other falsy values.
     if (opts?.closed !== undefined) params.closed = opts.closed;
-    // Assign-by-range: an inclusive lead-id window, resolved server-side.
-    if (opts?.fromLeadId) params.fromLeadId = opts.fromLeadId;
-    if (opts?.toLeadId) params.toLeadId = opts.toLeadId;
-    if (opts?.limit) params.limit = opts.limit;
     return (await api.get('/leads', { params: Object.keys(params).length ? params : undefined })).data;
+  },
+
+  /** The rows alone, for callers that want a bounded list and no page state. */
+  list: async (opts?: LeadListQuery): Promise<Lead[]> => (await leadsApi.page(opts)).rows,
+
+  /**
+   * The values behind the timezone / state / city dropdowns.
+   *
+   * Asked for directly rather than derived from the rows on screen: with the
+   * list paginated the current page holds a few dozen leads, and a filter built
+   * from those would offer only the cities that happen to be on it.
+   */
+  filterOptions: async (opts?: Pick<LeadListQuery, 'closed' | 'timezone' | 'state'>): Promise<{ timezones: string[]; states: string[]; cities: string[] }> => {
+    const params: Record<string, string | boolean> = {};
+    if (opts?.closed !== undefined) params.closed = opts.closed;
+    if (opts?.timezone) params.timezone = opts.timezone;
+    if (opts?.state) params.state = opts.state;
+    return (await api.get('/leads/filter-options', { params: Object.keys(params).length ? params : undefined })).data;
   },
   get: async (id: string): Promise<Lead> => (await api.get(`/leads/${id}`)).data,
   activities: async (id: string): Promise<LeadActivity[]> => (await api.get(`/activities/lead/${id}`)).data,

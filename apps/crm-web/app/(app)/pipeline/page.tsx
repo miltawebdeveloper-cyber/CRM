@@ -34,7 +34,11 @@ export default function PipelinePage() {
   const [created, setCreated] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
   const qc = useQueryClient();
-  const { data: allLeads = [] } = useQuery({ queryKey: ['leads'], queryFn: () => leadsApi.list() });
+  // The board groups the whole book by stage, so it reads in bulk. The limit is
+  // explicit: the API's default page is 50 now, and inheriting it would quietly
+  // reduce the board to fifty leads. It still gains the narrower projection and
+  // the indexes behind the query.
+  const { data: allLeads = [] } = useQuery({ queryKey: ['leads', 'pipeline'], queryFn: () => leadsApi.list({ limit: 1000 }) });
 
   // Soft-delete selected leads (own leads only for employees, enforced server-side).
   const removeLeads = useMutation({

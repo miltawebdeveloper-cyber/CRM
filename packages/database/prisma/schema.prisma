@@ -392,7 +392,13 @@ model Lead {
   messages     Message[]
   zoomMeetings ZoomMeeting[]
 
-  // DB-015 — indexes on every dashboard filter column
+  // DB-015 — indexes on every dashboard filter column.
+  //
+  // The indexes that make the LIST fast live in the migration
+  // 20260729120000_lead_list_performance_indexes instead: partial indexes
+  // (WHERE deleted_at IS NULL) and expression indexes (phone reduced to digits,
+  // trigram GIN for unanchored search) cannot be expressed here. Read that file
+  // before adding an index — most of the useful ground is already covered.
   @@unique([leadId])
   @@index([state])
   @@index([city])

@@ -4,11 +4,16 @@ import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Video, CalendarClock, PlayCircle, CheckCircle2, Plus, X } from 'lucide-react';
 import { zoomApi, STATUS_META, type ZoomMeeting, type ZoomMeetingStatus, type CompleteZoomMeeting } from '@/lib/zoom';
-import { leadsApi } from '@/lib/leads';
+import { leadsApi, type Lead } from '@/lib/leads';
+import { useDebounced } from '@/lib/use-debounced';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { MeetingDetail } from '@/components/zoom/meeting-detail';
 import { describeWallClock, formatInLeadZone, zoneLabel } from '@/lib/timezone';
+
+/** Matches offered by the client picker. Enough to choose from; few enough that
+ *  the modal opens instantly however large the book is. */
+const LEAD_PICKER_ROWS = 25;
 
 const FILTERS: { value: '' | ZoomMeetingStatus; label: string }[] = [
   { value: '', label: 'All' },
@@ -182,10 +187,25 @@ export default function ZoomPage() {
 
 // ──────────────────────── Schedule modal ────────────────────────
 function ScheduleModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const { data: leads = [] } = useQuery({ queryKey: ['leads'], queryFn: () => leadsApi.list() });
+  // Type to find a client, rather than listing every one of them.
+  //
+  // This was a <select> holding an <option> for every lead in the book. At a few
+  // hundred leads that is merely unusable; at fifty thousand it is fifty
+  // thousand DOM nodes built before the modal can open. It searches server-side
+  // now — the same search the command palette uses — and shows the top matches.
+  const [leadSearch, setLeadSearch] = useState('');
+  const debouncedSearch = useDebounced(leadSearch, 250);
+  const { data: leads = [], isFetching: searching } = useQuery({
+    queryKey: ['leads', 'zoom-picker', debouncedSearch],
+    // With no term this is the most recent handful, so the picker is useful
+    // before anything is typed; with one it reaches the whole book.
+    queryFn: () => leadsApi.list({ q: debouncedSearch || undefined, pageSize: LEAD_PICKER_ROWS, sortBy: 'createdAt', sortDir: 'desc' }),
+  });
   const [leadId, setLeadId] = useState('');
-  // The chosen client decides which clock the meeting is booked on.
-  const selectedLead = leads.find((l) => l.id === leadId);
+  // The chosen client decides which clock the meeting is booked on. Kept aside
+  // from the result list: it must survive the next search, which no longer
+  // necessarily contains it.
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [when, setWhen] = useState(() => {
     const d = new Date();
     d.setMinutes(0, 0, 0);
@@ -228,12 +248,46 @@ function ScheduleModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     <Modal title="Schedule Zoom Meeting" onClose={onClose}>
       <div className="space-y-3">
         <Field label="Client">
-          <select value={leadId} onChange={(e) => setLeadId(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm">
-            <option value="">Select a client…</option>
-            {leads.map((l) => (
-              <option key={l.id} value={l.id}>{l.businessName} — {l.city}, {l.state}</option>
-            ))}
-          </select>
+          {selectedLead ? (
+            // Once chosen, the client is shown rather than re-listed — the
+            // search box has done its job and the choice must not be at the
+            // mercy of the next query's results.
+            <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+              <span className="min-w-0 flex-1 truncate">{selectedLead.businessName} — {selectedLead.city}, {selectedLead.state}</span>
+              <button
+                type="button"
+                onClick={() => { setSelectedLead(null); setLeadId(''); setLeadSearch(''); }}
+                className="shrink-0 text-[12px] font-semibold text-muted-foreground hover:text-foreground"
+              >
+                Change
+              </button>
+            </div>
+          ) : (
+            <>
+              <input
+                value={leadSearch}
+                onChange={(e) => setLeadSearch(e.target.value)}
+                placeholder="Search by company, contact, phone, email or lead ID…"
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+              />
+              <div className="mt-1.5 max-h-[168px] overflow-y-auto rounded-md border">
+                {leads.length === 0 ? (
+                  <p className="px-3 py-2.5 text-[12.5px] text-muted-foreground">
+                    {searching ? 'Searching…' : leadSearch ? 'No client matches that.' : 'No clients yet.'}
+                  </p>
+                ) : leads.map((l) => (
+                  <button
+                    key={l.id}
+                    type="button"
+                    onClick={() => { setSelectedLead(l); setLeadId(l.id); }}
+                    className="block w-full truncate border-b px-3 py-2 text-left text-[13px] last:border-0 hover:bg-muted"
+                  >
+                    {l.businessName} <span className="text-muted-foreground">— {l.city}, {l.state}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </Field>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {/* The zone is part of the field label, because the time is booked on the

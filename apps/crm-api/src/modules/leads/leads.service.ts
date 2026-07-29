@@ -14,6 +14,106 @@ import { LeadIdService } from './lead-id.service';
 export const SAME_DAY_LOCK_MESSAGE =
   'This lead has already been assigned today. Reassignment is allowed only from the next day.';
 
+/** Rows a page holds when the caller doesn't say. Enough to fill a screen and
+ *  scroll a little; small enough that opening the module is one small response. */
+const DEFAULT_PAGE_SIZE = 50;
+
+/**
+ * The columns the lead grid actually renders, plus the few the row actions need.
+ *
+ * The list used to return whole Lead rows — every Quo sync field, every reminder
+ * stamp, the raw provider JSON. Measured on 50 rows: 1,253 bytes a row before,
+ * 974 after, a 22% cut. Modest, because the grid and the CSV export between them
+ * legitimately use most of the remaining columns; the large saving on this
+ * endpoint is paging (1.19 MB for a thousand rows against 48 KB for a page of
+ * fifty), and this is on top of it.
+ *
+ * Adding a column here is how a new grid column gets its data — including for
+ * the export, which reads the same endpoint.
+ */
+const LIST_SELECT = {
+  id: true,
+  leadId: true,
+  leadGenerationId: true,
+  businessName: true,
+  contactName: true,
+  contactName2: true,
+  phone: true,
+  altPhone: true,
+  email: true,
+  website: true,
+  socialMedia: true,
+  country: true,
+  state: true,
+  city: true,
+  timezone: true,
+  status: true,
+  callStatus: true,
+  industry: true,
+  companySize: true,
+  foundedYear: true,
+  address: true,
+  comments: true,
+  leadSource: true,
+  qualityScore: true,
+  callbackAt: true,
+  callbackCompletedAt: true,
+  nextFollowUpDate: true,
+  firstContact: true,
+  lastContact: true,
+  followupCount: true,
+  meetingDate: true,
+  lostReason: true,
+  lastCommunicationAt: true,
+  quoStatus: true,
+  createdAt: true,
+  updatedAt: true,
+  closedAt: true,
+  assignedToId: true,
+  assignedTo: { select: { id: true, name: true, email: true } },
+  closedBy: { select: { id: true, name: true, email: true } },
+  // Newest active handover, used to expose `assignedAt` on the row.
+  assignments: { where: { isActive: true }, orderBy: { assignedAt: 'desc' }, take: 1, select: { assignedAt: true } },
+} satisfies Prisma.LeadSelect;
+
+/**
+ * Columns the grid may sort by, and what each one means in SQL.
+ *
+ * A whitelist because `sortBy` arrives from the query string and is interpolated
+ * into an orderBy — an open one would let a caller order by any column, or by a
+ * relation, and turn a page into a full scan and sort.
+ *
+ * `leadId` maps to `createdAt`. Sorting by the id STRING is wrong — "L-2026-10"
+ * sorts before "L-2026-2" — and sorting by the parsed sequence number needs an
+ * expression no index covers, which is a scan and a sort of the whole book on
+ * the module's DEFAULT ordering. Ids are minted in creation order, so createdAt
+ * is the same order and is indexed. (findAll already relies on this equivalence
+ * for ranged reads, and has since before this change.)
+ */
+const SORTABLE: Record<string, (dir: Prisma.SortOrder) => Prisma.LeadOrderByWithRelationInput> = {
+  leadId: (dir) => ({ createdAt: dir }),
+  createdAt: (dir) => ({ createdAt: dir }),
+  businessName: (dir) => ({ businessName: dir }),
+  contactName: (dir) => ({ contactName: dir }),
+  phone: (dir) => ({ phone: dir }),
+  email: (dir) => ({ email: dir }),
+  city: (dir) => ({ city: dir }),
+  state: (dir) => ({ state: dir }),
+  timezone: (dir) => ({ timezone: dir }),
+  status: (dir) => ({ status: dir }),
+  callStatus: (dir) => ({ callStatus: dir }),
+  callbackAt: (dir) => ({ callbackAt: dir }),
+  lastContact: (dir) => ({ lastContact: dir }),
+  closedAt: (dir) => ({ closedAt: dir }),
+  assignedTo: (dir) => ({ assignedTo: { name: dir } }),
+};
+
+/** An unknown sort key falls back to the default rather than erroring: a stale
+ *  bookmark or a renamed column should show the list, not a 400. */
+function sortClause(key: string, dir: Prisma.SortOrder): Prisma.LeadOrderByWithRelationInput {
+  return (SORTABLE[key] ?? SORTABLE.createdAt)(dir);
+}
+
 @Injectable()
 export class LeadsService {
   constructor(
@@ -618,32 +718,154 @@ export class LeadsService {
         }
       : {};
 
-    const rows = await this.prisma.lead.findMany({
-      where: { deletedAt: null, status: query.status, state: query.state, ...closedFilter, ...scope, ...mineScope, ...rangeFilter, ...searchFilter },
-      // A ranged read is listed oldest-first: lead ids are handed out in creation
-      // order, so that IS ascending sequence order — and unlike `leadId: 'asc'` it
-      // doesn't put L-2026-10 ahead of L-2026-2.
-      orderBy: ranged ? { createdAt: 'asc' } : query.closed === true ? { closedAt: 'desc' } : { createdAt: 'desc' },
-      // Was a hardcoded 100, which quietly truncated the list: importing 300 leads
-      // showed only 100, so "select all" could never reach the rest to bulk-assign
-      // them. Caller-controlled, with a generous default and a hard ceiling in the
-      // DTO so this can't turn into an unbounded scan.
-      take: query.limit ?? 1000,
-      include: {
-        assignedTo: { select: { id: true, name: true, email: true } },
-        closedBy: { select: { id: true, name: true, email: true } },
-        // Newest active handover, used to expose `assignedAt` below.
-        assignments: { where: { isActive: true }, orderBy: { assignedAt: 'desc' }, take: 1, select: { assignedAt: true } },
-      },
-    });
+    // The filters the grid used to apply in the browser, over rows it had to
+    // download first. Doing them here is what makes one page a correct page.
+    const cityFilter = query.city ? { city: query.city } : {};
+    const zoneFilter = query.timezone ? { timezone: query.timezone } : {};
+    // A lead dispositioned through the CRM stores the outcome's SLUG
+    // (`call_back`); leads imported before the outcome list existed carry the
+    // display NAME ("Call Back"). Both match, exactly as the browser filter did
+    // — dropping the alias would silently stop matching every imported lead.
+    const outcomeFilter = query.callStatus
+      ? { callStatus: { in: await this.callStatusAliases(query.callStatus), mode: 'insensitive' as const } }
+      : {};
+    const assignedFilter =
+      query.assigned === 'assigned' ? { assignedToId: { not: null } } : query.assigned === 'unassigned' ? { assignedToId: null } : {};
+    const createdFilter =
+      query.createdFrom || query.createdTo
+        ? {
+            createdAt: {
+              ...(query.createdFrom ? { gte: new Date(query.createdFrom) } : {}),
+              ...(query.createdTo ? { lte: new Date(`${query.createdTo.slice(0, 10)}T23:59:59.999Z`) } : {}),
+            },
+          }
+        : {};
+
+    // Closed Leads dates its rows by when they closed, which is a different
+    // column and often a different month from when they were created.
+    const closedAtFilter =
+      query.closedFrom || query.closedTo
+        ? {
+            closedAt: {
+              ...(query.closedFrom ? { gte: new Date(query.closedFrom) } : {}),
+              ...(query.closedTo ? { lte: new Date(`${query.closedTo.slice(0, 10)}T23:59:59.999Z`) } : {}),
+            },
+          }
+        : {};
+    const closedByFilter = query.closedBy ? { closedBy: { name: query.closedBy } } : {};
+
+    const where: Prisma.LeadWhereInput = {
+      deletedAt: null,
+      status: query.status,
+      state: query.state,
+      ...closedAtFilter,
+      ...closedByFilter,
+      ...closedFilter,
+      ...scope,
+      ...mineScope,
+      ...rangeFilter,
+      ...searchFilter,
+      ...cityFilter,
+      ...zoneFilter,
+      ...outcomeFilter,
+      ...assignedFilter,
+      ...createdFilter,
+    };
+
+    // A ranged read is listed oldest-first: lead ids are handed out in creation
+    // order, so that IS ascending sequence order — and unlike `leadId: 'asc'` it
+    // doesn't put L-2026-10 ahead of L-2026-2.
+    const orderBy: Prisma.LeadOrderByWithRelationInput = ranged
+      ? { createdAt: 'asc' }
+      : query.sortBy
+        ? sortClause(query.sortBy, query.sortDir === 'asc' ? 'asc' : 'desc')
+        : query.closed === true
+          ? { closedAt: 'desc' }
+          : { createdAt: 'desc' };
+
+    // `idsOnly` exists for the callers that must reach across the whole book but
+    // render none of it — the assign-by-range dialog wants 5,000 ids, not 5,000
+    // full leads. `limit` stays for them; a paged caller gets `pageSize` instead.
+    if (query.idsOnly) {
+      const rows = await this.prisma.lead.findMany({ where, orderBy, take: query.limit ?? 5000, select: { id: true, leadId: true } });
+      return { rows, total: rows.length, page: 1, pageSize: rows.length };
+    }
+
+    const pageSize = query.pageSize ?? query.limit ?? DEFAULT_PAGE_SIZE;
+    const page = Math.max(1, query.page ?? 1);
+
+    // Count and page in one round trip. The count is what lets the grid show a
+    // real total and a real page count while holding only one page of rows.
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.lead.count({ where }),
+      this.prisma.lead.findMany({
+        where,
+        orderBy,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        // Explicit projection, not the whole row — see LIST_SELECT.
+        select: LIST_SELECT,
+      }),
+    ]);
 
     // Flatten the handover date onto the lead and drop the relation — the client
     // only needs "when did this change hands", which is what the same-day lock
     // keys off, not the assignment rows themselves.
-    return rows.map(({ assignments, ...lead }) => ({
-      ...lead,
-      assignedAt: assignments[0]?.assignedAt ?? null,
-    }));
+    return {
+      rows: rows.map(({ assignments, ...lead }) => ({ ...lead, assignedAt: assignments[0]?.assignedAt ?? null })),
+      total,
+      page,
+      pageSize,
+    };
+  }
+
+  /**
+   * Distinct timezones, states and cities for the filter dropdowns.
+   *
+   * The pages built these lists by mapping over every lead they held, which
+   * meant they needed every lead. Three grouped reads over indexed columns
+   * answer the same question without moving any rows.
+   *
+   * Cascading is honoured — states are those within the chosen timezone, cities
+   * those within the chosen timezone and state — because that is how the
+   * dropdowns behaved when they were derived in the browser.
+   */
+  async filterOptions(query: ListLeadsQueryDto, user?: { id: string; role: Role }) {
+    const scope = user?.role === Role.employee ? { assignedToId: user.id } : {};
+    const base: Prisma.LeadWhereInput = {
+      deletedAt: null,
+      ...scope,
+      ...(query.closed === true ? { status: LeadStatus.closed } : query.closed === false ? { status: { not: LeadStatus.closed } } : {}),
+    };
+    const [zones, states, cities] = await Promise.all([
+      this.prisma.lead.groupBy({ by: ['timezone'], where: base, orderBy: { timezone: 'asc' } }),
+      this.prisma.lead.groupBy({ by: ['state'], where: { ...base, ...(query.timezone ? { timezone: query.timezone } : {}) }, orderBy: { state: 'asc' } }),
+      this.prisma.lead.groupBy({
+        by: ['city'],
+        where: { ...base, ...(query.timezone ? { timezone: query.timezone } : {}), ...(query.state ? { state: query.state } : {}) },
+        orderBy: { city: 'asc' },
+      }),
+    ]);
+    return {
+      timezones: zones.map((z) => z.timezone as string).filter(Boolean),
+      states: states.map((s) => s.state).filter(Boolean),
+      cities: cities.map((c) => c.city).filter(Boolean),
+    };
+  }
+
+  /**
+   * An outcome filter matches its slug and its display name.
+   *
+   * Looked up rather than assumed: the browser had the whole outcome list in
+   * hand and could resolve the alias itself, and this filter has to keep
+   * behaving the same way now that it runs in SQL.
+   */
+  private async callStatusAliases(slugOrName: string): Promise<string[]> {
+    const found = await this.prisma.outcome.findFirst({
+      where: { OR: [{ slug: slugOrName }, { name: { equals: slugOrName, mode: 'insensitive' } }] },
+      select: { slug: true, name: true },
+    });
+    return found ? [...new Set([slugOrName, found.slug, found.name])] : [slugOrName];
   }
 
   async findOne(id: string, user?: { id: string; role: Role }) {

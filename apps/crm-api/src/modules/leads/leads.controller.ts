@@ -47,6 +47,22 @@ export class LeadsController {
     return this.leads.findAll(query, user);
   }
 
+  /**
+   * The distinct values behind the timezone / state / city filters.
+   *
+   * Its own endpoint because the pages used to derive these lists from the full
+   * lead book they had downloaded — which stops working the moment the list
+   * sends one page, and was a large part of why it had to send the whole book at
+   * all. Three grouped reads of indexed columns, no rows returned.
+   *
+   * Declared before `:id` — Nest matches routes in order, so a later
+   * `filter-options` would be swallowed by the `:id` param route above it.
+   */
+  @Get('filter-options')
+  filterOptions(@Query() query: ListLeadsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.leads.filterOptions(query, user);
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.leads.findOne(id, user);

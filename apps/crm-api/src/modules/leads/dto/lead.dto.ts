@@ -300,4 +300,107 @@ export class ListLeadsQueryDto {
   @IsOptional()
   @IsString()
   toLeadId?: string;
+
+  // ── Filters that used to run in the browser ──
+  //
+  // Every one of these was applied client-side, over whatever slice of the book
+  // had been downloaded. That is only correct while the client holds ALL the
+  // rows, which is exactly what made the module slow: it had to fetch the whole
+  // book before it could filter it. Filtering here is what lets the list send
+  // one page.
+
+  @ApiPropertyOptional({ description: 'City' })
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @ApiPropertyOptional({ enum: Timezone })
+  @IsOptional()
+  @IsEnum(Timezone)
+  timezone?: Timezone;
+
+  /** Outcome slug, or the display name carried by leads imported before the
+   *  outcome list existed — both are matched, as the browser filter did. */
+  @ApiPropertyOptional({ description: 'Call outcome slug (or legacy display name)' })
+  @IsOptional()
+  @IsString()
+  callStatus?: string;
+
+  @ApiPropertyOptional({ description: 'assigned | unassigned' })
+  @IsOptional()
+  @IsString()
+  assigned?: 'assigned' | 'unassigned';
+
+  @ApiPropertyOptional({ description: 'Created on or after (ISO date)' })
+  @IsOptional()
+  @IsString()
+  createdFrom?: string;
+
+  @ApiPropertyOptional({ description: 'Created on or before (ISO date)' })
+  @IsOptional()
+  @IsString()
+  createdTo?: string;
+
+  /** Closed Leads filters on when a lead CLOSED, not when it was created — the
+   *  two are months apart for anything that took work to win. */
+  @ApiPropertyOptional({ description: 'Closed on or after (ISO date)' })
+  @IsOptional()
+  @IsString()
+  closedFrom?: string;
+
+  @ApiPropertyOptional({ description: 'Closed on or before (ISO date)' })
+  @IsOptional()
+  @IsString()
+  closedTo?: string;
+
+  @ApiPropertyOptional({ description: 'Name of the user who closed the lead' })
+  @IsOptional()
+  @IsString()
+  closedBy?: string;
+
+  // ── Paging and ordering ──
+
+  /**
+   * 1-based page number. Without it the list returns the first page, which is
+   * the point: the module used to download up to 1000 leads and page through
+   * them in the browser, so opening it cost 1.2 MB and a thousand rows of DOM
+   * before a single one could be read.
+   */
+  @ApiPropertyOptional({ description: 'Page number, 1-based (default 1)' })
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiPropertyOptional({ description: 'Rows per page (default 50, max 500)' })
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  pageSize?: number;
+
+  @ApiPropertyOptional({ description: 'Column to sort by (see SORTABLE in leads.service)' })
+  @IsOptional()
+  @IsString()
+  sortBy?: string;
+
+  @ApiPropertyOptional({ description: 'asc | desc' })
+  @IsOptional()
+  @IsString()
+  sortDir?: 'asc' | 'desc';
+
+  /**
+   * Return only `id` and `leadId`.
+   *
+   * For the callers that need to reach across the whole book but render almost
+   * none of it — the assign-by-range dialog resolves up to 5,000 leads purely to
+   * collect their ids, and was being sent every column of every one of them.
+   */
+  @ApiPropertyOptional({ description: 'Return id and leadId only' })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  idsOnly?: boolean;
 }

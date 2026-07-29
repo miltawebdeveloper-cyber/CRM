@@ -19,6 +19,10 @@ import { downloadCsv } from '@/lib/export';
 
 const LIVE_MS = 15_000;
 
+/** Rows a dashboard widget shows. It is a glance, not a list — and asking for
+ *  only these keeps the live refresh cheap enough to run every 15 seconds. */
+const WIDGET_ROWS = 10;
+
 const PRI_STYLE: Record<string, string> = { high: 'text-[#a8431f]', medium: 'text-[#c98a18]', low: 'text-muted-foreground' };
 const TASK_LABEL: Record<string, string> = { todo: 'To Do', in_progress: 'In Progress', review: 'Review', done: 'Done' };
 
@@ -62,7 +66,34 @@ export default function DashboardPage() {
     };
   }, [dateFilter]);
 
-  const { data: leads = [] } = useQuery({ queryKey: ['leads', 'today'], queryFn: () => leadsApi.list(), retry: false, refetchInterval: LIVE_MS });
+  // Two small widgets, two small queries.
+  //
+  // Both used to be filtered out of one `leadsApi.list()` — the entire lead
+  // book, every column, re-fetched on the live interval. On a 50,000-lead book
+  // that is a megabyte or so of JSON every tick to render two lists of ten. The
+  // filters belong in the query, and the queries are capped at what the widgets
+  // can show.
+  const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const { data: todaysLeads = [] } = useQuery({
+    queryKey: ['leads', 'today', todayIso],
+    queryFn: () => leadsApi.list({ createdFrom: todayIso, createdTo: todayIso, pageSize: WIDGET_ROWS, sortBy: 'createdAt', sortDir: 'desc' }),
+    retry: false,
+    refetchInterval: LIVE_MS,
+  });
+  const { data: recentClosed = [] } = useQuery({
+    queryKey: ['leads', 'recent-closed'],
+    // `closed: true` is the Closed Leads scope (status = closed). "Interested"
+    // is a separate status, so the widget asks for each and shows them together
+    // — which is what the old client-side `closed || interested` filter meant.
+    queryFn: async () => {
+      const [closed, interested] = await Promise.all([
+        leadsApi.list({ closed: true, pageSize: WIDGET_ROWS, sortBy: 'closedAt', sortDir: 'desc' }),
+        leadsApi.list({ status: 'interested', pageSize: WIDGET_ROWS, sortBy: 'createdAt', sortDir: 'desc' }),
+      ]);
+      return [...closed, ...interested].slice(0, WIDGET_ROWS);
+    },
+    retry: false,
+  });
   const { data: tasks = [] } = useQuery({ queryKey: ['tasks'], queryFn: tasksApi.list, retry: false });
   const { data: followups = [] } = useQuery({ queryKey: ['followups'], queryFn: () => callsApi.followups(), retry: false });
   const { data: missed = [] } = useQuery({ queryKey: ['missed-calls'], queryFn: () => communicationsApi.missedCalls(), retry: false, refetchInterval: LIVE_MS });
@@ -81,10 +112,7 @@ export default function DashboardPage() {
     qc.invalidateQueries({ queryKey: ['followups'] });
   }
 
-  const today = new Date().toDateString();
-  const todaysLeads = leads.filter((l) => new Date(l.createdAt).toDateString() === today);
   const openTasks = tasks.filter((t) => t.status !== 'done');
-  const recentClosed = leads.filter((l) => l.status === 'closed' || l.status === 'interested');
   const dateLabel = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 
   return (

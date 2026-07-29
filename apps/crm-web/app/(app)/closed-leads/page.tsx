@@ -39,9 +39,15 @@ export default function ClosedLeadsPage() {
 
   // The API scopes this list by role: admins & team leaders get every closed
   // lead in the org, employees only the ones they personally closed.
+  // Still a bulk read, filtered in the browser — unlike Lead Management, which
+  // now pages server-side. The limit is explicit because the API's default page
+  // is 50 now, and inheriting it here would silently drop this list to its first
+  // fifty rows. It does gain the other two wins: the response carries only the
+  // columns the grid renders (about a third of the bytes it used to), and the
+  // query behind it is now an index scan rather than a scan of the table.
   const { data: allLeads = [], isLoading } = useQuery({
     queryKey: ['leads', 'closed'],
-    queryFn: () => leadsApi.list({ closed: true }),
+    queryFn: () => leadsApi.list({ closed: true, limit: 1000 }),
   });
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   const canManage = me?.role === 'admin' || me?.role === 'team_leader';

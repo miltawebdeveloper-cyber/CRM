@@ -2,9 +2,9 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, X, Hourglass, Lock } from 'lucide-react';
-import { leadsApi, type CreateLeadInput, type Lead } from '@/lib/leads';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, X, Hourglass, Lock, ChevronLeft, ChevronRight } from 'lucide-react';
+import { leadsApi, type CreateLeadInput, type Lead, type LeadListQuery } from '@/lib/leads';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { LeadAssignDialog } from '@/components/lead-assign-dialog';
 import { LeadOutcomeCell } from '@/components/lead-outcome-cell';
@@ -19,10 +19,21 @@ import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
-import { sortRows, type SortState } from '@/lib/use-column-prefs';
+import { type SortState } from '@/lib/use-column-prefs';
 import { downloadCsv, downloadXlsx } from '@/lib/export';
-import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
+import { EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { usePersistedState } from '@/lib/use-persisted-state';
+import { useDebounced } from '@/lib/use-debounced';
+import { pushToast } from '@/lib/toast';
+
+/** Rows per page. A screenful and a little to scroll, which is what makes the
+ *  module open in one small response instead of one large one. */
+const PAGE_SIZE = 50;
+
+/** Ceiling for an export — the API's own `limit` cap, and five times what the
+ *  module could reach before. Beyond it the user is told what was left out
+ *  rather than handed a short file that looks complete. */
+const EXPORT_LIMIT = 5000;
 
 const EMPTY: CreateLeadInput = {
   businessName: '',
@@ -76,6 +87,10 @@ export default function LeadsPage() {
   // Persisted so the chosen date filter survives navigating within the module.
   const [dateFilter, setDateFilter] = usePersistedState<DateFilterValue>('leads:date-filter', EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
+  // Lead lists open in ascending order (by lead id) until the user says
+  // otherwise. Declared here because the list query below is built from it —
+  // ordering is the server's job now, not a pass over rows already downloaded.
+  const [sort, setSort] = useState<SortState>({ key: 'leadId', dir: 'asc' });
 
   // Only active leads — one marked closed moves to /closed-leads.
   //
@@ -84,9 +99,62 @@ export default function LeadsPage() {
   // manager gets the whole book, which is what makes the select-and-distribute
   // flow below possible at all. Asking for `mine` here would leave a manager with
   // nothing to hand out.
-  const { data: allLeads = [], isLoading } = useQuery({
-    queryKey: ['leads', 'scoped', 'active'],
-    queryFn: () => leadsApi.list({ closed: false }),
+  // One page at a time, filtered, sorted and counted by the API.
+  //
+  // This used to fetch the book — up to a thousand leads, every column of each,
+  // about 1.2 MB — and then filter, sort and paginate it in the browser. That is
+  // why the module took so long to open: nothing could be shown until all of it
+  // had arrived and a thousand rows had been laid out. Every input below is now
+  // a query parameter, so what comes back is the page being looked at.
+  const [page, setPage] = useState(1);
+  // The typed term, debounced. Sending a request per keystroke put the search
+  // behind a queue of its own outdated requests.
+  const debouncedQ = useDebounced(q, 250);
+
+  const listQuery = useMemo<LeadListQuery>(() => ({
+    closed: false,
+    q: debouncedQ || undefined,
+    timezone: tz || undefined,
+    state: state || undefined,
+    city: city || undefined,
+    // "Assigned"/"Unassigned" ask about ownership; "Contacted" asks about the
+    // lead's status. One control, two different columns behind it.
+    assigned: status === 'assigned' ? 'assigned' : status === 'unassigned' ? 'unassigned' : undefined,
+    status: status === 'contacted' ? 'contacted' : undefined,
+    callStatus: callStatus || undefined,
+    createdFrom: dateFilter.from || undefined,
+    createdTo: dateFilter.to || undefined,
+    sortBy: sort.key,
+    sortDir: sort.dir,
+    page,
+    pageSize: PAGE_SIZE,
+  }), [debouncedQ, tz, state, city, status, callStatus, dateFilter.from, dateFilter.to, sort.key, sort.dir, page]);
+
+  const { data: pageData, isLoading, isFetching } = useQuery({
+    queryKey: ['leads', 'scoped', 'active', listQuery],
+    queryFn: () => leadsApi.page(listQuery),
+    // Hold the previous page on screen while the next one loads, so paging and
+    // filtering don't blank the table and jump the scroll position.
+    placeholderData: keepPreviousData,
+  });
+  const leads = useMemo(() => pageData?.rows ?? [], [pageData]);
+  const total = pageData?.total ?? 0;
+
+  // Any change to the filters puts you back on page 1 — page 7 of the old
+  // result set is meaningless against the new one, and often past its end.
+  const filterSig = `${debouncedQ}|${tz}|${state}|${city}|${status}|${callStatus}|${dateFilter.from}|${dateFilter.to}`;
+  const lastSig = useRef(filterSig);
+  if (lastSig.current !== filterSig) {
+    lastSig.current = filterSig;
+    if (page !== 1) setPage(1);
+  }
+
+  // The dropdown values come from the whole book, not from the page on screen —
+  // a filter offering only the cities that happen to be on page 3 is no filter.
+  const { data: filterOpts } = useQuery({
+    queryKey: ['leads', 'filter-options', tz, state],
+    queryFn: () => leadsApi.filterOptions({ closed: false, timezone: tz || undefined, state: state || undefined }),
+    staleTime: 5 * 60_000,
   });
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   const canManage = me?.role === 'admin' || me?.role === 'team_leader';
@@ -108,8 +176,6 @@ export default function LeadsPage() {
   const [activityLead, setActivityLead] = useState<Lead | null>(null); // Activity Log drawer (managers only)
   const [assignLeads, setAssignLeads] = useState<Lead[] | null>(null);  // Employee-wise assign popup (managers only)
   const clearTableSelection = useRef<(() => void) | null>(null);        // set from DataTable's bulkActions clear fn
-  // Lead lists open in ascending order (by lead id) until the user says otherwise.
-  const [sort, setSort] = useState<SortState>({ key: 'leadId', dir: 'asc' });
 
   // Bulk-push every not-yet-synced lead to Quo/OpenPhone as a contact.
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
@@ -158,7 +224,13 @@ export default function LeadsPage() {
     'Lost Reason',
     'Comments'
   ];
-  const exportRows = () => leads.map((l) => [
+  // Export covers the whole FILTERED result set, not the page on screen.
+  //
+  // It used to map over `leads`, which was every row the page had downloaded and
+  // filtered — the same thing. Now that the grid holds one page, mapping it
+  // would quietly export fifty rows and call it the export. So it asks the API
+  // for the same query without paging, and only then builds the file.
+  const exportRows = (rows: Lead[]) => rows.map((l) => [
     l.leadId,
     l.leadGenerationId ?? '',
     l.createdAt ? new Date(l.createdAt).toLocaleDateString() : '',
@@ -190,15 +262,11 @@ export default function LeadsPage() {
     l.comments ?? ''
   ]);
 
-  // States cascade from the selected timezone; cities from timezone + state.
-  const stateOpts = optionsFrom(
-    allLeads.filter((l) => !tz || l.timezone === tz).map((l) => l.state),
-    'All States',
-  );
-  const cityOpts = optionsFrom(
-    allLeads.filter((l) => (!tz || l.timezone === tz) && (!state || l.state === state)).map((l) => l.city),
-    'All Cities',
-  );
+  // States cascade from the selected timezone; cities from timezone + state —
+  // the cascade the API applies when it groups them, so these read the same as
+  // when they were built from the downloaded book.
+  const stateOpts = optionsFrom(filterOpts?.states ?? [], 'All States');
+  const cityOpts = optionsFrom(filterOpts?.cities ?? [], 'All Cities');
 
   // KPI cards respect the same date filter as the table (backend scopes by createdAt).
   const { data: s } = useQuery({
@@ -370,41 +438,35 @@ export default function LeadsPage() {
 
   // Shared column prefs for Column Customization (visibility/order) — unchanged.
   const prefs = useColumnPrefs('leads', columns);
-  const term = q.trim().toLowerCase();
-  // All columns that have a searchValue — search runs across ALL of them regardless
-  // of which columns the user has toggled visible in Column Customization.
-  const searchCols = useMemo(() => columns.filter((c) => c.searchable && c.searchValue), [columns]);
-  const filteredLeads = allLeads.filter((l) => {
-    // Lead Status filter logic
-    if (status === 'assigned'   && !l.assignedTo) return false;
-    if (status === 'unassigned' && !!l.assignedTo) return false;
-    if (status === 'contacted'  && l.status !== 'contacted') return false;
-    // Call Status filter (case-insensitive match)
-    // Match on the slug OR the display name. A lead dispositioned through the CRM
-    // stores the outcome's SLUG (`call_back`), while leads imported before the
-    // outcome list existed carry the display NAME ("Call Back") — and the inline
-    // editor writes slugs, so a name-only comparison would quietly stop matching
-    // every lead the moment its outcome was corrected.
-    if (callStatus) {
-      const have = (l.callStatus ?? '').toLowerCase();
-      const want = callStatus.toLowerCase();
-      const alias = (outcomeDefs.find((o) => o.slug === callStatus)?.name ?? '').toLowerCase();
-      if (have !== want && (!alias || have !== alias)) return false;
-    }
-    // Remaining filters
-    if (tz && l.timezone !== tz) return false;
-    if (state && l.state !== state) return false;
-    if (city && l.city !== city) return false;
-    if (!inDateBounds(l.createdAt, dateFilter)) return false;
-    if (term && !searchCols.some((c) => String(c.searchValue!(l) ?? '').toLowerCase().includes(term))) return false;
-    return true;
-  });
 
-  // Sorting is owned here rather than inside the table so that Export CSV/Excel can
-  // reuse the exact order on screen — `leads` is what both the grid and the export
-  // read. Ascending by lead id is the default, per spec.
-  const sortedLeads = useMemo(() => sortRows(filteredLeads, sort, columns), [filteredLeads, sort, columns]);
-  const leads = sortedLeads;
+  // Filtering and sorting used to happen here, over the whole downloaded book —
+  // a pass across every lead on every keystroke, followed by a re-render of
+  // every row. Both are the API's job now (see `listQuery`), which is what lets
+  // this page hold fifty rows instead of a thousand.
+
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const firstOnPage = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const lastOnPage = Math.min(page * PAGE_SIZE, total);
+
+  // Re-runs the current query unpaged so the file holds every matching lead.
+  // Capped at the API's ceiling; if the filter selects more than that, say so
+  // rather than handing over a truncated file that looks complete.
+  const [exporting, setExporting] = useState(false);
+  const runExport = async (write: (rows: (string | number)[][]) => void) => {
+    setExporting(true);
+    try {
+      // `limit` rather than `pageSize`: pageSize is capped at 500 so a page
+      // request can't turn into a bulk read, while `limit` is the deliberate
+      // bulk path and allows the full 5,000.
+      const all = await leadsApi.page({ ...listQuery, page: 1, pageSize: undefined, limit: EXPORT_LIMIT });
+      write(exportRows(all.rows));
+      if (all.total > all.rows.length) {
+        pushToast('info', `Exported the first ${all.rows.length.toLocaleString()} of ${all.total.toLocaleString()} leads. Narrow the filters to export the rest.`);
+      }
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div>
@@ -415,15 +477,15 @@ export default function LeadsPage() {
           </button>
         )}
         <button
-          onClick={() => downloadCsv('leads', EXPORT_HEADERS, exportRows())}
-          disabled={leads.length === 0}
+          onClick={() => runExport((rows) => downloadCsv('leads', EXPORT_HEADERS, rows))}
+          disabled={total === 0 || exporting}
           className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
         >
-          <Download className="h-4 w-4" /> Export CSV
+          <Download className="h-4 w-4" /> {exporting ? 'Preparing…' : 'Export CSV'}
         </button>
         <button
-          onClick={() => downloadXlsx('leads', EXPORT_HEADERS, exportRows())}
-          disabled={leads.length === 0}
+          onClick={() => runExport((rows) => downloadXlsx('leads', EXPORT_HEADERS, rows))}
+          disabled={total === 0 || exporting}
           className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
         >
           <Download className="h-4 w-4" /> Export Excel
@@ -565,9 +627,11 @@ export default function LeadsPage() {
         rows={leads}
         getRowKey={(l) => l.id}
         title="All Leads"
-        subtitle={`${leads.length} shown`}
+        // The count is the whole result set, not the page: "50 shown" out of
+        // 40,000 would read as a filter that had thrown almost everything away.
+        subtitle={total === 0 ? 'No leads' : `${firstOnPage.toLocaleString()}–${lastOnPage.toLocaleString()} of ${total.toLocaleString()}`}
         loading={isLoading}
-        emptyText={allLeads.length === 0 ? 'No leads yet — add one above.' : 'No leads match the current filters.'}
+        emptyText="No leads match the current filters."
         prefs={prefs}
         // Excel-style viewport: header pinned, horizontal scrollbar always on
         // screen. Lead Management has the most columns, so it needs it most.
@@ -603,6 +667,37 @@ export default function LeadsPage() {
           </button>
         ) : undefined}
       />
+
+      {/* Pager. Only when there is more than one page — a single page of results
+          needs no controls, and showing dead ones invites clicking them. */}
+      {pageCount > 1 && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[12.5px] text-muted-foreground">
+            Page <b className="text-foreground">{page.toLocaleString()}</b> of {pageCount.toLocaleString()}
+            {/* The previous page stays on screen while the next one loads, so
+                without this the table would look idle mid-fetch. */}
+            {isFetching && <span className="ml-2 opacity-70">updating…</span>}
+          </p>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="inline-flex items-center gap-1 rounded-md border bg-card px-2.5 py-1.5 text-[12.5px] font-semibold hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+            >
+              <ChevronLeft className="h-4 w-4" /> Previous
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              disabled={page >= pageCount}
+              className="inline-flex items-center gap-1 rounded-md border bg-card px-2.5 py-1.5 text-[12.5px] font-semibold hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+            >
+              Next <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Lead History drawer — Admin & Team Leader only. */}
       {canManage && activityLead && (
