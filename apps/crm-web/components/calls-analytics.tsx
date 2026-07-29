@@ -47,15 +47,57 @@ function RatioBar({ label, pct, color }: { label: string; pct: number; color: st
   );
 }
 
-/** One lead-book count: how many, and of what. */
-function Figure({ value, label, color, tint }: { value: number; label: string; color?: string; tint?: string }) {
+/**
+ * The lead book as one bar: how far through it this employee is.
+ *
+ * It used to be three tiles of equal size — Assigned, Completed, Balance — which
+ * drew the three numbers as peers. They aren't: Assigned is the whole, and the
+ * other two are the parts it splits into. Reading "449 / 16 / 433" you had to
+ * work out for yourself that they were related at all, let alone that 16 of 449
+ * is under four per cent.
+ *
+ * So the total leads, in the size that says it's the total, and the split runs
+ * underneath it as one bar. The share is the thing the old layout hid, and it's
+ * now the thing you see first.
+ */
+function BookPart({ label, value, share, color }: { label: string; value: number; share: number; color: string }) {
   return (
-    <div
-      className="flex-1 rounded-[10px] px-2.5 py-2 text-center"
-      style={color ? { background: tint, color } : { background: '#27301d', color: '#fff' }}
-    >
-      <div className="font-display text-[19px] font-semibold leading-none">{value.toLocaleString()}</div>
-      <div className="mt-[3px] text-[9.5px] font-semibold uppercase tracking-wider opacity-80">{label}</div>
+    <div className="flex items-center gap-2 text-[12px]">
+      <span className="h-3 w-[3px] shrink-0 rounded-full" style={{ background: color }} />
+      <span className="text-muted-foreground">{label}</span>
+      <span className="ml-auto font-semibold tabular-nums">{value.toLocaleString()}</span>
+      <span className="w-11 shrink-0 text-right tabular-nums text-muted-foreground">{share.toFixed(1)}%</span>
+    </div>
+  );
+}
+
+function LeadBook({ assigned, completed, balance }: { assigned: number; completed: number; balance: number }) {
+  // Against the book itself, not against completed + balance: if those two ever
+  // failed to add up, the bar should come up short rather than quietly rescale
+  // itself to hide it.
+  const donePct = assigned > 0 ? (completed / assigned) * 100 : 0;
+  const leftPct = assigned > 0 ? (balance / assigned) * 100 : 0;
+
+  return (
+    <div>
+      <div className="flex items-baseline gap-2">
+        <span className="font-display text-[30px] font-semibold leading-none">{assigned.toLocaleString()}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">leads assigned</span>
+      </div>
+
+      {/* One bar, two segments, 2px of card between them so they read as two
+          marks rather than one blended strip. Segments carry no text — at four
+          per cent there is no room for any — so the counts and shares sit
+          underneath, which is also what keeps this readable without colour. */}
+      <div className="mt-2.5 flex h-2.5 w-full gap-[2px] overflow-hidden rounded-full bg-muted">
+        <span className="h-full rounded-full transition-[width]" style={{ width: `${donePct}%`, background: CAT.closed_positive.color }} />
+        <span className="h-full rounded-full transition-[width]" style={{ width: `${leftPct}%`, background: CAT.warm.color }} />
+      </div>
+
+      <div className="mt-2.5 space-y-1">
+        <BookPart label="Completed" value={completed} share={donePct} color={CAT.closed_positive.color} />
+        <BookPart label="Balance" value={balance} share={leftPct} color={CAT.warm.color} />
+      </div>
     </div>
   );
 }
@@ -375,11 +417,7 @@ export function CallsAnalytics({ isManager }: { isManager: boolean }) {
           <h3 className="mb-2.5 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
             Lead Book <span className="normal-case tracking-normal opacity-70">· current, not date-filtered</span>
           </h3>
-          <div className="flex items-stretch gap-2">
-            <Figure value={leads?.assigned ?? 0} label="Assigned" />
-            <Figure value={leads?.completed ?? 0} label="Completed" color={CAT.closed_positive.color} tint={CAT.closed_positive.tint} />
-            <Figure value={leads?.balance ?? 0} label="Balance" color={CAT.warm.color} tint={CAT.warm.tint} />
-          </div>
+          <LeadBook assigned={leads?.assigned ?? 0} completed={leads?.completed ?? 0} balance={leads?.balance ?? 0} />
 
           <div className="mt-3 border-t pt-3">
             {stats?.target ? (
