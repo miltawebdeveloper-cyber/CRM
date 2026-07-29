@@ -74,29 +74,63 @@ function Stage({ label, value, sub, color, tint, dark }: { label: string; value:
   );
 }
 
+/** Ink used where a heading carries no category colour of its own. */
+const INK = '#27301d';
+
+/**
+ * A card heading that carries its bucket's colour.
+ *
+ * The headings used to be a 2px dot and plain text on white, which put five
+ * cards of near-identical grey chrome side by side — you had to read every
+ * title to find the one you wanted. Filling the band with the bucket's own tint
+ * makes the column findable by colour before it's read, and ties each card to
+ * the stage of the same colour in the strip above it.
+ *
+ * The count rides in the heading as a pill, so the card's headline number is
+ * legible at a glance rather than only at the foot of a long list of zeroes.
+ */
+function CardHead({ title, color, tint, dark, count }: {
+  title: string; color?: string; tint?: string; dark?: boolean; count?: number;
+}) {
+  return (
+    <div
+      className="flex items-center gap-2 px-3 py-2"
+      style={dark ? { background: INK, color: '#fff' } : { background: tint, color }}
+    >
+      <h4 className="truncate text-[11px] font-bold uppercase tracking-[.09em]">{title}</h4>
+      {count !== undefined && (
+        // Lifted off the band rather than given its own colour: the band is
+        // already carrying the identity, and a second colour here would compete.
+        <span className={`ml-auto shrink-0 rounded-full px-2 py-[1px] text-[11px] font-bold tabular-nums ${dark ? 'bg-white/15' : 'bg-white/70'}`}>
+          {count.toLocaleString()}
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** One breakdown column: the statuses in a bucket with their counts. */
-function Breakdown({ title, color, rows, total, totalLabel = 'Total' }: {
-  title: string; color: string; rows: CallStatusCount[]; total: number; totalLabel?: string;
+function Breakdown({ title, color, tint, dark, rows, total, totalLabel = 'Total' }: {
+  title: string; color?: string; tint?: string; dark?: boolean; rows: CallStatusCount[]; total: number; totalLabel?: string;
 }) {
   return (
     <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
-      <div className="flex items-center gap-2 border-b px-3 py-2">
-        <span className="h-2 w-2 rounded-full" style={{ background: color }} />
-        <h4 className="text-[12.5px] font-semibold">{title}</h4>
-      </div>
+      <CardHead title={title} color={color} tint={tint} dark={dark} count={total} />
       <div className="px-3">
         {rows.length === 0 ? (
           <p className="py-3 text-center text-[11.5px] text-muted-foreground">No statuses in this bucket.</p>
         ) : rows.map((r) => (
-          <div key={r.slug} className="flex items-center justify-between gap-3 border-b py-1 text-[12px] last:border-0">
+          // -mx-1.5 px-1.5 so the hover highlight extends into the card's
+          // padding instead of stopping short of the text it belongs to.
+          <div key={r.slug} className="-mx-1.5 flex items-center justify-between gap-3 rounded-md border-b px-1.5 py-1 text-[12px] transition-colors last:border-0 hover:bg-muted/60">
             <span className="truncate" style={{ color: r.count > 0 ? undefined : '#9aa08e' }}>{r.name}</span>
             <span className={`shrink-0 tabular-nums ${r.count > 0 ? 'font-semibold' : 'text-muted-foreground'}`}>{r.count}</span>
           </div>
         ))}
       </div>
-      <div className="flex items-center justify-between border-t px-3 py-1.5 text-[12px] font-semibold">
+      <div className="flex items-center justify-between border-t bg-muted/40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[.07em]">
         <span>{totalLabel}</span>
-        <span className="tabular-nums">{total}</span>
+        <span className="text-[12.5px] tabular-nums">{total}</span>
       </div>
     </div>
   );
@@ -157,10 +191,11 @@ function PipelineMix({ given, cats }: { given: number; cats?: { cold: number; wa
 
   return (
     <div className="flex h-full flex-col rounded-xl border bg-card shadow-sm">
-      <div className="flex items-center gap-2 border-b px-3 py-2">
-        <h4 className="text-[12.5px] font-semibold">Pipeline Mix</h4>
-        <span className="ml-auto text-[10.5px] text-muted-foreground">share of given leads</span>
-      </div>
+      {/* Dark, like Given Leads at the other end of the row: the two cards that
+          summarise the whole bookend the four that break it down. */}
+      {/* No count pill here — the ring's centre already carries the total, in
+          bigger type a few pixels below it. */}
+      <CardHead title="Pipeline Mix" dark />
 
       {total === 0 ? (
         <p className="px-3 py-8 text-center text-[11.5px] text-muted-foreground">
@@ -213,8 +248,10 @@ function PipelineMix({ given, cats }: { given: number; cats?: { cold: number; wa
               missing, exactly as the breakdown columns do. */}
           <div className="px-3 pb-1">
             {slices.map((s) => (
-              <div key={s.key} className="flex items-center gap-2 border-b py-1 text-[12px] last:border-0">
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} />
+              <div key={s.key} className="-mx-1.5 flex items-center gap-2 rounded-md border-b px-1.5 py-1 text-[12px] transition-colors last:border-0 hover:bg-muted/60">
+                {/* A bar rather than a dot: it reads as a piece of the ring, and
+                    at 3px it still carries the colour at legend size. */}
+                <span className="h-3 w-[3px] shrink-0 rounded-full" style={{ background: s.color }} />
                 <span className="truncate" style={{ color: s.value > 0 ? undefined : '#9aa08e' }}>{s.label}</span>
                 <span className={`ml-auto shrink-0 tabular-nums ${s.value > 0 ? 'font-semibold' : 'text-muted-foreground'}`}>{s.value}</span>
                 <span className="w-9 shrink-0 text-right tabular-nums text-muted-foreground">{Math.round(pct(s.value))}%</span>
@@ -398,15 +435,18 @@ export function CallsAnalytics({ isManager }: { isManager: boolean }) {
           squeezed into a quarter of a laptop screen. */}
       <div className="grid gap-3 xl:grid-cols-[3fr_1fr]">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <Breakdown title="Given Leads" color="#27301d" rows={byStatus} total={given} />
-          <Breakdown title={CAT.cold.label} color={CAT.cold.color} rows={inCat('cold')} total={cats?.cold ?? 0} />
+          <Breakdown title="Given Leads" dark rows={byStatus} total={given} />
+          <Breakdown title={CAT.cold.label} color={CAT.cold.color} tint={CAT.cold.tint} rows={inCat('cold')} total={cats?.cold ?? 0} />
           <div className="space-y-3">
-            <Breakdown title={CAT.warm.label} color={CAT.warm.color} rows={inCat('warm')} total={cats?.warm ?? 0} />
-            <Breakdown title={CAT.hot.label} color={CAT.hot.color} rows={inCat('hot')} total={cats?.hot ?? 0} />
+            <Breakdown title={CAT.warm.label} color={CAT.warm.color} tint={CAT.warm.tint} rows={inCat('warm')} total={cats?.warm ?? 0} />
+            <Breakdown title={CAT.hot.label} color={CAT.hot.color} tint={CAT.hot.tint} rows={inCat('hot')} total={cats?.hot ?? 0} />
           </div>
           <div className="space-y-3">
-            <Breakdown title="Connected / Follow-ups" color={CAT.connected.color} rows={inCat('connected')} total={cats?.connected ?? 0} />
-            <Breakdown title="Closed" color={CAT.closed_negative.color} rows={[...inCat('closed_positive'), ...inCat('closed_negative')]} total={(cats?.closedPositive ?? 0) + (cats?.closedNegative ?? 0)} />
+            <Breakdown title="Connected / Follow-ups" color={CAT.connected.color} tint={CAT.connected.tint} rows={inCat('connected')} total={cats?.connected ?? 0} />
+            {/* Green, matching the ring's Closed slice. It was rust, which is the
+                Closed-Lost colour — the same bucket wearing two colours across
+                two cards in one row. */}
+            <Breakdown title="Closed" color={CAT.closed_positive.color} tint={CAT.closed_positive.tint} rows={[...inCat('closed_positive'), ...inCat('closed_negative')]} total={(cats?.closedPositive ?? 0) + (cats?.closedNegative ?? 0)} />
           </div>
         </div>
         {/* Self-start so the ring keeps its own height instead of stretching to
