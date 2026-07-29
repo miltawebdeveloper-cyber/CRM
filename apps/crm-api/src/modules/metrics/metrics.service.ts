@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { LeadStatus, Prisma, Timezone, Role, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MetricsQueryDto } from './dto/metrics.dto';
-import { CONNECTED_CALL, MISSED_STATUSES } from '../calls/call-status';
+import { CONNECTED_CALL, MISSED_INBOUND_CALL } from '../calls/call-status';
 
 interface Node {
   total: number;
@@ -143,7 +143,12 @@ export class MetricsService {
       this.prisma.target.aggregate({ where: this.targetWhere(q), _sum: { monthlyTarget: true } }),
       this.prisma.call.count({ where: callWhere }),
       this.prisma.call.count({ where: { ...callWhere, ...CONNECTED_CALL } }),
-      this.prisma.call.count({ where: { ...callWhere, status: { in: MISSED_STATUSES } } }),
+      // A genuine missed call: the customer rang in and nobody picked up. The
+      // card sits directly above the Missed Calls list on the same dashboard,
+      // so it counts exactly what that list shows. The broad MISSED_STATUSES
+      // set would also count OUTBOUND no-answer and rejected calls — customer
+      // didn't pick up, which is an outbound result, not a call anyone missed.
+      this.prisma.call.count({ where: { ...callWhere, ...MISSED_INBOUND_CALL } }),
       // Zoom meetings still to happen — the Zoom Scheduled Queue in the panel.
       this.prisma.zoomMeeting.count({
         where: {

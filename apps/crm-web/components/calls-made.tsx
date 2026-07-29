@@ -220,7 +220,12 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
         <KpiCard icon={PhoneOutgoing} iconBg="#e7eed8" iconColor="#42512f" value={(stats?.outgoing ?? 0).toLocaleString()} label="Outgoing Calls" />
         <KpiCard icon={PhoneIncoming} iconBg="#e3f1ee" iconColor="#2f6f63" value={(stats?.incoming ?? 0).toLocaleString()} label="Incoming Calls" />
         <KpiCard icon={CheckCircle2} iconBg="#e8f2e4" iconColor="#3f7a32" value={(stats?.connected ?? 0).toLocaleString()} label={`Connected · ${stats?.connectedPct ?? 0}%`} />
-        <KpiCard icon={PhoneMissed} iconBg="#fdecdc" iconColor="#c98a18" value={(stats?.missed ?? 0).toLocaleString()} label="Missed Calls" />
+        {/* "Unanswered", not "Missed Calls": this is a volume breakdown of the
+            log and counts BOTH directions, so most of it is outbound calls the
+            customer didn't pick up. The Missed Calls tab next door means
+            something narrower — inbound calls the user missed — and two tiles a
+            click apart must not use one label for two different numbers. */}
+        <KpiCard icon={PhoneMissed} iconBg="#fdecdc" iconColor="#c98a18" value={(stats?.missed ?? 0).toLocaleString()} label="Unanswered" />
         <KpiCard icon={PhoneOff} iconBg="#fbeeec" iconColor="#a8431f" value={(stats?.failed ?? 0).toLocaleString()} label="Failed Calls" />
         <KpiCard icon={Clock} iconBg="#fbf3e2" iconColor="#c98a18" value={formatDuration(stats?.totalDurationSecs ?? 0)} label="Call Duration" />
         <KpiCard icon={Timer} iconBg="#eef0e8" iconColor="#6b7359" value={formatDuration(stats?.avgDurationSecs ?? 0)} label="Avg Call" />

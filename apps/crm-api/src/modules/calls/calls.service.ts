@@ -985,6 +985,12 @@ export class CallsService {
       // but they were never dispositioned — counting them as connected would
       // inflate the connect rate with calls nobody confirmed even happened.
       this.prisma.call.count({ where: { ...where, endTime: { not: null }, NOT: { status: ABANDONED_STATUS } } }),
+      // Unanswered in EITHER direction — a volume breakdown of the log, where
+      // most of these are outbound calls the customer didn't pick up. Shown as
+      // "Unanswered", deliberately not as "Missed Calls": the Missed Calls tab
+      // means only inbound calls the user missed (MISSED_INBOUND_CALL), and
+      // narrowing this count to match would leave outbound no-answer in neither
+      // this bucket nor `failed`, so the breakdown would stop adding up.
       this.prisma.call.count({ where: { ...where, status: { in: MISSED_STATUSES } } }),
       this.prisma.call.count({ where: { ...where, status: { in: FAILED_STATUSES } } }),
       this.prisma.call.aggregate({ where, _sum: { durationSecs: true }, _avg: { durationSecs: true } }),
@@ -1286,7 +1292,7 @@ export class CallsService {
     const callStatuses = new Set<string>();
     for (const { lead } of calls) {
       if (!lead) continue;
-      geo.set(`${lead.timezone} ${lead.state} ${lead.city}`, {
+      geo.set(`${lead.timezone}\u0000${lead.state}\u0000${lead.city}`, {
         timezone: lead.timezone,
         state: lead.state,
         city: lead.city,

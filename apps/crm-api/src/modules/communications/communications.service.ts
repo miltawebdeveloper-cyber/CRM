@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenEx
 import * as crypto from 'crypto';
 import { CommDirection, Timezone, LeadStatus, Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MISSED_INBOUND_STATUSES, isMissedInbound } from '../calls/call-status';
 import { OpenPhoneService } from '../openphone/openphone.service';
 import { CallInsightsService } from './call-insights.service';
 
@@ -651,7 +652,13 @@ export class CommunicationsService {
     }
 
     // Workflow: missed inbound call → follow-up task for the owner.
-    const missed = ['missed', 'no-answer', 'no_answer'].includes(status) || (direction === CommDirection.inbound && durationSecs === 0);
+    //
+    // Uses the same rule the Missed Calls tab lists by, so a task can't be raised
+    // for a call the tab won't show (or the reverse). The old test fired on ANY
+    // status in the missed list — including an OUTBOUND "no answer", which is a
+    // call the customer didn't pick up, not a call the user missed — and on any
+    // zero-length inbound call, which caught answered-but-brief ones too.
+    const missed = isMissedInbound(direction, status);
     if (missed) {
       await this.prisma.task.create({
         data: { title: `Follow up: missed call from ${lead.businessName} (${external})`, ownerId: callerId, priority: 'high' },
@@ -1064,10 +1071,15 @@ export class CommunicationsService {
   /** Recent missed inbound calls. Employees see only the ones assigned to them
    *  (i.e. calls attributed to them via resolveInboundOwner); managers see all. */
   async getMissedCalls(userId: string, role: string, limit = 20) {
+    // Only genuine missed INCOMING calls: the customer rang, nobody answered.
+    // See MISSED_INBOUND_CALL — outbound results (no answer, busy, failed,
+    // cancelled, rejected) and the abandoned-call sweep's rows are all excluded
+    // by construction rather than by a duration heuristic.
     const where: Prisma.CallWhereInput = {
       direction: CommDirection.inbound,
-      OR: [{ status: { in: ['missed', 'no-answer', 'no_answer'] } }, { durationSecs: 0 }],
+      status: { in: MISSED_INBOUND_STATUSES },
     };
+    // Employees see only calls routed to them. Managers see the team's.
     if (role === 'employee') where.callerId = userId;
     const calls = await this.prisma.call.findMany({
       where,
@@ -1092,9 +1104,8 @@ export class CommunicationsService {
       phone: c.lead.phone,
       city: c.lead.city,
       state: c.lead.state,
-      // A provider status is only set on calls that came through OpenPhone; a
-      // zero-length inbound call is the other way one reads as missed, so it is
-      // labelled rather than left blank.
+      // Always one of MISSED_INBOUND_STATUSES — the query admits nothing else.
+      // The fallback only guards the nullable column type.
       status: c.status ?? 'missed',
       assignedTo: c.caller?.name ?? null,
       assignedToId: c.callerId,
@@ -1117,8 +1128,13 @@ export class CommunicationsService {
       this.prisma.message.findMany({ where: { createdAt: { gte: since } }, select: { direction: true, createdAt: true } }),
     ]);
 
-    const isMissed = (c: { status: string | null; direction: 'inbound' | 'outbound' | null; durationSecs: number | null }) =>
-      ['missed', 'no-answer', 'no_answer'].includes(c.status ?? '') || (c.direction === 'inbound' && c.durationSecs === 0);
+    // Same rule as the Missed Calls tab, so the two can't report different
+    // numbers for the same week. The old test here counted an OUTBOUND "no
+    // answer" as missed, and treated every zero-duration inbound call as missed
+    // — which swept in the abandoned-call sweep's rows, since it stamps
+    // `durationSecs: 0` on calls the agent never dispositioned.
+    const isMissed = (c: { status: string | null; direction: 'inbound' | 'outbound' | null }) =>
+      isMissedInbound(c.direction, c.status);
     const talk = calls.reduce((a, c) => a + (c.durationSecs ?? 0), 0);
     const answered = calls.filter((c) => (c.durationSecs ?? 0) > 0).length;
 

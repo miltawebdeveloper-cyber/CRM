@@ -35,3 +35,39 @@ export const CONNECTED_CALL = {
   endTime: { not: null },
   NOT: { status: ABANDONED_STATUS },
 } as const;
+
+/**
+ * Provider statuses that mean an INCOMING call rang and nobody picked it up.
+ *
+ * Narrower than MISSED_STATUSES on purpose. That list also carries `rejected`
+ * and `declined`, which describe a call the user actively refused rather than
+ * one they missed, and it is applied to outbound calls too — where "no answer"
+ * means the CUSTOMER didn't pick up, which is an outbound result, not a missed
+ * call. The Missed Calls tab must not mix the two.
+ */
+export const MISSED_INBOUND_STATUSES = ['missed', 'no-answer', 'no_answer'];
+
+/**
+ * A genuine missed call: the customer rang in, and the user did not answer.
+ *
+ * Deliberately driven by the PROVIDER's status and nothing else. The previous
+ * rule also treated any inbound call of zero duration as missed, which quietly
+ * swept in two things that are not missed calls:
+ *
+ *  • rows the abandoned-call cron had closed — it stamps `durationSecs: 0` on a
+ *    call the agent never dispositioned, so queue processing leaked straight
+ *    into the tab;
+ *  • inbound calls that WERE answered and happened to last under a second.
+ *
+ * Outbound results — no answer, busy, failed, cancelled, rejected — can never
+ * match, because direction is checked first.
+ */
+export const MISSED_INBOUND_CALL = {
+  direction: 'inbound',
+  status: { in: MISSED_INBOUND_STATUSES },
+} as const;
+
+/** The same rule for a single call in hand, e.g. when a webhook arrives. */
+export function isMissedInbound(direction: string | null | undefined, status: string | null | undefined): boolean {
+  return direction === 'inbound' && !!status && MISSED_INBOUND_STATUSES.includes(status);
+}
