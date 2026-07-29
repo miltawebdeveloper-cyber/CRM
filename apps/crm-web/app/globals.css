@@ -45,6 +45,30 @@
   --muted-foreground: 123 10% 40%;
   --border: 123 22% 87%;          /* line */
   --radius: 0.7rem;
+
+  /* ── Pipeline chart steps ──
+     The chart steps of the pipeline hues in components/calls-shared.tsx (CAT).
+     Same hue identity — cold indigo, warm amber, hot red, closed green — but
+     stepped for a chart surface, where CAT's own values don't hold up: its teal
+     (#2f6f63) and dark closed ink (#27301d) read as gray at chart chroma, and
+     its two greens sit ΔE 8.5 apart in normal vision, which is below the point
+     where anyone can tell two slices apart.
+
+     Validated as a set against the card surface in both modes: lightness band,
+     chroma floor, all-pairs CVD separation and normal-vision separation all
+     pass. The one warning is hot-vs-closed under protanopia (ΔE 6.4 light /
+     6.2 dark, the classic red-green pair), which is legal only alongside a
+     second encoding — hence the ring's slice gaps and its labelled legend
+     carrying every name, count and percentage. Never colour alone.
+
+     Connected / Follow-ups takes the neutral: it isn't a temperature on the
+     Cold → Warm → Hot → Closed funnel, and a fifth hue that separates from
+     these four doesn't exist in this brand's range. */
+  --viz-cold: #6366f1;
+  --viz-warm: #f59e0b;
+  --viz-hot: #ef4444;
+  --viz-closed: #008300;
+  --viz-working: #8b8f86;
 }
 
 .dark {
@@ -59,6 +83,14 @@
   --muted: 123 16% 18%;
   --muted-foreground: 100 18% 62%;
   --border: 123 14% 22%;
+
+  /* Re-stepped for the dark card, not flipped: the light steps sit above the
+     dark lightness band and would glow. Validated as its own set. */
+  --viz-cold: #6d76e8;
+  --viz-warm: #b08600;
+  --viz-hot: #e46464;
+  --viz-closed: #189e6a;
+  --viz-working: #9aa08e;
 }
 
 @layer base {

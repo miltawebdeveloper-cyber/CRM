@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts';
 import { Pencil } from 'lucide-react';
 import { callsApi, type CallStatusCount } from '@/lib/crm';
 import { CAT, CallFilterBar, useCallFilters } from '@/components/calls-shared';
@@ -97,6 +98,131 @@ function Breakdown({ title, color, rows, total, totalLabel = 'Total' }: {
         <span>{totalLabel}</span>
         <span className="tabular-nums">{total}</span>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The ring's slices, in the funnel's own order.
+ *
+ * Colours are the `--viz-*` tokens (see globals.css), which are the chart steps
+ * of the same hues CAT uses everywhere else on this page — CAT's own values are
+ * tuned for text and tinted chips and don't separate as chart fills.
+ *
+ * Connected / Follow-ups comes last and takes the neutral. It isn't a
+ * temperature on the Cold → Warm → Hot → Closed funnel, so it reads as the
+ * "still being worked" remainder, and sitting last it also keeps Closed from
+ * touching Cold where the ring wraps.
+ */
+const RING = [
+  { key: 'cold', label: 'Cold', color: 'var(--viz-cold)' },
+  { key: 'warm', label: 'Warm', color: 'var(--viz-warm)' },
+  { key: 'hot', label: 'Hot', color: 'var(--viz-hot)' },
+  { key: 'closed', label: 'Closed', color: 'var(--viz-closed)' },
+  { key: 'working', label: 'Connected / Follow-ups', color: 'var(--viz-working)' },
+] as const;
+
+/**
+ * Pipeline Mix — the parts-of-whole reading of the funnel above it.
+ *
+ * The stage strip and the breakdown columns both answer "how many", one bucket
+ * at a time. Neither shows the *shape* of the book: whether the range is mostly
+ * cold, or mostly closing. A ring answers that at a glance because the slices
+ * are the whole, and the middle carries the total they add up to.
+ *
+ * Every slice is named, counted and given its share in the legend, so identity
+ * never rests on colour alone — which is also what makes the one unavoidable
+ * red/green pair (Hot vs Closed) safe for colourblind readers.
+ */
+function PipelineMix({ given, cats }: { given: number; cats?: { cold: number; warm: number; hot: number; connected: number; closedPositive: number; closedNegative: number } }) {
+  const slices = useMemo(() => {
+    const by: Record<string, number> = {
+      cold: cats?.cold ?? 0,
+      warm: cats?.warm ?? 0,
+      hot: cats?.hot ?? 0,
+      // Won and lost are one stage here — the Closed column beside this splits
+      // them, and two more slices is where the ring stops being readable.
+      closed: (cats?.closedPositive ?? 0) + (cats?.closedNegative ?? 0),
+      working: cats?.connected ?? 0,
+    };
+    return RING.map((r) => ({ ...r, value: by[r.key] }));
+  }, [cats]);
+
+  // The ring's own total rather than `given`: the two are the same number by
+  // construction (every status sits in exactly one bucket), and if they ever
+  // drifted the percentages should still add to 100.
+  const total = slices.reduce((s, x) => s + x.value, 0);
+  const drawn = slices.filter((s) => s.value > 0);
+  const pct = (n: number) => (total > 0 ? (n / total) * 100 : 0);
+
+  return (
+    <div className="flex h-full flex-col rounded-xl border bg-card shadow-sm">
+      <div className="flex items-center gap-2 border-b px-3 py-2">
+        <h4 className="text-[12.5px] font-semibold">Pipeline Mix</h4>
+        <span className="ml-auto text-[10.5px] text-muted-foreground">share of given leads</span>
+      </div>
+
+      {total === 0 ? (
+        <p className="px-3 py-8 text-center text-[11.5px] text-muted-foreground">
+          No outcomes in this range yet, so there&apos;s no mix to show.
+        </p>
+      ) : (
+        <>
+          <div className="relative h-[186px] px-2 pt-3">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={drawn}
+                  dataKey="value"
+                  nameKey="label"
+                  innerRadius="62%"
+                  outerRadius="94%"
+                  // 2px of the card showing between segments, so neighbouring
+                  // slices read as separate marks rather than one blended arc.
+                  paddingAngle={2}
+                  stroke="hsl(var(--card))"
+                  strokeWidth={2}
+                  isAnimationActive={false}
+                >
+                  {drawn.map((s) => (
+                    <Cell key={s.key} fill={s.color} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{ borderRadius: 10, border: '1px solid hsl(var(--border))', background: 'hsl(var(--card))', fontSize: 12 }}
+                  labelStyle={{ fontWeight: 600, color: 'hsl(var(--foreground))' }}
+                  formatter={(v, name) => {
+                    const n = Number(v ?? 0);
+                    return [`${n.toLocaleString()} · ${Math.round(pct(n))}%`, String(name ?? '')];
+                  }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            {/* The total the slices add up to, in the hole the ring leaves.
+                `pointer-events-none` so it never eats a slice's hover. */}
+            <div className="pointer-events-none absolute inset-0 grid place-items-center">
+              <div className="text-center">
+                <div className="font-display text-[22px] font-semibold leading-none">{total.toLocaleString()}</div>
+                <div className="mt-1 text-[9px] uppercase tracking-wider text-muted-foreground">given leads</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Legend and table in one: every stage, its count and its share —
+              including the empty ones, so a zero reads as measured rather than
+              missing, exactly as the breakdown columns do. */}
+          <div className="px-3 pb-1">
+            {slices.map((s) => (
+              <div key={s.key} className="flex items-center gap-2 border-b py-1 text-[12px] last:border-0">
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} />
+                <span className="truncate" style={{ color: s.value > 0 ? undefined : '#9aa08e' }}>{s.label}</span>
+                <span className={`ml-auto shrink-0 tabular-nums ${s.value > 0 ? 'font-semibold' : 'text-muted-foreground'}`}>{s.value}</span>
+                <span className="w-9 shrink-0 text-right tabular-nums text-muted-foreground">{Math.round(pct(s.value))}%</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -262,17 +388,31 @@ export function CallsAnalytics({ isManager }: { isManager: boolean }) {
         </div>
       </div>
 
-      {/* Per-status breakdown, bucket by bucket */}
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Breakdown title="Given Leads" color="#27301d" rows={byStatus} total={given} />
-        <Breakdown title={CAT.cold.label} color={CAT.cold.color} rows={inCat('cold')} total={cats?.cold ?? 0} />
-        <div className="space-y-3">
-          <Breakdown title={CAT.warm.label} color={CAT.warm.color} rows={inCat('warm')} total={cats?.warm ?? 0} />
-          <Breakdown title={CAT.hot.label} color={CAT.hot.color} rows={inCat('hot')} total={cats?.hot ?? 0} />
+      {/* Per-status breakdown in three quarters of the row, the ring in the
+          last quarter. The four columns were spread across the full width and
+          the counts — mostly single digits — left most of each column empty, so
+          the section read as a wall of blank card. The ring puts that space to
+          work with the one thing the columns can't show: the shape of the book.
+
+          Below xl the ring stacks underneath at full width rather than being
+          squeezed into a quarter of a laptop screen. */}
+      <div className="grid gap-3 xl:grid-cols-[3fr_1fr]">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <Breakdown title="Given Leads" color="#27301d" rows={byStatus} total={given} />
+          <Breakdown title={CAT.cold.label} color={CAT.cold.color} rows={inCat('cold')} total={cats?.cold ?? 0} />
+          <div className="space-y-3">
+            <Breakdown title={CAT.warm.label} color={CAT.warm.color} rows={inCat('warm')} total={cats?.warm ?? 0} />
+            <Breakdown title={CAT.hot.label} color={CAT.hot.color} rows={inCat('hot')} total={cats?.hot ?? 0} />
+          </div>
+          <div className="space-y-3">
+            <Breakdown title="Connected / Follow-ups" color={CAT.connected.color} rows={inCat('connected')} total={cats?.connected ?? 0} />
+            <Breakdown title="Closed" color={CAT.closed_negative.color} rows={[...inCat('closed_positive'), ...inCat('closed_negative')]} total={(cats?.closedPositive ?? 0) + (cats?.closedNegative ?? 0)} />
+          </div>
         </div>
-        <div className="space-y-3">
-          <Breakdown title="Connected / Follow-ups" color={CAT.connected.color} rows={inCat('connected')} total={cats?.connected ?? 0} />
-          <Breakdown title="Closed" color={CAT.closed_negative.color} rows={[...inCat('closed_positive'), ...inCat('closed_negative')]} total={(cats?.closedPositive ?? 0) + (cats?.closedNegative ?? 0)} />
+        {/* Self-start so the ring keeps its own height instead of stretching to
+            match the tallest breakdown column. */}
+        <div className="self-start">
+          <PipelineMix given={given} cats={cats} />
         </div>
       </div>
 
