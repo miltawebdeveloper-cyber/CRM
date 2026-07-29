@@ -8,6 +8,7 @@ import { canAccessPath, type Role } from '@/lib/nav';
 import { Sidebar } from '@/components/sidebar';
 import { Topbar } from '@/components/topbar';
 import { IncomingCallPopup } from '@/components/incoming-call';
+import { CommandPalette } from '@/components/command-palette';
 import { CallProvider } from '@/components/call-provider';
 import { PageTabsProvider } from '@/components/page-tabs';
 
@@ -69,6 +70,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </main>
         </div>
         <IncomingCallPopup />
+        {/* Global search + jump, on Ctrl/Cmd+K. Mounted here so it works from
+            every page rather than only where a search box happens to render. */}
+        <CommandPalette />
       </div>
       </PageTabsProvider>
     </CallProvider>

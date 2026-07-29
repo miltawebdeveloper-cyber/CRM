@@ -26,6 +26,7 @@ import { useCanCall } from '@/lib/use-can-call';
 import { launchQuoCall } from '@/lib/dialer';
 import { dayInLeadZone, formatScheduleInLeadZone, nowInLeadZone, zoneLabel } from '@/lib/timezone';
 import { invalidateCallActivity } from '@/lib/sync';
+import { useShortcutHint } from '@/components/command-palette';
 
 /**
  * How often the panel re-reads its two live sources. The queue is checked more
@@ -378,6 +379,47 @@ export default function CallingPage() {
       setBusy(false);
     }
   }
+
+  // Whether the save button would accept a click right now — shared with the
+  // keyboard shortcut so the two can never disagree about when a lead is ready.
+  // Matches the key the shortcut actually listens for on this platform.
+  const saveHint = useShortcutHint() === '⌘K' ? '⌘↵' : 'Ctrl ↵';
+  const canSave = !!current && !!outcome && !busy && !(schedules && !callbackAt) && !(schedulesZoom && !zoomAt);
+
+  /**
+   * Keyboard shortcuts for the queue.
+   *
+   * This is the screen an agent spends the day in, working one lead after
+   * another, and it was entirely mouse-driven: click an outcome, click the notes
+   * box, type, click Save. Number keys pick from the outcome row and Ctrl/⌘+Enter
+   * saves and advances, which takes the two round trips out of every single lead.
+   *
+   * Digits are ignored while typing — a phone number in the notes must not fire
+   * an outcome — but Ctrl+Enter deliberately still works there, so the agent can
+   * finish a note and save without reaching for the mouse at all.
+   */
+  useEffect(() => {
+    if (tab !== 'panel') return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        if (canSave) void saveAndNext();
+        return;
+      }
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      const n = Number(e.key);
+      if (Number.isInteger(n) && n >= 1 && n <= 9 && outcomes[n - 1]) {
+        e.preventDefault();
+        setOutcome(outcomes[n - 1].slug);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, outcomes, canSave, busy]);
 
   // Scheduling always happens on the CURRENT lead's clock: `leadZone` is the zone
   // abbreviation as it stands today (EDT vs EST), and `leadToday` is the
@@ -810,21 +852,40 @@ export default function CallingPage() {
           <div className="rounded-2xl border bg-card shadow-sm">
             <div className="border-b px-4 py-2.5"><h3 className="font-display text-[14px] font-semibold">Call Notes</h3><div className="text-[11px] text-muted-foreground">Saved automatically with outcome</div></div>
             <div className="p-4">
-              <div className="mb-1.5 text-[11px] uppercase tracking-[.08em] text-muted-foreground">Outcome</div>
+              <div className="mb-1.5 flex items-center gap-2 text-[11px] uppercase tracking-[.08em] text-muted-foreground">
+                Outcome
+                {/* The shortcuts are only worth anything if the agent knows they
+                    exist, so the first nine carry their key and the hint sits
+                    beside the label rather than in a help page nobody opens. */}
+                <span className="ml-auto normal-case tracking-normal">
+                  Press <kbd className="rounded border bg-muted px-1 font-mono text-[10px]">1</kbd>–
+                  <kbd className="rounded border bg-muted px-1 font-mono text-[10px]">9</kbd> to pick
+                </span>
+              </div>
               <div className="mb-3 flex flex-wrap gap-1.5">
-                {outcomes.map((o) => {
+                {outcomes.map((o, i) => {
                   const sel = outcome === o.slug;
+                  const key = i < 9 ? String(i + 1) : null;
                   return (
                     <button
                       key={o.id}
                       onClick={() => setOutcome(o.slug)}
-                      className="rounded-full border-[1.5px] px-2.5 py-[4px] text-[12px] font-semibold transition-colors"
+                      title={key ? `${o.name} — press ${key}` : o.name}
+                      className="inline-flex items-center gap-1.5 rounded-full border-[1.5px] px-2.5 py-[4px] text-[12px] font-semibold transition-colors"
                       style={
                         sel
                           ? { borderColor: o.color, background: o.color, color: '#fff' }
                           : { borderColor: `${o.color}66`, color: o.color }
                       }
                     >
+                      {key && (
+                        <span
+                          className="rounded-[4px] px-1 font-mono text-[10px] leading-[14px]"
+                          style={sel ? { background: 'rgba(255,255,255,.22)' } : { background: `${o.color}1f` }}
+                        >
+                          {key}
+                        </span>
+                      )}
                       {o.name}
                     </button>
                   );
@@ -908,8 +969,16 @@ export default function CallingPage() {
                 {/* No longer requires a live call: with dialling off the agent
                     reviews the lead, picks an outcome and saves, which records the
                     disposition and moves the queue on. */}
-                <button onClick={saveAndNext} disabled={!current || !outcome || busy || (schedules && !callbackAt) || (schedulesZoom && !zoomAt)} className="ml-auto inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[8px] text-[13px] font-semibold text-primary-foreground disabled:opacity-50">
+                <button
+                  onClick={saveAndNext}
+                  disabled={!canSave}
+                  title="Save and load the next lead — Ctrl+Enter"
+                  className="ml-auto inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[8px] text-[13px] font-semibold text-primary-foreground disabled:opacity-50"
+                >
                   <Check className="h-4 w-4" /> Save &amp; next lead
+                  <kbd className="rounded border border-white/30 bg-white/15 px-1 font-mono text-[10px] font-normal">
+                    {saveHint}
+                  </kbd>
                 </button>
               </div>
             </div>

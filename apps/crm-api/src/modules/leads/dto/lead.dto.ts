@@ -230,6 +230,17 @@ export class CheckImportDto {
 }
 
 export class ListLeadsQueryDto {
+  /**
+   * Free-text lookup across the fields someone would actually search a lead by:
+   * company, contact, phone, email and the lead id. Server-side on purpose — the
+   * command palette must reach the whole book, not just the page already loaded,
+   * and role scoping still applies so an employee only ever finds their own.
+   */
+  @ApiPropertyOptional({ description: 'Search company, contact, phone, email or lead id' })
+  @IsOptional()
+  @IsString()
+  q?: string;
+
   @ApiPropertyOptional({ enum: LeadStatus })
   @IsOptional()
   @IsEnum(LeadStatus)

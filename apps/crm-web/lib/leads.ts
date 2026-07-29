@@ -171,8 +171,11 @@ export const leadsApi = {
   // `closed` splits the two lead modules: false lists the active book, true the
   // Closed Leads module (scoped for employees to the leads they closed). Omit
   // both to list every record the caller may see.
-  list: async (opts?: { mine?: boolean; closed?: boolean; fromLeadId?: string; toLeadId?: string; limit?: number }): Promise<Lead[]> => {
+  list: async (opts?: { mine?: boolean; closed?: boolean; fromLeadId?: string; toLeadId?: string; limit?: number; q?: string }): Promise<Lead[]> => {
     const params: Record<string, boolean | string | number> = {};
+    // Free-text search across company, contact, phone, email and lead id.
+    // Server-side, so it reaches the whole book rather than the loaded page.
+    if (opts?.q?.trim()) params.q = opts.q.trim();
     if (opts?.mine) params.mine = true;
     if (opts?.closed !== undefined) params.closed = opts.closed;
     // Assign-by-range: an inclusive lead-id window, resolved server-side.

@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { OpenPhoneService } from './openphone.service';
-import { SendSmsDto } from './dto/openphone.dto';
+import { SendOpenPhoneSmsDto } from './dto/openphone.dto';
 
 @ApiTags('openphone')
 @ApiBearerAuth()
@@ -20,7 +20,7 @@ export class OpenPhoneController {
 
   @Roles(Role.admin, Role.team_leader)
   @Post('messages')
-  send(@Body() dto: SendSmsDto) {
+  send(@Body() dto: SendOpenPhoneSmsDto) {
     return this.openphone.sendSms({ from: dto.from, to: [dto.to], content: dto.content });
   }
 }

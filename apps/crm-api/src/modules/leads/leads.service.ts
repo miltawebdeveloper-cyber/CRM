@@ -602,8 +602,45 @@ export class LeadsService {
         };
       }
     }
+    // Free-text lookup for the command palette.
+    const term = query.q?.trim();
+    const digits = term?.replace(/\D/g, '') ?? '';
+
+    // Phone needs formatting stripped from BOTH sides. Numbers are stored however
+    // the import wrote them — "+1 (305) 555-1234" here, "+14155559876" there — so
+    // a plain `contains` on the typed digits finds the second and misses the
+    // first, which is the more common shape. Comparing digits-to-digits in SQL
+    // means "(305) 555-1234", "305 555 1234" and "3055551234" all find the same
+    // lead whichever way it happens to be stored. Bounded, and only run when the
+    // term looks like part of a number at all.
+    let phoneMatches: string[] = [];
+    if (digits.length >= 3) {
+      const rows = await this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id FROM leads
+        WHERE deleted_at IS NULL
+          AND (
+            regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE ${`%${digits}%`}
+            OR regexp_replace(COALESCE(alt_phone, ''), '[^0-9]', '', 'g') LIKE ${`%${digits}%`}
+          )
+        LIMIT 200
+      `);
+      phoneMatches = rows.map((r) => r.id);
+    }
+
+    const searchFilter: Prisma.LeadWhereInput = term
+      ? {
+          OR: [
+            { businessName: { contains: term, mode: 'insensitive' } },
+            { contactName: { contains: term, mode: 'insensitive' } },
+            { email: { contains: term, mode: 'insensitive' } },
+            { leadId: { contains: term, mode: 'insensitive' } },
+            ...(phoneMatches.length ? [{ id: { in: phoneMatches } }] : []),
+          ],
+        }
+      : {};
+
     const rows = await this.prisma.lead.findMany({
-      where: { deletedAt: null, status: query.status, state: query.state, ...closedFilter, ...scope, ...mineScope, ...rangeFilter },
+      where: { deletedAt: null, status: query.status, state: query.state, ...closedFilter, ...scope, ...mineScope, ...rangeFilter, ...searchFilter },
       // A ranged read is listed oldest-first: lead ids are handed out in creation
       // order, so that IS ascending sequence order — and unlike `leadId: 'asc'` it
       // doesn't put L-2026-10 ahead of L-2026-2.

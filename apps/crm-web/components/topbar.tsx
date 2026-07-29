@@ -9,6 +9,7 @@ import { availabilityApi } from '@/lib/availability';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { NotificationBell } from '@/components/notification-bell';
 import { PageTabsSlot, useHasPageTabs } from '@/components/page-tabs';
+import { openCommandPalette, useShortcutHint } from '@/components/command-palette';
 import { titleForPath, subForPath } from '@/lib/nav';
 
 function IconBtn({ children, label, href, onClick }: { children: React.ReactNode; label: string; href?: string; onClick?: () => void }) {
@@ -31,6 +32,8 @@ export function Topbar({ email, onMenu }: { email?: string; onMenu?: () => void 
   const router = useRouter();
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
+  const shortcutHint = useShortcutHint();
+  const openPalette = openCommandPalette;
 
   const title = titleForPath(pathname);
   const sub = subForPath(pathname);
@@ -74,21 +77,34 @@ export function Topbar({ email, onMenu }: { email?: string; onMenu?: () => void 
           height around as you navigate. */}
       <PageTabsSlot className="min-w-0 max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" />
 
-      {/* Search */}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          router.push('/leads');
-        }}
-        className="ml-2 hidden max-w-[420px] flex-1 items-center gap-[9px] rounded-md border bg-background px-[13px] py-2 transition-colors focus-within:border-primary md:flex"
+      {/* Search — opens the command palette.
+          This was a real <input> that searched nothing: it had no value binding,
+          and submitting it navigated to Lead Management whatever you typed, while
+          advertising a ⌘K shortcut nothing listened for. A button that opens the
+          palette is honest about what it does, and the palette is where the
+          searching actually happens (see components/command-palette.tsx). */}
+      <button
+        type="button"
+        onClick={openPalette}
+        aria-label="Search leads or jump to a module"
+        className="ml-2 hidden max-w-[420px] flex-1 items-center gap-[9px] rounded-md border bg-background px-[13px] py-2 text-left transition-colors hover:border-primary md:flex"
       >
-        <Search className="h-4 w-4 text-muted-foreground" />
-        <input
-          placeholder="Search leads, contacts, calls…"
-          className="flex-1 border-none bg-transparent text-sm outline-none"
-        />
-        <kbd className="rounded border bg-card px-1.5 font-mono text-[10.5px] text-muted-foreground">⌘K</kbd>
-      </form>
+        <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <span className="flex-1 truncate text-sm text-muted-foreground">Search leads, contacts, calls…</span>
+        <kbd className="shrink-0 rounded border bg-card px-1.5 font-mono text-[10.5px] text-muted-foreground">
+          {shortcutHint}
+        </kbd>
+      </button>
+
+      {/* Same thing on a phone, where the full bar has no room. */}
+      <button
+        type="button"
+        onClick={openPalette}
+        aria-label="Search"
+        className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] text-[#1d491f] transition-colors hover:bg-muted dark:text-foreground/80 md:hidden"
+      >
+        <Search className="h-[19px] w-[19px]" />
+      </button>
 
       <div className="flex-1" />
 
