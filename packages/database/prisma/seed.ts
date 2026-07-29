@@ -142,10 +142,16 @@ async function main() {
   const existing = await prisma.lead.count();
   if (existing === 0) {
     const allCities = timezones.flatMap((tz) => GEO[tz].map(([s, c]) => ({ tz, s, c })));
+    // Same `L-YYYY-N` shape the app generates (see LeadIdService). These used to
+    // be `L-00001`, which the generator can't read as a sequence number — so a
+    // seeded database numbered its first real lead L-YYYY-1 and showed two
+    // unrelated id formats side by side. Only ever runs on an empty table, so
+    // the app picks up at 501.
+    const year = new Date().getFullYear();
     const data = Array.from({ length: 500 }).map((_, i) => {
       const g = pick(allCities);
       return {
-        leadId: `L-${String(i + 1).padStart(5, '0')}`,
+        leadId: `L-${year}-${i + 1}`,
         businessName: `Business ${i + 1} LLC`,
         phone: `+1${Math.floor(2000000000 + Math.random() * 7999999999)}`,
         email: `lead${i + 1}@example.com`,

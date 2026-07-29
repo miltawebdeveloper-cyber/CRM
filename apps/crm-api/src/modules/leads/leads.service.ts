@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto';
 import { closureCreateFields, closureFields } from './lead-closure';
+import { LeadIdService } from './lead-id.service';
 
 /**
  * Shown wherever a same-day reassignment is refused. A lead keeps one owner for
@@ -18,6 +19,7 @@ export class LeadsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly leadIds: LeadIdService,
   ) {}
 
   private async log(leadId: string, userId: string, action: string, oldValue: string | null, newValue: string | null, remarks?: string) {
@@ -98,52 +100,15 @@ export class LeadsService {
     return byName?.id;
   }
 
-  /** Generate next lead id in the format L-YYYY-N (e.g. L-2026-1, L-2026-2). */
-  private async nextLeadId(): Promise<string> {
-    const year = new Date().getFullYear();
-    const prefix = `L-${year}-`;
-    // Find the highest existing sequence number for the current year.
-    // NB: the start position must be cast to ::int. A bound parameter arrives as
-    // text, and `SUBSTRING(x FROM <text>)` is read as the POSIX-regex form
-    // (pattern) rather than positional extraction — which silently returns NULL,
-    // making every generated id collide on "L-YYYY-1". `::int` forces the
-    // positional form.
-    const rows = await this.prisma.$queryRaw<Array<{ max_seq: number | null }>>(Prisma.sql`
-      SELECT MAX(
-        CAST(SUBSTRING(lead_id FROM ${prefix.length + 1}::int) AS INTEGER)
-      ) AS max_seq
-      FROM leads
-      WHERE lead_id LIKE ${prefix + '%'}
-        AND lead_id ~ ${'^L-' + year + '-[0-9]+$'}
-    `);
-    const next = (rows[0]?.max_seq ?? 0) + 1;
-    return `${prefix}${next}`;
-  }
-
   /**
-   * Create a lead, regenerating the id and retrying when an auto-generated
-   * `leadId` collides. `nextLeadId()` computes the sequence in application code,
-   * so two concurrent creates (or overlapping bulk imports) can land on the same
-   * number; the `@@unique([leadId])` constraint rejects the loser with P2002 and
-   * we simply recompute and insert again. A caller-supplied `explicitLeadId` is
-   * never retried — its conflict is a real error and is surfaced to the caller.
+   * Create a lead with the next id in the `L-YYYY-N` sequence.
+   *
+   * Generation itself lives in LeadIdService, shared with every other module
+   * that can bring a lead into the CRM, so a lead created here and one created
+   * from an unrecognised inbound caller are numbered by the same rule.
    */
-  private async createLead(
-    buildData: (leadId: string) => Prisma.LeadCreateInput,
-    explicitLeadId?: string,
-  ) {
-    const MAX_ATTEMPTS = 5;
-    for (let attempt = 1; ; attempt++) {
-      const leadId = explicitLeadId ?? (await this.nextLeadId());
-      try {
-        return await this.prisma.lead.create({ data: buildData(leadId) });
-      } catch (e) {
-        const collided =
-          e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';
-        // Only retry auto-generated collisions, and only up to the cap.
-        if (explicitLeadId || !collided || attempt >= MAX_ATTEMPTS) throw e;
-      }
-    }
+  private createLead(buildData: (leadId: string) => Prisma.LeadCreateInput, explicitLeadId?: string) {
+    return this.leadIds.create(buildData, explicitLeadId);
   }
   /** Map the optional lead-sheet fields from a DTO to Prisma data. */
   private sheetFields(dto: CreateLeadDto) {

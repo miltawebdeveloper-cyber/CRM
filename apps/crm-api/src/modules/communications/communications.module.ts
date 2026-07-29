@@ -7,9 +7,10 @@ import { CommunicationsController } from './communications.controller';
 import { WebhooksController, QuoHookController } from './webhooks.controller';
 import { OpenPhoneModule } from '../openphone/openphone.module';
 import { LlmModule } from '../llm/llm.module';
+import { LeadIdModule } from '../leads/lead-id.module';
 
 @Module({
-  imports: [OpenPhoneModule, LlmModule],
+  imports: [OpenPhoneModule, LlmModule, LeadIdModule],
   controllers: [CommunicationsController, WebhooksController, QuoHookController],
   providers: [CommunicationsService, CallHistoryService, QuoSyncService, CallInsightsService],
   exports: [CommunicationsService, QuoSyncService, CallInsightsService],

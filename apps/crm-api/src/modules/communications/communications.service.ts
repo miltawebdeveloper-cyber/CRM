@@ -4,6 +4,7 @@ import { CommDirection, Timezone, LeadStatus, Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MISSED_INBOUND_STATUSES, isMissedInbound } from '../calls/call-status';
 import { OpenPhoneService } from '../openphone/openphone.service';
+import { LeadIdService } from '../leads/lead-id.service';
 import { CallInsightsService } from './call-insights.service';
 
 type Json = Record<string, unknown>;
@@ -124,6 +125,7 @@ export class CommunicationsService {
     private readonly prisma: PrismaService,
     private readonly openphone: OpenPhoneService,
     private readonly insights: CallInsightsService,
+    private readonly leadIds: LeadIdService,
   ) {}
 
   // ── Calling on/off (temporary lead-processing mode) ──
@@ -345,26 +347,34 @@ export class CommunicationsService {
     return user?.id ?? null;
   }
 
-  /** Find a lead by phone (last 10 digits) or create a minimal one. */
+  /**
+   * Find a lead by phone (last 10 digits) or create a minimal one.
+   *
+   * A lead minted here is a real lead — someone rang a company line and nobody
+   * in the CRM knew the number — so it is numbered by the same rule as one typed
+   * into the New Lead form or loaded from a sheet. It used to get
+   * `L-${Date.now().toString(36)}`, i.e. `L-M8XK2P9`: unique, but a different
+   * format, out of sequence, and unsortable against every other lead. The
+   * queue orders by Lead ID by parsing the prefix and the trailing number, so
+   * those rows sorted arbitrarily wherever they landed.
+   */
   private async findOrCreateLeadByPhone(phone: string) {
     const last10 = digits(phone).slice(-10);
-    let lead = last10
+    const existing = last10
       ? await this.prisma.lead.findFirst({ where: { deletedAt: null, phone: { contains: last10 } } })
       : null;
-    if (!lead) {
-      lead = await this.prisma.lead.create({
-        data: {
-          leadId: `L-${Date.now().toString(36).toUpperCase()}`,
-          businessName: 'Unknown caller',
-          phone,
-          state: 'Unknown',
-          city: 'Unknown',
-          timezone: Timezone.EST,
-          status: LeadStatus.new,
-        },
-      });
-      this.logger.log(`Created lead from unknown caller ${phone}`);
-    }
+    if (existing) return existing;
+
+    const lead = await this.leadIds.create((leadId) => ({
+      leadId,
+      businessName: 'Unknown caller',
+      phone,
+      state: 'Unknown',
+      city: 'Unknown',
+      timezone: Timezone.EST,
+      status: LeadStatus.new,
+    }));
+    this.logger.log(`Created lead ${lead.leadId} from unknown caller ${phone}`);
     return lead;
   }
 
