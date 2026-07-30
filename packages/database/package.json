@@ -12,6 +12,7 @@
     "seed": "tsx prisma/seed.ts",
     "set-admin": "tsx prisma/set-admin.ts",
     "fix-schedule-timezones": "tsx prisma/fix-schedule-timezones.ts",
+    "flush-data": "tsx prisma/flush-transactional-data.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
