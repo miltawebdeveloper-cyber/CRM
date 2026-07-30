@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
-import { Calendar, Plus, Clock, RefreshCw, CheckCircle2, AlertTriangle, Phone, Filter, Pencil, CircleCheckBig, Users } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Calendar, Plus, Clock, RefreshCw, CheckCircle2, AlertTriangle, Bell, Phone, Filter, Pencil, CircleCheckBig, Users } from 'lucide-react';
 import { callsApi, assignmentsApi, type Followup } from '@/lib/crm';
 import { useCanCall } from '@/lib/use-can-call';
 import { PageHead, Avatar } from '@/components/page-head';
@@ -12,10 +12,14 @@ import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-contr
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { dayInLeadZone, formatScheduleInLeadZone } from '@/lib/timezone';
+import { callbackStatus, CALLBACK_STATUS_STYLE } from '@/lib/callbacks';
+import { CallbackStatusPill } from '@/components/callback-status-pill';
+import { pushToast } from '@/lib/toast';
 
 const TIMEFRAME_OPTS = [
   { label: 'All Follow-Ups', value: '' },
   { label: 'Overdue', value: 'overdue' },
+  { label: 'Due Now', value: 'due' },
   { label: 'Due Today', value: 'today' },
   { label: 'This Week', value: 'week' },
 ];
@@ -26,16 +30,14 @@ const TIMEFRAME_OPTS = [
  * quote. "Today" is likewise their today: a follow-up can already be tomorrow
  * for the customer while it is still tonight for the rep.
  */
-function whenLabel(iso: string, tz?: string | null): { text: string; overdue: boolean; today: boolean } {
-  const d = new Date(iso);
+function whenLabel(iso: string, tz?: string | null): { text: string; today: boolean } {
   const now = new Date();
-  const sameDay = dayInLeadZone(d, tz) === dayInLeadZone(now, tz);
-  const overdue = d < now && !sameDay;
-  return { text: formatScheduleInLeadZone(iso, tz), overdue, today: sameDay };
+  return { text: formatScheduleInLeadZone(iso, tz), today: dayInLeadZone(iso, tz) === dayInLeadZone(now, tz) };
 }
 
 export default function FollowupsPage() {
   const router = useRouter();
+  const qc = useQueryClient();
   const [userId, setUserId] = useState(''); // '' = All Users (manager filter)
   const { data: allFus = [], isLoading } = useQuery({
     queryKey: ['followups', userId],
@@ -64,12 +66,19 @@ export default function FollowupsPage() {
     const diff = (new Date(f.nextFollowupDate).getTime() - now.getTime()) / 86400000;
     return diff >= 0 && diff <= days;
   };
+  // Overdue is the shared definition — more than an hour past the scheduled
+  // time — not "past, but only if it isn't today". The old rule left a follow-up
+  // that was five hours late this morning counted as merely Due Today here while
+  // the reminder engine had already e-mailed it as missed.
+  const statusOf = (f: Followup) => callbackStatus(f.nextFollowupDate, f.completedAt, now);
   const dueToday = allFus.filter(isDueToday).length;
-  const overdue = allFus.filter((f) => new Date(f.nextFollowupDate) < now && !isDueToday(f)).length;
+  const dueNow = allFus.filter((f) => statusOf(f) === 'due').length;
+  const overdue = allFus.filter((f) => statusOf(f) === 'overdue').length;
   const thisWeek = allFus.filter((f) => withinDays(f, 7)).length;
 
   const matchesTimeframe = (f: Followup) => {
-    if (timeframe === 'overdue') return new Date(f.nextFollowupDate) < now && !isDueToday(f);
+    if (timeframe === 'overdue') return statusOf(f) === 'overdue';
+    if (timeframe === 'due') return statusOf(f) === 'due';
     if (timeframe === 'today') return isDueToday(f);
     if (timeframe === 'week') return withinDays(f, 7);
     return true;
@@ -85,23 +94,64 @@ export default function FollowupsPage() {
         (f.noteText ?? '').toLowerCase().includes(term)),
   );
 
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['followups'] });
+    qc.invalidateQueries({ queryKey: ['callbacks'] });
+  };
+
   async function mutateFollowup(kind: Followup['kind'], id: string, action: 'complete' | 'edit') {
-    if (action === 'complete') {
-      await callsApi.completeFollowup(kind, id);
-      return;
-    }
     const current = allFus.find((f) => f.kind === kind && f.id === id);
-    if (!current) return;
-    const next = window.prompt('New follow-up date/time (ISO or local datetime)', current.nextFollowupDate);
-    if (next === null) return;
-    const noteText = window.prompt('Follow-up note', current.noteText) ?? current.noteText;
-    await callsApi.updateFollowup(kind, id, { followUpAt: next || null, noteText });
+    try {
+      if (action === 'complete') {
+        await callsApi.completeFollowup(kind, id);
+        pushToast('success', 'Follow-up marked complete.');
+        refresh();
+        return;
+      }
+      if (!current) return;
+      // The typed time is read in the LEAD's zone by the API, so the prompt says
+      // whose clock it is. Rescheduling from the reminder popup gets the proper
+      // dual-zone picker; this is the quick path from the list.
+      const zone = current.lead?.timezone;
+      const next = window.prompt(
+        `New follow-up date/time in the lead's time zone${zone ? ` (${zone})` : ''} — e.g. 2026-08-05T10:00`,
+        current.nextFollowupDate,
+      );
+      if (next === null) return;
+      const noteText = window.prompt('Follow-up note', current.noteText) ?? current.noteText;
+      await callsApi.updateFollowup(kind, id, { followUpAt: next || null, noteText });
+      pushToast('success', 'Follow-up updated.');
+      refresh();
+    } catch (e: unknown) {
+      // The API refuses a time already gone in the lead's zone, and a lead with
+      // no zone at all. Both are worth showing verbatim — they tell the rep what
+      // to do — where before this threw into the console and looked like nothing
+      // happened.
+      const msg = (e as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message;
+      pushToast('error', (Array.isArray(msg) ? msg[0] : msg) ?? 'Could not update that follow-up.');
+    }
   }
 
   const columns = useMemo<ColumnDef<Followup>[]>(() => [
     {
       key: 'when', header: 'When', required: true,
-      render: (f) => { const w = whenLabel(f.nextFollowupDate, f.lead?.timezone); return <div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: w.overdue ? '#a8431f' : w.today ? '#c98a18' : '#a6c74d' }} /><b>{w.text}</b></div>; },
+      render: (f) => {
+        const w = whenLabel(f.nextFollowupDate, f.lead?.timezone);
+        // The dot now reads from the shared status rather than a local
+        // overdue/today guess, so this table and the Dashboard, Calendar and
+        // reminder popup can't describe the same appointment differently.
+        const s = callbackStatus(f.nextFollowupDate, f.completedAt) ?? 'upcoming';
+        return (
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full" style={{ background: CALLBACK_STATUS_STYLE[s].dot }} />
+            <b>{w.text}</b>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'status', header: 'Status',
+      render: (f) => <CallbackStatusPill status={callbackStatus(f.nextFollowupDate, f.completedAt)} />,
     },
     { key: 'company', header: 'Company', render: (f) => <div className="flex items-center gap-[10px]"><Avatar name={f.lead?.businessName ?? '—'} /><span className="font-semibold">{f.lead?.businessName ?? '—'}</span></div> },
     { key: 'note', header: 'Note', cellClassName: 'max-w-[280px] truncate text-muted-foreground', render: (f) => f.noteText },
@@ -137,6 +187,11 @@ export default function FollowupsPage() {
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+        {/* "Due Now" is the one a rep should act on this minute — the hour-long
+            window between the scheduled time and the callback counting as
+            missed. It had no card, so it was invisible until it was already
+            overdue. */}
+        <KpiCard icon={Bell} iconBg="#fbf3e2" iconColor="#c98a18" value={dueNow} label="Due Now" />
         <KpiCard icon={Clock} iconBg="#fbeeec" iconColor="#a8431f" value={dueToday} label="Due Today" />
         <KpiCard icon={RefreshCw} iconBg="#fbf3e2" iconColor="#c98a18" value={thisWeek} label="This Week" />
         <KpiCard icon={CheckCircle2} iconBg="#e4f2e4" iconColor="#317d34" value={fus.length} label="Total Scheduled" />

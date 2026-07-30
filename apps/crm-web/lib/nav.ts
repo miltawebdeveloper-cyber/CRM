@@ -60,7 +60,12 @@ export const NAV: NavGroup[] = [
     heading: 'Pipeline',
     items: [
       { label: 'Lead Management', href: '/leads', icon: Target, sub: 'Active lead database' },
-      { label: 'Closed Leads', href: '/closed-leads', icon: CircleCheckBig, sub: 'Leads marked closed' },
+      // Renamed from "Closed Leads": a won lead isn't finished, it moves into
+      // onboarding, and the menu now says so. The route stays /closed-leads —
+      // renaming it would break existing bookmarks and orphan the per-user
+      // column and filter preferences saved under that key. `titleForPath`
+      // reads this entry, so the topbar heading follows automatically.
+      { label: 'Onboarding Leads', href: '/closed-leads', icon: CircleCheckBig, sub: 'Won leads moving into onboarding' },
       { label: 'Sales Pipeline', href: '/pipeline', icon: GitBranch, sub: 'Deals by stage', hidden: true },
       { label: 'Follow-Ups', href: '/followups', icon: Clock, sub: 'Callbacks & reminders', roles: MANAGERS },
     ],

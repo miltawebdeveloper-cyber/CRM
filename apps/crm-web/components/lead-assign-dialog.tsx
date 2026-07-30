@@ -4,14 +4,106 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X, Check, Users, SlidersHorizontal, AlertTriangle, MapPin, Building2, Clock, Globe, ArrowRight } from 'lucide-react';
 import { assignmentsApi, sameDayConflicts, type SameDayConflict } from '@/lib/crm';
-import { leadsApi, isAssignedToday, SAME_DAY_LOCK_MESSAGE, type Lead } from '@/lib/leads';
+import { leadsApi, isAssignedToday, type Lead } from '@/lib/leads';
 import { MultiSelect } from '@/components/multi-select';
 import { Avatar } from '@/components/page-head';
 import { ReassignConfirm } from '@/components/reassign-confirm';
 import { pushToast } from '@/lib/toast';
+import { UNSET_TIMEZONE_LABEL } from '@/lib/timezone';
 
 const distinct = (vals: (string | null | undefined)[]) =>
   [...new Set(vals.map((v) => (v ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+
+/**
+ * "Some of these belong to someone — leave them, or move them?"
+ *
+ * A lead has one owner, and until now this dialog answered that question for the
+ * manager by dropping every owned lead from the pool. There was no way to hand a
+ * lead to someone else from here at all; the only route was the lead's own page,
+ * one lead at a time. This is that option, made explicit rather than implied.
+ *
+ * It answers OWNERSHIP and nothing else — may a lead leave the employee holding
+ * it. Whether it may move AGAIN TODAY is a separate question that belongs to the
+ * server: it refuses the write and names the leads, and that refusal becomes the
+ * confirmation popup. Choosing to transfer here must never pre-answer that one,
+ * or the daily rule would evaporate the moment a manager decided to move
+ * anything. The line about today's leads is a forewarning, not the confirmation.
+ */
+function OwnedLeadsChoice({
+  owned,
+  remaining,
+  transfer,
+  onTransfer,
+  askCount,
+  employee,
+}: {
+  /** Leads in play that already belong to another employee. */
+  owned: Lead[];
+  /** How many would still be assignable if these were left alone. */
+  remaining: number;
+  transfer: boolean;
+  onTransfer: (v: boolean) => void;
+  /** Of the leads that will actually be sent, how many already moved today. */
+  askCount: number;
+  /** Who they'd go to, when it's a single named employee. */
+  employee?: string;
+}) {
+  const one = owned.length === 1;
+  return (
+    <div className="mb-3 rounded-xl bg-[#fbf3e2] px-3 py-2.5 text-[12px] text-[#8a5d0a]">
+      <p className="font-medium">
+        <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
+        {one
+          ? `This lead already belongs to ${owned[0].assignedTo?.name ?? 'another employee'}.`
+          : `${owned.length} of these leads already belong to other employees.`}
+      </p>
+
+      {/* Which ones, and whose — "which leads am I about to move" is the first
+          thing asked, and a count can't answer it. */}
+      <ul className="mt-1.5 max-h-24 overflow-y-auto pl-5 font-mono text-[11px] leading-relaxed">
+        {owned.slice(0, 12).map((l) => (
+          <li key={l.id}>
+            {l.leadId} — {l.assignedTo?.name}
+          </li>
+        ))}
+        {owned.length > 12 && <li>+{owned.length - 12} more…</li>}
+      </ul>
+
+      {/* Leaving them alone stays the default and is listed first: a transfer
+          takes work off someone mid-day, so it should be chosen, not landed on. */}
+      <div className="mt-2 space-y-1.5">
+        <label className="flex cursor-pointer items-start gap-2">
+          <input
+            type="radio"
+            checked={!transfer}
+            onChange={() => onTransfer(false)}
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[#8a5d0a]"
+          />
+          <span>
+            Leave {one ? 'it' : 'them'} with {one ? 'its' : 'their'} current owner
+            {remaining > 0 ? ` and assign the other ${remaining}` : ''}.
+          </span>
+        </label>
+        <label className="flex cursor-pointer items-start gap-2 font-medium">
+          <input
+            type="radio"
+            checked={transfer}
+            onChange={() => onTransfer(true)}
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[#8a5d0a]"
+          />
+          <span>Reassign {one ? 'it' : 'them'} to {employee ?? 'the employees selected below'}.</span>
+        </label>
+      </div>
+
+      {transfer && askCount > 0 && (
+        <p className="mt-2 border-t border-[#e8d9b4] pt-2">
+          {askCount === 1 ? 'One of them was' : `${askCount} of them were`} already assigned today — you&apos;ll be
+          asked to confirm before {askCount === 1 ? 'it moves' : 'they move'} again.
+        </p>
+      )}
+    </div>
+  );
+}
 
 /**
  * Employee-wise manual lead-distribution popup (Admin / Team Leader).
@@ -47,6 +139,17 @@ export function LeadAssignDialog({
   // in the table.
   const [mode, setMode] = useState<'selected' | 'range'>('selected');
 
+  /**
+   * Whether leads that already belong to someone may be moved.
+   *
+   * Off by default and in both modes: this dialog hands out unowned work, and a
+   * transfer takes it off a person who may already be working it. It is the
+   * "may this leave its current owner" answer, sent as `allowReassign`. The
+   * separate "may it move again today" answer comes from the confirmation popup,
+   * and is sent as `confirmSameDayReassign` — a lead can need both.
+   */
+  const [transferOwned, setTransferOwned] = useState(false);
+
   // ── Lead range ──
   const [fromLead, setFromLead] = useState('');
   const [toLead, setToLead] = useState('');
@@ -58,25 +161,29 @@ export function LeadAssignDialog({
     queryFn: () => leadsApi.list({ fromLeadId: fromLead.trim(), toLeadId: toLead.trim(), limit: 5000 }),
     enabled: mode === 'range' && rangeReady,
   });
-  // The range deliberately covers leads that already belong to someone; moving them
-  // is the point of a re-assignment, but it must never happen unnoticed — so the
-  // count is surfaced and has to be acknowledged before the button unlocks.
-  // Locked-today and owned-by-someone are both "not assignable", but they're
-  // counted apart so the dialog can say which rule is holding a lead back.
-  const rangeLockedToday = useMemo(() => rangeLeads.filter(isAssignedToday), [rangeLeads]);
-  const rangeTaken = useMemo(() => rangeLeads.filter((l) => l.assignedTo && !isAssignedToday(l)), [rangeLeads]);
-  // Same-day leads stay in: the server decides whether they may move and asks.
-  const rangeAssignable = useMemo(() => rangeLeads.filter((l) => !l.assignedTo), [rangeLeads]);
+  // The range deliberately covers leads that already belong to someone. Moving
+  // them is a transfer, which must never happen unnoticed — so they are named and
+  // the manager chooses between leaving them and reassigning them.
+  const rangeOwned = useMemo(() => rangeLeads.filter((l) => !!l.assignedTo), [rangeLeads]);
+  // What the request will actually carry. Leads assigned earlier today stay in
+  // either way: the server decides whether they may move again, and asks.
+  const rangeAssignable = useMemo(
+    () => rangeLeads.filter((l) => transferOwned || !l.assignedTo),
+    [rangeLeads, transferOwned],
+  );
   const rangeFree = rangeAssignable.length;
-  // Owned leads are never reassigned by a range: the manager must consciously choose
-  // to skip them and take the rest, or back out.
-  const rangeNeedsAck = rangeTaken.length > 0 && !ackReassign;
+  // Of the leads being sent, the ones that will raise the confirmation. Derived
+  // from what is being sent rather than from the whole window — forewarning about
+  // a lead that isn't going anywhere is how a prompt stops being believed.
+  const rangeWillAsk = useMemo(() => rangeAssignable.filter(isAssignedToday), [rangeAssignable]);
+  // Leaving owned leads behind is still a conscious choice, not a silent skip.
+  const rangeNeedsAck = rangeOwned.length > 0 && !transferOwned && !ackReassign;
 
-  // Leads ticked in the table that already belong to someone. The table locks these
-  // out, but a stale selection (someone assigned them meanwhile) can still carry
-  // them in — so the popup re-checks rather than trusting the incoming list.
-  const selectedTaken = useMemo(() => leads.filter((l) => l.assignedTo || isAssignedToday(l)), [leads]);
-  const selectedLockedToday = useMemo(() => leads.filter(isAssignedToday), [leads]);
+  // Leads ticked in the table that already belong to someone. The table lets every
+  // row be ticked (the checkbox serves delete too), so this is where the selection
+  // is read for ownership — and it re-reads it rather than trusting that nothing
+  // changed hands since the rows were fetched.
+  const selectedOwned = useMemo(() => leads.filter((l) => !!l.assignedTo), [leads]);
 
   // Multi-select, searchable location filters (cascade: state → city).
   const [tzSel, setTzSel] = useState<string[]>([]);
@@ -88,7 +195,7 @@ export function LeadAssignDialog({
 
   // Filter options are data-driven: derived only from the leads in play, so every
   // option maps to real leads and a value vanishes once its last lead is gone.
-  const tzOpts = useMemo(() => distinct(leads.map((l) => l.timezone)), [leads]);
+  const tzOpts = useMemo(() => distinct(leads.map((l) => l.timezone ?? UNSET_TIMEZONE_LABEL)), [leads]);
   const countryOpts = useMemo(() => distinct(leads.map((l) => l.country)), [leads]);
   const stateOpts = useMemo(() => distinct(leads.map((l) => l.state)), [leads]);
   // Cities present in leads belonging to the given states (all cities if none chosen).
@@ -108,22 +215,31 @@ export function LeadAssignDialog({
     () =>
       leads.filter(
         (l) =>
-          // Never distribute a lead that already has an owner — that is a
-          // transfer, and this dialog hands out unowned work.
+          // A lead that already has an owner is only in the pool when the manager
+          // has explicitly chosen to transfer. Unowned work is what this dialog
+          // hands out; moving owned work is the deliberate act above.
           //
-          // Leads assigned earlier today are NOT filtered out here any more. The
-          // daily restriction is the server's to apply: it refuses and names
-          // them, and the manager is asked. Hiding them client-side meant a lead
-          // that had been assigned and then unassigned the same day silently
-          // vanished from the pool with nothing said.
-          !l.assignedTo &&
-          (tzSel.length === 0 || tzSel.includes(l.timezone)) &&
+          // Leads assigned earlier today are NOT filtered out here. The daily
+          // restriction is the server's to apply: it refuses and names them, and
+          // the manager is asked. Hiding them client-side meant a lead that had
+          // been assigned and then unassigned the same day silently vanished
+          // from the pool with nothing said.
+          (transferOwned || !l.assignedTo) &&
+          // A lead with no zone answers to the "Unassigned" filter value, the
+          // same name the API groups it under.
+          (tzSel.length === 0 || tzSel.includes(l.timezone ?? UNSET_TIMEZONE_LABEL)) &&
           (stateSel.length === 0 || stateSel.includes(l.state)) &&
           (citySel.length === 0 || citySel.includes(l.city)) &&
           (countrySel.length === 0 || countrySel.includes((l.country ?? '').trim())),
       ),
-    [leads, tzSel, stateSel, citySel, countrySel],
+    [leads, tzSel, stateSel, citySel, countrySel, transferOwned],
   );
+
+  // Of the pool, how many will raise the confirmation when it is assigned.
+  const poolWillAsk = useMemo(() => pool.filter(isAssignedToday), [pool]);
+  // What the pool would hold if the owned leads were left where they are — the
+  // number the "leave them" choice needs to state.
+  const poolWithoutOwned = useMemo(() => pool.filter((l) => !l.assignedTo).length, [pool]);
 
   const anyFilter = tzSel.length + stateSel.length + citySel.length + countrySel.length > 0;
   const clearFilters = () => { setTzSel([]); setStateSel([]); setCitySel([]); setCountrySel([]); };
@@ -209,7 +325,12 @@ export function LeadAssignDialog({
   };
 
   const assign = useMutation({
-    mutationFn: (confirmed: boolean) => assignmentsApi.batch({ allocations, confirmSameDayReassign: confirmed || undefined }),
+    mutationFn: (confirmed: boolean) =>
+      assignmentsApi.batch({
+        allocations,
+        allowReassign: transferOwned || undefined,
+        confirmSameDayReassign: confirmed || undefined,
+      }),
     // Its own error handling, so a request that merely needs confirming raises a
     // question instead of an error toast.
     meta: { suppressErrorToast: true },
@@ -228,13 +349,16 @@ export function LeadAssignDialog({
   });
 
   const assignRange = useMutation({
-    // Only the unowned leads in the window are sent; skipAssigned makes the server
-    // enforce the same rule rather than trusting the client's filtering.
+    // `skipAssigned` makes the server enforce the ownership rule rather than
+    // trusting the client's filtering; `allowReassign` is what lifts it, and only
+    // when the manager chose the transfer. Sending both would be contradictory,
+    // so exactly one goes with any request.
     mutationFn: (confirmed: boolean) =>
       assignmentsApi.manual({
         leadIds: rangeAssignable.map((l) => l.id),
         callerId: rangeCaller,
-        skipAssigned: true,
+        skipAssigned: transferOwned ? undefined : true,
+        allowReassign: transferOwned || undefined,
         confirmSameDayReassign: confirmed || undefined,
       }),
     meta: { suppressErrorToast: true },
@@ -346,55 +470,56 @@ export function LeadAssignDialog({
                       </span>
                     </div>
                     <p className="mt-1 text-[11.5px] text-muted-foreground">
-                      <span className="font-semibold tabular-nums text-foreground">{rangeFree}</span> can be assigned ·{' '}
-                      <span className="font-semibold tabular-nums text-foreground">{rangeTaken.length}</span> already assigned
-                      {rangeLockedToday.length > 0 && (
+                      <span className="font-semibold tabular-nums text-foreground">{rangeFree}</span> will be assigned ·{' '}
+                      <span className="font-semibold tabular-nums text-foreground">{rangeOwned.length}</span> already owned
+                      {rangeWillAsk.length > 0 && (
                         <>
-                          {' '}· <span className="font-semibold tabular-nums text-foreground">{rangeLockedToday.length}</span> assigned
+                          {' '}· <span className="font-semibold tabular-nums text-foreground">{rangeWillAsk.length}</span> assigned
                           today
                         </>
                       )}
                     </p>
-                    {/* Forewarning, not a refusal: these can be assigned, but
-                        doing so will ask for confirmation first. */}
-                    {rangeLockedToday.length > 0 && (
+                    {/* Forewarning for the leads being sent that moved today —
+                        they will ask for confirmation first. Only while the owned
+                        ones are being left alone; once they're being transferred
+                        the block below says it, about the same leads. */}
+                    {rangeWillAsk.length > 0 && !transferOwned && (
                       <p className="mt-1.5 rounded-lg bg-[#fbf3e2] px-2.5 py-2 text-[12px] text-[#8a5d0a]">
                         <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
-                        {rangeLockedToday.length === 1 ? 'One lead in this range was' : `${rangeLockedToday.length} leads in this range were`}{' '}
-                        already assigned today. You&apos;ll be asked to confirm before {rangeLockedToday.length === 1 ? 'it moves' : 'they move'} again.
+                        {rangeWillAsk.length === 1 ? 'One lead in this range was' : `${rangeWillAsk.length} leads in this range were`}{' '}
+                        already assigned today. You&apos;ll be asked to confirm before {rangeWillAsk.length === 1 ? 'it moves' : 'they move'} again.
                       </p>
                     )}
-                    {rangeTaken.length > 0 && (
-                      <div className="mt-2 rounded-lg bg-[#fbeeec] px-2.5 py-2 text-[12px] text-[#a8431f]">
-                        <p>
-                          <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
-                          Some leads in this range are already assigned to other employees. Duplicate lead assignment is not allowed.
-                        </p>
-                        {/* The already-owned leads, named — "which ones" is the first
-                            thing asked when a range comes back short. */}
-                        <ul className="mt-1.5 max-h-24 overflow-y-auto pl-5 font-mono text-[11px] leading-relaxed">
-                          {rangeTaken.slice(0, 12).map((l) => (
-                            <li key={l.id}>
-                              {l.leadId} — {l.assignedTo?.name}
-                            </li>
-                          ))}
-                          {rangeTaken.length > 12 && <li>+{rangeTaken.length - 12} more…</li>}
-                        </ul>
-                        <label className="mt-2 flex cursor-pointer items-start gap-2 font-medium">
-                          <input
-                            type="checkbox"
-                            checked={ackReassign}
-                            onChange={(e) => setAckReassign(e.target.checked)}
-                            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[#a8431f]"
-                          />
-                          <span>
-                            Skip {rangeTaken.length} already-assigned lead{rangeTaken.length === 1 ? '' : 's'} and assign the remaining{' '}
-                            {rangeFree}.
-                          </span>
-                        </label>
+                    {rangeOwned.length > 0 && (
+                      <div className="mt-2">
+                        <OwnedLeadsChoice
+                          owned={rangeOwned}
+                          remaining={rangeLeads.length - rangeOwned.length}
+                          transfer={transferOwned}
+                          onTransfer={(v) => { setTransferOwned(v); setAckReassign(false); }}
+                          askCount={rangeWillAsk.length}
+                          employee={callers.find((c) => c.id === rangeCaller)?.name}
+                        />
+                        {/* Leaving them behind is still acknowledged explicitly:
+                            a range that quietly assigns fewer leads than it names
+                            is how a manager ends up thinking leads went missing. */}
+                        {!transferOwned && (
+                          <label className="flex cursor-pointer items-start gap-2 rounded-lg bg-[#fbeeec] px-2.5 py-2 text-[12px] font-medium text-[#a8431f]">
+                            <input
+                              type="checkbox"
+                              checked={ackReassign}
+                              onChange={(e) => setAckReassign(e.target.checked)}
+                              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[#a8431f]"
+                            />
+                            <span>
+                              Skip {rangeOwned.length} already-assigned lead{rangeOwned.length === 1 ? '' : 's'} and assign the remaining{' '}
+                              {rangeFree}.
+                            </span>
+                          </label>
+                        )}
                       </div>
                     )}
-                    {rangeTaken.length > 0 && rangeFree === 0 && (
+                    {rangeFree === 0 && (
                       <p className="mt-2 text-[12px] font-medium text-[#a8431f]">
                         Every lead in this range is already assigned — nothing left to assign.
                       </p>
@@ -437,25 +562,26 @@ export function LeadAssignDialog({
               </>
             ) : (
               <>
-            {/* A lead can only ever have one owner, so any already-owned lead in the
-                selection is excluded from the pool rather than quietly taken. */}
-            {selectedTaken.length > 0 && (
-              <div className="mb-3 rounded-xl bg-[#fbeeec] px-3 py-2.5 text-[12px] text-[#a8431f]">
-                <p className="font-medium">
-                  <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
-                  {selectedTaken.length === 1
-                    ? `This lead is already assigned to ${selectedTaken[0].assignedTo?.name}. A lead can only be assigned to one employee.`
-                    : 'Some selected leads are already assigned to other employees. Duplicate lead assignment is not allowed.'}
-                </p>
-                {/* Assigned today is no longer a refusal — it is a question the
-                    manager will be asked when they assign. */}
-                {selectedLockedToday.length > 0 && (
-                  <p className="mt-1">{selectedLockedToday.length} of them were assigned today; reassigning those will ask for confirmation.</p>
-                )}
-                <p className="mt-1">
-                  {selectedTaken.length} of {leads.length} excluded — the remaining {pool.length} can be distributed below.
-                </p>
-              </div>
+            {/* A lead has one owner, so an already-owned lead in the selection is
+                left out of the pool unless the manager chooses to transfer it. */}
+            {selectedOwned.length > 0 && (
+              <OwnedLeadsChoice
+                owned={selectedOwned}
+                remaining={poolWithoutOwned}
+                transfer={transferOwned}
+                onTransfer={setTransferOwned}
+                askCount={poolWillAsk.length}
+              />
+            )}
+            {/* Leads in the pool that moved today. Only while the owned ones are
+                being left alone — once they're being transferred the block above
+                is already saying this, about the same leads. */}
+            {!transferOwned && poolWillAsk.length > 0 && (
+              <p className="mb-3 rounded-xl bg-[#fbf3e2] px-3 py-2.5 text-[12px] text-[#8a5d0a]">
+                <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
+                {poolWillAsk.length === 1 ? 'One lead in the pool was' : `${poolWillAsk.length} leads in the pool were`} already assigned
+                today. You&apos;ll be asked to confirm before {poolWillAsk.length === 1 ? 'it moves' : 'they move'} again.
+              </p>
             )}
             {/* Rule-based, multi-select location filters */}
             <div className="mb-4 rounded-xl border bg-muted/30 p-3">

@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import * as crypto from 'crypto';
-import { CommDirection, Timezone, LeadStatus, Prisma } from '@crm/database';
+import { CommDirection, LeadStatus, Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MISSED_INBOUND_STATUSES, isMissedInbound } from '../calls/call-status';
 import { OpenPhoneService } from '../openphone/openphone.service';
@@ -371,7 +371,9 @@ export class CommunicationsService {
       phone,
       state: 'Unknown',
       city: 'Unknown',
-      timezone: Timezone.EST,
+      // State and city are 'Unknown' here, so the zone is genuinely unknown
+      // too — claiming EST would be a guess the callback scheduler then treats
+      // as fact. Left null; the rep is asked for a zone when they book.
       status: LeadStatus.new,
     }));
     this.logger.log(`Created lead ${lead.leadId} from unknown caller ${phone}`);
@@ -880,7 +882,18 @@ export class CommunicationsService {
     const result = await this.startCall(lead.id, callerId);
     return {
       ...result,
-      lead: { id: lead.id, businessName: lead.businessName, phone: lead.phone, city: lead.city, state: lead.state },
+      // `timezone` so the widget's wrap-up callback picker can book on the
+      // customer's clock. A lead reached by typing a number is often the
+      // auto-created "Unknown caller", which has no zone at all — the picker
+      // asks for one rather than silently booking against Eastern.
+      lead: {
+        id: lead.id,
+        businessName: lead.businessName,
+        phone: lead.phone,
+        city: lead.city,
+        state: lead.state,
+        timezone: lead.timezone,
+      },
     };
   }
 

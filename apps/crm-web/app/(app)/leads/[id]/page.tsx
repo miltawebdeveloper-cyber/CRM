@@ -115,7 +115,7 @@ export default function LeadDetailPage() {
       email: lead.email ?? '',
       state: lead.state,
       city: lead.city,
-      timezone: lead.timezone,
+      timezone: lead.timezone ?? '',
       status: lead.status,
       contactName: lead.contactName ?? '',
       industry: lead.industry ?? '',

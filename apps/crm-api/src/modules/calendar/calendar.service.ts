@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, Role } from '@crm/database';
+import { Prisma, Role, Timezone } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
+import { formatInZone } from '../../common/timezone';
+import { callbackStatus, type CallbackStatus } from '../callbacks/callback-status';
 
 /** The three kinds of scheduled activity the calendar consolidates. */
 export type ActivityType = 'call' | 'callback' | 'zoom';
@@ -20,6 +22,23 @@ export interface CalendarEvent {
   status: string;
   /** One-line summary for the compact month cell. */
   label: string;
+  /** The customer's zone, or null when the lead has none configured. */
+  timezone: Timezone | null;
+  /**
+   * The scheduled time already rendered on the CUSTOMER's clock, zone named
+   * (`Aug 5, 10:00 AM EDT`).
+   *
+   * Sent pre-rendered because the grid was formatting `date` with a bare
+   * `toLocaleTimeString`, which shows the REP's local hour with no zone on it —
+   * so a Pacific callback read as though it were three hours from when it is.
+   * One conversion, done where the zone is known for certain.
+   */
+  atLabel: string;
+  /**
+   * `upcoming` | `due` | `overdue` | `completed` for a callback; null for the
+   * other activity types, which have no such lifecycle.
+   */
+  callbackStatus: CallbackStatus | null;
 }
 
 export interface CalendarResult {
@@ -68,7 +87,7 @@ export class CalendarService {
       this.prisma.lead.findMany({
         where: { ...leadWhere, nextFollowUpDate: { gte: start, lte: end } },
         select: {
-          id: true, leadId: true, businessName: true, contactName: true, status: true,
+          id: true, leadId: true, businessName: true, contactName: true, status: true, timezone: true,
           nextFollowUpDate: true, assignedTo: { select: { name: true } },
         },
       }),
@@ -76,8 +95,8 @@ export class CalendarService {
       this.prisma.lead.findMany({
         where: { ...leadWhere, callbackAt: { gte: start, lte: end }, callbackCompletedAt: null },
         select: {
-          id: true, leadId: true, businessName: true, contactName: true, status: true,
-          callbackAt: true, assignedTo: { select: { name: true } },
+          id: true, leadId: true, businessName: true, contactName: true, status: true, timezone: true,
+          callbackAt: true, callbackCompletedAt: true, assignedTo: { select: { name: true } },
         },
       }),
       this.prisma.zoomMeeting.findMany({
@@ -90,7 +109,7 @@ export class CalendarService {
         select: {
           id: true, scheduledAt: true, status: true, title: true,
           organizer: { select: { name: true } },
-          lead: { select: { leadId: true, businessName: true, contactName: true, assignedTo: { select: { name: true } } } },
+          lead: { select: { leadId: true, businessName: true, contactName: true, timezone: true, assignedTo: { select: { name: true } } } },
         },
       }),
     ]);
@@ -110,6 +129,9 @@ export class CalendarService {
         assignedTo: l.assignedTo?.name ?? null,
         status: l.status,
         label: `Call: ${l.businessName}`,
+        timezone: l.timezone,
+        atLabel: formatInZone(l.nextFollowUpDate, l.timezone),
+        callbackStatus: null,
       });
     }
 
@@ -126,6 +148,9 @@ export class CalendarService {
         assignedTo: l.assignedTo?.name ?? null,
         status: l.status,
         label: `Callback: ${l.businessName}`,
+        timezone: l.timezone,
+        atLabel: formatInZone(l.callbackAt, l.timezone),
+        callbackStatus: callbackStatus(l.callbackAt, l.callbackCompletedAt, now),
       });
     }
 
@@ -142,6 +167,9 @@ export class CalendarService {
         assignedTo: z.organizer?.name ?? z.lead?.assignedTo?.name ?? null,
         status: z.status,
         label: `Zoom: ${z.lead?.businessName ?? z.title ?? 'Meeting'}`,
+        timezone: z.lead?.timezone ?? null,
+        atLabel: formatInZone(z.scheduledAt, z.lead?.timezone),
+        callbackStatus: null,
       });
     }
 

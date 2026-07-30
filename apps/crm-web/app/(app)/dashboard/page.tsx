@@ -13,6 +13,9 @@ import { KpiCard } from '@/components/dashboard/kpi-card';
 import { AnimatedNumber } from '@/components/animated-number';
 import { LiveIndicator } from '@/components/live-indicator';
 import { StatusPill } from '@/components/status-pill';
+import { CallbackStatusPill } from '@/components/callback-status-pill';
+import { callbackStatus, callbacksApi, type DueCallback } from '@/lib/callbacks';
+import { formatScheduleInLeadZone } from '@/lib/timezone';
 import { DateFilter } from '@/components/filter-controls';
 import { EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { downloadCsv } from '@/lib/export';
@@ -32,9 +35,26 @@ const taskColumns: Column<Task>[] = [
   { key: 'priority', header: 'Priority', cell: (r) => <span className={`capitalize ${PRI_STYLE[r.priority] ?? ''}`}>{r.priority}</span> },
 ];
 const fuColumns: Column<Followup>[] = [
-  { key: 'when', header: 'When', cell: (r) => new Date(r.nextFollowupDate).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) },
+  {
+    key: 'when',
+    header: 'When',
+    // In the CUSTOMER's zone with the zone named. This cell used to run the
+    // instant through `toLocaleString` with no zone at all, which renders it on
+    // the REP's clock — so the dashboard quietly disagreed with the Follow-ups
+    // page, the reminder e-mail and the time the customer was actually promised.
+    cell: (r) => formatScheduleInLeadZone(r.nextFollowupDate, r.lead?.timezone),
+  },
   { key: 'lead', header: 'Company', cell: (r) => r.lead?.businessName ?? '—' },
+  { key: 'status', header: 'Status', cell: (r) => <CallbackStatusPill status={callbackStatus(r.nextFollowupDate, r.completedAt)} /> },
   { key: 'note', header: 'Note', cell: (r) => <span className="text-muted-foreground">{r.noteText}</span> },
+];
+
+/** Today's callbacks — the customer's today, with the zone spelled out. */
+const callbackColumns: Column<DueCallback>[] = [
+  { key: 'when', header: 'Scheduled', cell: (r) => r.callbackAtLabel },
+  { key: 'lead', header: 'Company', cell: (r) => r.businessName },
+  { key: 'phone', header: 'Phone', cell: (r) => <span className="font-mono text-[12px]">{r.phone}</span> },
+  { key: 'status', header: 'Status', cell: (r) => <CallbackStatusPill status={r.status} /> },
 ];
 const leadColumns: Column<Lead>[] = [
   { key: 'businessName', header: 'Lead Name' },
@@ -96,6 +116,15 @@ export default function DashboardPage() {
   });
   const { data: tasks = [] } = useQuery({ queryKey: ['tasks'], queryFn: tasksApi.list, retry: false });
   const { data: followups = [] } = useQuery({ queryKey: ['followups'], queryFn: () => callsApi.followups(), retry: false });
+  // Today's callbacks on the customer's calendar, plus anything still overdue —
+  // the same feed the reminder popup reads, so the dashboard count and the
+  // interruption can never disagree about what is outstanding.
+  const { data: todaysCallbacks = [] } = useQuery({
+    queryKey: ['callbacks', 'today'],
+    queryFn: callbacksApi.today,
+    retry: false,
+    refetchInterval: LIVE_MS,
+  });
   const { data: missed = [] } = useQuery({ queryKey: ['missed-calls'], queryFn: () => communicationsApi.missedCalls(), retry: false, refetchInterval: LIVE_MS });
   const summaryQ = useQuery({ queryKey: ['metrics', 'summary', dateFilter], queryFn: () => metricsApi.summary(range), retry: false, refetchInterval: LIVE_MS, refetchOnWindowFocus: true });
   const s = summaryQ.data;
@@ -143,7 +172,10 @@ export default function DashboardPage() {
               [card('Pending Leads'), s?.pendingLeads ?? 0],
               [card('Follow-up Leads'), s?.followUpLeads ?? 0],
               [card('Converted Leads'), s?.convertedLeads ?? 0],
-              [card('Closed Leads'), s?.closedLeads ?? 0],
+              // Named to match the sidebar and the module it links to. The
+              // underlying metric is unchanged — still leads with status
+              // `closed`; only what we call them moved on.
+              [card('Onboarding Leads'), s?.closedLeads ?? 0],
               ...(mine ? [] : [['Avg Leads / Employee', s?.avgLeadsPerEmployee ?? 0] as [string, number]]),
               [mine ? 'My Total Calls' : 'Total Calls Made', s?.totalCalls ?? 0],
               [card('Connected Calls'), s?.connectedCalls ?? 0],
@@ -184,7 +216,7 @@ export default function DashboardPage() {
           <KpiCard index={3} icon={Clock} iconBg="#fbf3e2" iconColor="#c98a18" value={<AnimatedNumber value={s?.pendingLeads ?? 0} />} label={card('Pending Leads')} />
           <KpiCard index={4} icon={RefreshCw} iconBg="#fbf3e2" iconColor="#c98a18" value={<AnimatedNumber value={s?.followUpLeads ?? 0} />} label={card('Follow-up Leads')} />
           <KpiCard index={5} icon={TrendingUp} iconBg="#e4f2e4" iconColor="#317d34" value={<AnimatedNumber value={s?.convertedLeads ?? 0} />} label={card('Converted Leads')} />
-          <KpiCard index={6} icon={CheckCircle2} iconBg="#e4f2e4" iconColor="#317d34" value={<AnimatedNumber value={s?.closedLeads ?? 0} />} label={card('Closed Leads')} />
+          <KpiCard index={6} icon={CheckCircle2} iconBg="#e4f2e4" iconColor="#317d34" value={<AnimatedNumber value={s?.closedLeads ?? 0} />} label={card('Onboarding Leads')} />
           {/* Only meaningful across a team, so it is absent from an employee's
               dashboard rather than shown as a hollow "1 per employee". */}
           {!mine && s?.avgLeadsPerEmployee !== null && (
@@ -210,6 +242,12 @@ export default function DashboardPage() {
 
       {/* Widget grid — all live */}
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.2 }} className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <WidgetCard
+          title="Today's Callbacks"
+          columns={callbackColumns}
+          rows={todaysCallbacks}
+          emptyMessage="No callbacks due today."
+        />
         <WidgetCard title="My Open Tasks" columns={taskColumns} rows={openTasks} emptyMessage="No open tasks." />
         <WidgetCard title="Upcoming Follow-Ups" columns={fuColumns} rows={followups} emptyMessage="No follow-ups scheduled." />
         <WidgetCard title="Missed Calls" columns={missedColumns} rows={missed} emptyMessage="No missed calls." />

@@ -15,6 +15,7 @@ import { api } from '@/lib/api';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
 import { useCanCall } from '@/lib/use-can-call';
 import { StatusPill } from '@/components/status-pill';
+import { TimezoneChip } from '@/components/timezone-chip';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
@@ -228,7 +229,7 @@ export default function LeadsPage() {
     l.country ?? '',
     l.state,
     l.city,
-    l.timezone,
+    l.timezone ?? '',
     l.industry ?? '',
     l.companySize ?? '',
     l.foundedYear ?? '',
@@ -329,7 +330,10 @@ export default function LeadsPage() {
     { key: 'country', header: 'Country', cellClassName: 'text-muted-foreground', render: (l) => l.country ?? '—', searchable: true, sortable: true, searchValue: (l) => l.country },
     { key: 'state', header: 'State', cellClassName: 'text-muted-foreground', render: (l) => l.state, searchable: true, sortable: true, searchValue: (l) => l.state },
     { key: 'city', header: 'City', cellClassName: 'text-muted-foreground', render: (l) => l.city, searchable: true, sortable: true, searchValue: (l) => l.city },
-    { key: 'tz', header: 'Time Zone', render: (l) => <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold">{l.timezone}</span> },
+    // A lead with no zone is called out rather than shown as an empty chip: it
+    // is the one state that blocks scheduling a callback, so the list is where
+    // someone notices and fixes it.
+    { key: 'tz', header: 'Time Zone', render: (l) => <TimezoneChip tz={l.timezone} /> },
     { key: 'industry', header: 'Industry', cellClassName: 'text-muted-foreground', render: (l) => l.industry ?? '—', searchable: true, sortable: true, searchValue: (l) => l.industry },
     { key: 'companySize', header: 'Company Size', cellClassName: 'text-muted-foreground', render: (l) => l.companySize ?? '—', searchable: true, sortable: true, searchValue: (l) => l.companySize },
     { key: 'foundedYear', header: 'Founded Year', cellClassName: 'text-muted-foreground', render: (l) => l.foundedYear ?? '—', searchable: true, sortable: true, searchValue: (l) => l.foundedYear },
@@ -637,8 +641,9 @@ export default function LeadsPage() {
         // Every row stays selectable, because the checkbox serves DELETE as well as
         // assignment — locking owned leads out of it also made them impossible to
         // bulk-delete. Ownership is protected where it actually matters instead: the
-        // Assign popup drops owned and same-day-locked leads from the pool and says
-        // so, and the API refuses them regardless of what the client sends. The
+        // Assign popup names the owned leads and leaves them out of the pool unless
+        // the manager deliberately chooses to transfer them, and the API refuses
+        // them regardless of what the client sends unless that choice was made. The
         // "Assigned" badge on each row still shows which leads those are.
         onDeleteSelected={canManage ? async (rows) => { await removeLeads.mutateAsync(rows); } : undefined}
         deleteConfirm={() => 'Are you sure you want to delete the selected lead(s)? This action cannot be undone.'}

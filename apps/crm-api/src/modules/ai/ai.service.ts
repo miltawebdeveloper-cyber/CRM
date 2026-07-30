@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { Timezone } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
+import { tzLabel } from '../../common/timezone';
 import { answerFor } from './knowledge-base';
 
 @Injectable()
@@ -32,18 +32,22 @@ export class AiService {
       _count: { _all: true },
     });
 
-    const stateAgg = new Map<string, { total: number; closed: number; tz: Timezone }>();
+    // Leads with no zone set are their own bucket rather than being folded into
+    // Eastern — a conversion rate for "EST" that quietly includes every
+    // unconfigured lead in the database is worse than no number at all.
+    const stateAgg = new Map<string, { total: number; closed: number; tz: string }>();
     const tzAgg = new Map<string, { total: number; closed: number }>();
     for (const g of grouped) {
-      const s = stateAgg.get(g.state) ?? { total: 0, closed: 0, tz: g.timezone };
+      const zone = tzLabel(g.timezone);
+      const s = stateAgg.get(g.state) ?? { total: 0, closed: 0, tz: zone };
       s.total += g._count._all;
       if (g.status === 'closed') s.closed += g._count._all;
       stateAgg.set(g.state, s);
 
-      const t = tzAgg.get(g.timezone) ?? { total: 0, closed: 0 };
+      const t = tzAgg.get(zone) ?? { total: 0, closed: 0 };
       t.total += g._count._all;
       if (g.status === 'closed') t.closed += g._count._all;
-      tzAgg.set(g.timezone, t);
+      tzAgg.set(zone, t);
     }
 
     const rate = (closed: number, total: number) => (total > 0 ? (closed / total) * 100 : 0);

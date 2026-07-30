@@ -122,7 +122,9 @@ async function main() {
     for (const l of leads) {
       const fixed = correct(l.callbackAt!, l.timezone);
       if (!fixed) continue;
-      changes.push({ table: 'lead', id: l.id, ref: l.leadId, field: 'callbackAt', leadZone: l.timezone, from: show(l.callbackAt!, l.timezone), to: show(fixed, l.timezone) });
+      // `?? 'EST'` matches what `correct`/`show` assumed for a lead with no zone
+      // — this script predates zones being nullable and only ever reports.
+      changes.push({ table: 'lead', id: l.id, ref: l.leadId, field: 'callbackAt', leadZone: l.timezone ?? 'EST', from: show(l.callbackAt!, l.timezone), to: show(fixed, l.timezone) });
       if (apply) await prisma.lead.update({ where: { id: l.id }, data: { callbackAt: fixed } });
     }
 

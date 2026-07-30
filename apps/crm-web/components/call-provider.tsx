@@ -6,6 +6,7 @@ import { Phone, PhoneOff, X, Loader2, Check, ExternalLink } from 'lucide-react';
 import { communicationsApi, callsApi, outcomesApi, type CallPhase, type Outcome } from '@/lib/crm';
 import { launchQuoCall } from '@/lib/dialer';
 import { invalidateCallActivity } from '@/lib/sync';
+import { CallbackScheduler, callbackInputError } from '@/components/callback-scheduler';
 
 /** Minimal lead shape the Call button needs — any caller can pass this. */
 export interface CallLead {
@@ -14,6 +15,14 @@ export interface CallLead {
   phone: string;
   city?: string;
   state?: string;
+  /**
+   * The customer's zone. Required for the wrap-up callback picker: without it
+   * the widget was showing a bare `datetime-local`, which every rep reads as
+   * their OWN local time while the API stores it as the customer's. Optional on
+   * the type because callers who never wrap up a callback don't need it; the
+   * picker asks for one when it's missing.
+   */
+  timezone?: string | null;
 }
 
 /** The caller identity the customer sees — the agent's own name + assigned line. */
@@ -158,7 +167,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
           onEndCall={beginEnd}
           onSave={() => save.mutate()}
           saving={save.isPending}
-          canSave={!!outcome && (!needsCallback || !!callbackAt)}
+          // A typed date is not the same as a bookable one — the scheduler owns
+          // that judgement so the button and the server agree.
+          canSave={!!outcome && (!needsCallback || !callbackInputError(callbackAt, active.lead.timezone))}
           onClose={reset}
         />
       )}
@@ -258,15 +269,16 @@ function CallWidget(props: {
             </div>
 
             {props.needsCallback && (
-              <label className="mt-3 block space-y-1 text-[12px]">
-                <span className="font-semibold">Callback date &amp; time</span>
-                <input
-                  type="datetime-local"
-                  value={props.callbackAt}
-                  onChange={(e) => props.onCallbackAt(e.target.value)}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                />
-              </label>
+              // The same picker the Calling Panel uses: entered on the
+              // customer's clock, shown on both clocks, and refused if the lead
+              // has no zone or the time has already gone there.
+              <CallbackScheduler
+                className="mt-3"
+                leadId={props.lead.id}
+                timezone={props.lead.timezone}
+                value={props.callbackAt}
+                onChange={props.onCallbackAt}
+              />
             )}
 
             <textarea

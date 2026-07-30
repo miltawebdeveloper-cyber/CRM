@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { Timezone } from '@crm/database';
 
 /**
@@ -25,8 +26,34 @@ export const IANA_BY_TIMEZONE: Record<Timezone, string> = {
   [Timezone.PST]: 'America/Los_Angeles',
 };
 
-/** Fallback for a record with no zone of its own. */
+/**
+ * Fallback used only when RENDERING a record with no zone — a label has to say
+ * something. It is deliberately not used when scheduling: see `parseFutureInZone`,
+ * which refuses rather than guessing, because a guessed zone is a call placed at
+ * the wrong hour.
+ */
 export const DEFAULT_TIMEZONE = Timezone.EST;
+
+/**
+ * How a lead with no configured zone appears in groupings, filters and reports.
+ * One constant so the Analytics breakdown, the Territory tree and the assignment
+ * buckets all name the same pile the same way.
+ */
+export const UNSET_TIMEZONE_LABEL = 'Unassigned';
+
+/** Zone code for display/grouping, with unconfigured leads given their own bucket. */
+export const tzLabel = (tz?: Timezone | null): string => tz ?? UNSET_TIMEZONE_LABEL;
+
+/**
+ * Turn a zone filter value back into a Prisma `where` fragment. The inverse of
+ * `tzLabel`: `Unassigned` selects the rows with no zone rather than looking for
+ * a zone by that name, which would match nothing.
+ */
+export const timezoneWhere = (value?: string | null): { timezone?: Timezone | null } => {
+  if (!value) return {};
+  if (value === UNSET_TIMEZONE_LABEL) return { timezone: null };
+  return { timezone: value as Timezone };
+};
 
 export const ianaFor = (tz?: Timezone | null): string => IANA_BY_TIMEZONE[tz ?? DEFAULT_TIMEZONE];
 
@@ -103,6 +130,54 @@ export function formatInZone(date: Date, tz?: Timezone | null): string {
     minute: '2-digit',
     timeZoneName: 'short',
   }).format(date);
+}
+
+/**
+ * A booking submitted at 09:59:59 for "today 10:00" must not be rejected because
+ * the request landed a second late, and a rep's clock is rarely exactly the
+ * server's. Anything inside this window of now counts as "not in the past".
+ */
+const PAST_GRACE_MS = 60 * 1000;
+
+/**
+ * Read a scheduling input as an instant, insisting the record has a zone and
+ * that the time has not already gone by there.
+ *
+ * Both checks exist because the alternative is silent and wrong rather than
+ * loud. A lead with no zone would fall back to Eastern under `ianaFor`, so a
+ * Pacific customer would be booked three hours out and nothing would say so —
+ * hence the zone is demanded rather than assumed. And a callback typed for a
+ * time already past in the customer's zone can never fire as an upcoming
+ * reminder; it lands straight in the missed pile, which reads to the rep as a
+ * callback they failed rather than one they mistyped.
+ *
+ * `null`/empty passes through as null — clearing a callback is not scheduling
+ * one. Returns the instant otherwise, and throws `BadRequestException` with a
+ * message written for the rep, not the log.
+ */
+export function parseFutureInZone(
+  value: string | null | undefined,
+  tz: Timezone | null | undefined,
+  what = 'callback',
+  now = new Date(),
+): Date | null {
+  if (!value?.trim()) return null;
+
+  if (!tz) {
+    throw new BadRequestException(
+      `This lead has no time zone set, so a ${what} time can't be pinned to the customer's clock. Set the lead's time zone first.`,
+    );
+  }
+
+  const at = parseInZone(value, tz);
+  if (!at) throw new BadRequestException(`That ${what} date and time could not be read.`);
+
+  if (at.getTime() < now.getTime() - PAST_GRACE_MS) {
+    throw new BadRequestException(
+      `That ${what} time has already passed in the lead's time zone (${formatInZone(at, tz)}). Pick a later time.`,
+    );
+  }
+  return at;
 }
 
 /** Calendar day (`yyyy-mm-dd`) an instant falls on in the given zone. */

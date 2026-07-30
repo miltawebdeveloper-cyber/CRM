@@ -36,6 +36,22 @@ export class GroqService {
   get transcribeModel(): string {
     return process.env.GROQ_TRANSCRIBE_MODEL || 'whisper-large-v3';
   }
+  /**
+   * The language the calls are actually conducted in, as an ISO-639-1 code.
+   *
+   * Pinned rather than left to Whisper's auto-detection. Auto-detect decides from
+   * the opening seconds of audio, and on a phone call — narrowband, noisy, often
+   * a few words of greeting before anyone says anything substantial — it
+   * regularly mis-identifies accented English as another language. Once it does,
+   * Whisper doesn't just mislabel the output: it renders the whole transcript in
+   * that language, and the summary built on top inherits it. Telling it the
+   * language up front removes the guess.
+   *
+   * Overridable for a workspace that genuinely calls in something else.
+   */
+  get transcribeLanguage(): string {
+    return process.env.GROQ_TRANSCRIBE_LANGUAGE || 'en';
+  }
   get chatModel(): string {
     return process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
   }
@@ -52,6 +68,9 @@ export class GroqService {
       form.append('model', this.transcribeModel);
       form.append('response_format', 'verbose_json'); // gives us per-segment timestamps
       form.append('temperature', '0');
+      // See `transcribeLanguage` — without this Whisper guesses, and a
+      // mis-guess rewrites the entire transcript in the wrong language.
+      form.append('language', this.transcribeLanguage);
       const res = await fetch(`${this.base}/audio/transcriptions`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${this.key}` },

@@ -25,6 +25,7 @@ import { useCall } from '@/components/call-provider';
 import { useCanCall } from '@/lib/use-can-call';
 import { launchQuoCall } from '@/lib/dialer';
 import { dayInLeadZone, formatScheduleInLeadZone, nowInLeadZone, zoneLabel } from '@/lib/timezone';
+import { CallbackScheduler, callbackInputError } from '@/components/callback-scheduler';
 import { invalidateCallActivity } from '@/lib/sync';
 import { useShortcutHint } from '@/components/command-palette';
 
@@ -318,7 +319,8 @@ export default function CallingPage() {
     // recorded against the lead itself and the queue advances just the same.
     const lead = active?.lead ?? current;
     if (!lead || !outcome) return;
-    if (schedules && !callbackAt) return;
+    // Same rule the Save button is disabled on, restated for the keyboard path.
+    if (schedules && callbackInputError(callbackAt, lead.timezone)) return;
     if (schedulesZoom && !zoomAt) return;
     setBusy(true);
     try {
@@ -384,7 +386,13 @@ export default function CallingPage() {
   // keyboard shortcut so the two can never disagree about when a lead is ready.
   // Matches the key the shortcut actually listens for on this platform.
   const saveHint = useShortcutHint() === '⌘K' ? '⌘↵' : 'Ctrl ↵';
-  const canSave = !!current && !!outcome && !busy && !(schedules && !callbackAt) && !(schedulesZoom && !zoomAt);
+  // The callback half of the check comes from the scheduler itself rather than
+  // being restated here — "a date was typed" is not the same as "that date can
+  // be booked", and the API rejects a lead with no zone or a time already gone.
+  // Restating the rules is how the button stayed enabled for a save the server
+  // was always going to refuse.
+  const callbackError = schedules ? callbackInputError(callbackAt, current?.timezone) : null;
+  const canSave = !!current && !!outcome && !busy && !callbackError && !(schedulesZoom && !zoomAt);
 
   /**
    * Keyboard shortcuts for the queue.
@@ -421,12 +429,12 @@ export default function CallingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, outcomes, canSave, busy]);
 
-  // Scheduling always happens on the CURRENT lead's clock: `leadZone` is the zone
-  // abbreviation as it stands today (EDT vs EST), and `leadToday` is the
-  // customer's own current date/time, used to seed and bound the pickers.
+  // The Zoom form still books on the CURRENT lead's clock here: `leadZone` is the
+  // zone abbreviation as it stands today (EDT vs EST), `leadNow` the customer's
+  // own current date/time, used to bound the picker. The callback picker keeps
+  // its own copies inside <CallbackScheduler>, which the widget shares.
   const leadZone = zoneLabel(current?.timezone);
   const leadNow = nowInLeadZone(current?.timezone); // `YYYY-MM-DDTHH:mm`
-  const leadToday = leadNow.slice(0, 10);
 
   // Which average the last KPI reports. Talk time is the meaningful one once calls
   // have been placed; with none today (or with dialling off entirely) it would be a
@@ -891,40 +899,16 @@ export default function CallingPage() {
                   );
                 })}
               </div>
-              {schedules && (
-                <div className="mb-3">
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <label className="space-y-1 text-sm">
-                      <span className="font-medium">Callback Date</span>
-                      <input
-                        type="date"
-                        value={callbackAt ? callbackAt.slice(0, 10) : ''}
-                        onChange={(e) => setCallbackAt(`${e.target.value}T${callbackAt ? callbackAt.slice(11, 16) : '09:00'}`)}
-                        className="w-full rounded-md border bg-background px-3 py-2"
-                        required
-                      />
-                    </label>
-                    <label className="space-y-1 text-sm">
-                      <span className="font-medium">Callback Time</span>
-                      <input
-                        type="time"
-                        value={callbackAt ? callbackAt.slice(11, 16) : ''}
-                        // Defaults to the CUSTOMER's today, not the rep's. `new Date()`
-                        // here could offer a date already gone (or not yet arrived)
-                        // where the customer is.
-                        onChange={(e) => setCallbackAt(`${callbackAt ? callbackAt.slice(0, 10) : leadToday}T${e.target.value}`)}
-                        className="w-full rounded-md border bg-background px-3 py-2"
-                        required
-                      />
-                    </label>
-                  </div>
-                  {/* The rep is booking on the customer's clock, so the panel says
-                      so — a time entered with no zone shown is a callback made at
-                      the wrong hour. */}
-                  <p className="mt-1.5 text-[11px] text-muted-foreground">
-                    Times are in the lead&apos;s time zone — <span className="font-semibold text-foreground">{current?.timezone ?? 'EST'} ({leadZone})</span>.
-                  </p>
-                </div>
+              {schedules && current && (
+                // Shared with the docked call widget, so a callback booked from
+                // either place is entered, validated and displayed identically.
+                <CallbackScheduler
+                  className="mb-3"
+                  leadId={current.id}
+                  timezone={current.timezone}
+                  value={callbackAt}
+                  onChange={setCallbackAt}
+                />
               )}
               {schedulesZoom && (
                 <div className="mb-3 rounded-lg border border-[#bcd9ff] bg-[#f2f8ff] p-3">

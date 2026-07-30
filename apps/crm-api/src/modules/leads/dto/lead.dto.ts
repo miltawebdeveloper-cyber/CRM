@@ -1,7 +1,8 @@
-import { ArrayNotEmpty, IsArray, IsBoolean, IsEmail, IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, Min, MinLength } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsBoolean, IsEmail, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min, MinLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Timezone, LeadStatus } from '@crm/database';
+import { UNSET_TIMEZONE_LABEL } from '../../../common/timezone';
 
 export class CreateLeadDto {
   @ApiPropertyOptional({ description: 'External lead id; auto-generated if omitted (IMP-006)' })
@@ -332,10 +333,16 @@ export class ListLeadsQueryDto {
   @IsString()
   city?: string;
 
-  @ApiPropertyOptional({ enum: Timezone })
+  /**
+   * A zone code, or `Unassigned` for the leads that have none set — the filter
+   * has to be able to reach those, since they are the ones no callback can be
+   * booked against until someone gives them a zone. Validated as a plain string
+   * for that reason; `leadFilter` maps it back to `timezone IS NULL`.
+   */
+  @ApiPropertyOptional({ enum: [...Object.values(Timezone), UNSET_TIMEZONE_LABEL] })
   @IsOptional()
-  @IsEnum(Timezone)
-  timezone?: Timezone;
+  @IsIn([...Object.values(Timezone), UNSET_TIMEZONE_LABEL])
+  timezone?: string;
 
   /** Outcome slug, or the display name carried by leads imported before the
    *  outcome list existed — both are matched, as the browser filter did. */

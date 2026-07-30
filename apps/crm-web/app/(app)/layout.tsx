@@ -8,6 +8,7 @@ import { canAccessPath, type Role } from '@/lib/nav';
 import { Sidebar } from '@/components/sidebar';
 import { Topbar } from '@/components/topbar';
 import { IncomingCallPopup } from '@/components/incoming-call';
+import { CallbackReminders } from '@/components/callback-reminder';
 import { CommandPalette } from '@/components/command-palette';
 import { CallProvider } from '@/components/call-provider';
 import { PageTabsProvider } from '@/components/page-tabs';
@@ -70,6 +71,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </main>
         </div>
         <IncomingCallPopup />
+        {/* Callback reminders. Mounted in the shell so a due callback reaches the
+            rep wherever they are in the CRM, not only on the pages that list
+            callbacks — and keeps coming back until they act on it. */}
+        <CallbackReminders />
         {/* Global search + jump, on Ctrl/Cmd+K. Mounted here so it works from
             every page rather than only where a search box happens to render. */}
         <CommandPalette />

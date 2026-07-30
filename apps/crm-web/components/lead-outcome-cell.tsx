@@ -102,7 +102,13 @@ export function LeadOutcomeCell({ lead, canEdit = true }: { lead: Lead; canEdit?
             type="datetime-local"
             value={when}
             onChange={(e) => setWhen(e.target.value)}
-            title={`Callback time — in the lead's time zone (${lead.timezone})`}
+            // Zones are nullable, so the label has to cope with not having one
+            // rather than interpolating a literal "null" into the tooltip.
+            title={
+              lead.timezone
+                ? `Callback time — in the lead's time zone (${lead.timezone})`
+                : "Callback time — this lead has no time zone set, so saving will be refused until one is chosen"
+            }
             className="rounded-md border bg-background px-2 py-1 text-[12.5px] outline-none focus:border-primary"
           />
           <button

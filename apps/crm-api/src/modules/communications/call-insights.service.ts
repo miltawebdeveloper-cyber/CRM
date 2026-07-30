@@ -331,6 +331,13 @@ export class CallInsightsService {
       'You summarise sales and service phone calls for Milta Financial Services, a bookkeeping and accounting firm, ' +
       'so a manager can review the call without listening to it. The Employee is the Milta agent; the Customer is the ' +
       'lead/prospect. Use only facts stated in the transcript — never invent details. Be precise and concise. ' +
+      // Stated explicitly because a model left to itself answers in whatever
+      // language the transcript is in. Managers read these summaries in English,
+      // and one call transcribed differently should not produce a summary they
+      // can't read. Quoted phrases are kept verbatim so the summary stays
+      // faithful to what was actually said.
+      'Write every field in English, even if the transcript is wholly or partly in another language; ' +
+      'translate as needed, but keep any directly quoted phrase in its original wording. ' +
       'Respond ONLY with a JSON object with exactly these keys: "purpose" (string), "keyPoints" (string[]), ' +
       '"customerRequirements" (string[]), "questionsAsked" (string[]), "employeeResponses" (string[]), ' +
       '"decisions" (string[]), "followUps" (string[]), "outcome" (string), "nextSteps" (string[]). ' +

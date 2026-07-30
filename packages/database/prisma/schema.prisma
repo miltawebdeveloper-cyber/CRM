@@ -324,7 +324,13 @@ model Lead {
   email        String?
   state        String
   city         String
-  timezone     Timezone   @default(EST)
+  /// Nullable and WITHOUT a default, deliberately. It used to default to EST,
+  /// which meant an import row with a blank or unreadable zone was silently
+  /// stamped Eastern — indistinguishable from a lead genuinely configured as
+  /// Eastern, and the reason a Texas number got rung an hour early. A lead with
+  /// no zone is now honestly blank, and scheduling a callback against it is
+  /// refused until someone picks one.
+  timezone     Timezone?
   status       LeadStatus @default(new)
   qualityScore Int?       @map("quality_score") // AI lead score 0..100
 
@@ -358,6 +364,12 @@ model Lead {
   callbackReminderDayBeforeAt DateTime? @map("callback_reminder_day_before_at")
   callbackReminderDueAt       DateTime? @map("callback_reminder_due_at")
   callbackReminderMissedAt    DateTime? @map("callback_reminder_missed_at")
+  // On-screen reminder state. The popup keeps re-appearing while a callback is
+  // due, so the rep needs a way to quiet it that isn't "complete the call":
+  // Snooze hides it until an instant, Dismiss hides it for this appointment.
+  // Both are cleared by a reschedule — a new time is a new appointment.
+  callbackSnoozedUntil DateTime? @map("callback_snoozed_until")
+  callbackDismissedAt  DateTime? @map("callback_dismissed_at")
   // CALLER → assignedTo (User relation below)
 
   // ── Quo (OpenPhone) telephony ──

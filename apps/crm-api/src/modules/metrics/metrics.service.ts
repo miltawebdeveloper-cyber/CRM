@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { LeadStatus, Prisma, Timezone, Role, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
+import { tzLabel, UNSET_TIMEZONE_LABEL } from '../../common/timezone';
 import { MetricsQueryDto } from './dto/metrics.dto';
 import { CONNECTED_CALL, MISSED_INBOUND_CALL } from '../calls/call-status';
 
@@ -210,10 +211,17 @@ export class MetricsService {
       _count: { _all: true },
     });
     const all: Timezone[] = ['EST', 'CST', 'MST', 'PST'];
-    return all.map((tz) => ({
+    const rows: { timezone: string; count: number }[] = all.map((tz) => ({
       timezone: tz,
       count: grouped.find((g) => g.timezone === tz)?._count._all ?? 0,
     }));
+    // Leads with no zone are a real bucket and get their own bar. Enumerating
+    // only the four zones dropped them from the chart, so the breakdown quietly
+    // added up to less than the lead count — and the leads that most need
+    // attention (no zone, so no callback can be booked) were the invisible ones.
+    const unset = grouped.find((g) => g.timezone === null)?._count._all ?? 0;
+    if (unset > 0) rows.push({ timezone: UNSET_TIMEZONE_LABEL, count: unset });
+    return rows;
   }
 
   /** MAP-002/003 — per-state totals vs targets (color-coded state map). */
@@ -254,7 +262,9 @@ export class MetricsService {
     const contactedByState = new Map(contactedGroups.map((g) => [g.state, g._count._all]));
     const totalByState = new Map<string, { total: number; timezone: string }>();
     for (const g of leadGroups) {
-      const cur = totalByState.get(g.state) ?? { total: 0, timezone: g.timezone };
+      // "Unassigned" for a state whose leads carry no zone, rather than
+      // reporting them as Eastern.
+      const cur = totalByState.get(g.state) ?? { total: 0, timezone: tzLabel(g.timezone) };
       cur.total += g._count._all;
       totalByState.set(g.state, cur);
     }
@@ -326,7 +336,9 @@ export class MetricsService {
       if (!cities.has(ci)) cities.set(ci, { total: 0, planned: 0 });
       return cities.get(ci)!;
     };
-    for (const g of leadGroups) ensure(g.timezone, g.state, g.city).total += g._count._all;
+    // Leads with no zone hang off an "Unassigned" branch of the tree, so the
+    // territory view still shows them instead of silently filing them as EST.
+    for (const g of leadGroups) ensure(tzLabel(g.timezone), g.state, g.city).total += g._count._all;
     for (const g of targetGroups)
       ensure(g.timezone, g.state, g.city).planned += g._sum.monthlyTarget ?? 0;
 

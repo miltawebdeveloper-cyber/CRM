@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { AssignmentType, Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
+import { UNSET_TIMEZONE_LABEL } from '../../common/timezone';
 import { ManualAssignDto, AutoAssignDto, AssignStrategy, BatchAssignDto } from './dto/assignment.dto';
 import { sameDayConfirmError } from '../leads/leads.service';
 
@@ -238,6 +239,47 @@ export class AssignmentsService {
       }
     }
 
+    /**
+     * The daily restriction, asked ONCE for the whole distribution.
+     *
+     * assignMany checks it too, and for a single-caller assignment that is
+     * exactly right. Across several allocations it is not: the loop below writes
+     * one allocation at a time, so the first would be committed before the second
+     * raised the question — and answering it re-runs the whole request, giving the
+     * already-written leads a second history row and stamping them as assigned
+     * again today. A distribution is one decision, so it is asked as one, before
+     * anything is written.
+     *
+     * Only leads that would actually move are worth asking about. One already held
+     * by the caller it is allocated to isn't going anywhere, and one held by
+     * someone else is skipped outright unless this is a deliberate transfer —
+     * mirroring what assignMany will do with them.
+     */
+    if (!dto.confirmSameDayReassign) {
+      const targetByLead = new Map<string, string>();
+      for (const alloc of dto.allocations) for (const id of alloc.leadIds) targetByLead.set(id, alloc.callerId);
+      const prior = await this.prisma.lead.findMany({
+        where: { id: { in: [...targetByLead.keys()] } },
+        select: { id: true, assignedToId: true, assignedTo: { select: { name: true } } },
+      });
+      const movable = prior
+        .filter((p) => dto.allowReassign || !p.assignedToId || p.assignedToId === targetByLead.get(p.id))
+        .map((p) => p.id);
+      const sameDay = await this.prisma.assignment.findMany({
+        where: { leadId: { in: movable }, assignedAt: { gte: startOfToday() } },
+        select: { leadId: true, lead: { select: { leadId: true } } },
+        distinct: ['leadId'],
+      });
+      if (sameDay.length > 0) {
+        const nameById = new Map(prior.map((p) => [p.id, p.assignedTo?.name ?? null]));
+        throw new BadRequestException(
+          sameDayConfirmError(
+            sameDay.map((l) => ({ id: l.leadId, leadId: l.lead.leadId, assignedTo: nameById.get(l.leadId) ?? null })),
+          ),
+        );
+      }
+    }
+
     const perCaller: Record<string, number> = {};
     // Leads already held by someone else are skipped per allocation, so the count
     // reported back is what was actually assigned rather than what was requested.
@@ -283,7 +325,9 @@ export class AssignmentsService {
       const key = dto.strategy === AssignStrategy.state ? 'state' : 'timezone';
       const groups = new Map<string, string[]>();
       for (const lead of leads) {
-        const g = lead[key];
+        // Leads with no zone set form their own group, so a zone-based
+        // distribution hands them out together instead of dropping them.
+        const g = lead[key] ?? UNSET_TIMEZONE_LABEL;
         if (!groups.has(g)) groups.set(g, []);
         groups.get(g)!.push(lead.id);
       }

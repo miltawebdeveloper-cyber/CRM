@@ -41,7 +41,11 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
   const [state, setState] = useState('');
   const [city, setCity] = useState('');
   const [leadStatus, setLeadStatus] = useState('');
-  const [callStatus, setCallStatus] = useState('');
+  // Named for what it filters on. It was `callStatus` and labelled "All Call
+  // Statuses", but it has always sent `outcome` to the API — with the Call
+  // Status column now gone, that name promised a filter on a column that
+  // isn't there and hid the one it really is.
+  const [outcomeFilter, setOutcomeFilter] = useState('');
 
   // Every filter goes to the API. Applying the geography/status ones in the
   // browser used to mean the tiles (server-side) and the table (client-side)
@@ -54,9 +58,9 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
       ...(state ? { state } : {}),
       ...(city ? { city } : {}),
       ...(leadStatus ? { leadStatus } : {}),
-      ...(callStatus ? { outcome: callStatus } : {}),
+      ...(outcomeFilter ? { outcome: outcomeFilter } : {}),
     }),
-    [scope, tz, state, city, leadStatus, callStatus],
+    [scope, tz, state, city, leadStatus, outcomeFilter],
   );
 
   // Both queries key off the same params, so the summary and rows always agree.
@@ -97,12 +101,14 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
     },
     { key: 'phone', header: 'Phone Number', cellClassName: 'font-mono text-[12px] text-muted-foreground', searchable: true, searchValue: (c) => c.lead?.phone, render: (c) => c.lead?.phone ?? '—' },
     { key: 'caller', header: 'Assigned Employee', searchable: true, trackable: true, searchValue: (c) => c.caller?.name, render: (c) => c.caller?.name ?? '—' },
-    { key: 'direction', header: 'Direction', render: (c) => <DirectionPill direction={c.direction} /> },
     {
-      key: 'status', header: 'Call Status', searchable: true, searchValue: (c) => c.status,
-      // No provider status means the call never went through OpenPhone; fall
-      // back to whether it was completed in the dialer. A processed row is marked
-      // as such, so it is never mistaken for a call that was actually placed.
+      key: 'direction', header: 'Direction',
+      // The "No call" badge lives here now that the Call Status column is gone.
+      // It has to live somewhere: a lead worked from the queue with dialling off
+      // has no direction, no duration and no recording, so without the badge its
+      // row is indistinguishable from a dialled call that failed to record any
+      // of them — which reads as broken data rather than as work done. Direction
+      // is its natural home, being the column that says how the contact happened.
       render: (c) =>
         c.kind === 'processed' ? (
           <span
@@ -112,7 +118,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
             <ClipboardCheck className="h-3 w-3" /> No call
           </span>
         ) : (
-          <span className="capitalize text-muted-foreground">{c.status ?? (c.endTime ? 'completed' : 'in progress')}</span>
+          <DirectionPill direction={c.direction} />
         ),
     },
     // Blank for a processed row: no call was placed, so there is no duration to
@@ -127,7 +133,6 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
       },
     },
     { key: 'leadId', header: 'Lead ID', cellClassName: 'font-mono text-[11.5px] text-muted-foreground', searchable: true, searchValue: (c) => c.lead?.leadId, render: (c) => c.lead?.leadId ?? '—' },
-    { key: 'leadStatus', header: 'Lead Status', cellClassName: 'capitalize text-muted-foreground', searchable: true, searchValue: (c) => c.lead?.status, render: (c) => c.lead?.status?.replace(/_/g, ' ') ?? '—' },
   ], [outcomes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const prefs = useColumnPrefs('calls-made', columns);
@@ -150,13 +155,13 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
   // Driven by the configured outcome list (Admin → Outcomes) instead of a frozen
   // copy of it, plus any legacy imported statuses still present in the data, so
   // renaming or adding an outcome can't silently break this filter.
-  const callStatusOpts = useMemo(() => {
+  const outcomeOpts = useMemo(() => {
     const fromOutcomes = outcomes.map((o) => ({ label: o.name, value: o.slug }));
     const known = new Set(outcomes.map((o) => o.name.toLowerCase()));
     const legacy = (filterOpts?.callStatuses ?? [])
       .filter((s) => !known.has(s.toLowerCase()))
       .map((s) => ({ label: s, value: s }));
-    return [{ label: 'All Call Statuses', value: '' }, ...fromOutcomes, ...legacy];
+    return [{ label: 'All Call Outcomes', value: '' }, ...fromOutcomes, ...legacy];
   }, [outcomes, filterOpts]);
 
   // The API already applied every filter — the table shows exactly what it returned.
@@ -178,10 +183,13 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
   // audio without a CRM session) and are rotated/refreshed server-side, so putting
   // them in a spreadsheet both leaks access and goes stale. Play or download from
   // the Recordings tab, which enforces the manager-only rule on every request.
+  // Call Status and Lead Status are absent here because they are absent from the
+  // table — the export mirrors the columns on screen, and a spreadsheet carrying
+  // two fields the module no longer shows is how the two drift apart.
   const EXPORT_HEADERS = [
     'Call Date', 'Call Time', 'Customer Name', 'Contact Person', 'Phone Number',
-    'Assigned Employee', 'Direction', 'Call Status', 'Call Duration', 'Duration (secs)',
-    'Call Outcome', 'Funnel Bucket', 'Lead ID', 'Lead Status', 'Recording',
+    'Assigned Employee', 'Direction', 'Call Duration', 'Duration (secs)',
+    'Call Outcome', 'Funnel Bucket', 'Lead ID', 'Recording',
   ];
   const exportRows = () => filteredRecords.map((c) => {
     const o = outcomeOf(c.outcome);
@@ -193,14 +201,14 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
       c.lead?.contactName ?? '',
       c.lead?.phone ?? '',
       c.caller?.name ?? '',
-      c.direction ? (c.direction === 'inbound' ? 'Incoming' : 'Outgoing') : '',
-      c.status ?? (c.endTime ? 'completed' : 'in progress'),
+      // Matches the column: a processed row reports how it was worked rather
+      // than a direction it never had.
+      c.kind === 'processed' ? 'No call' : c.direction ? (c.direction === 'inbound' ? 'Incoming' : 'Outgoing') : '',
       c.durationSecs != null ? formatDuration(c.durationSecs) : '',
       c.durationSecs ?? '',
       o?.name ?? c.outcome ?? '',
       o?.category ? CAT[o.category].label : '',
       c.lead?.leadId ?? '',
-      c.lead?.status?.replace(/_/g, ' ') ?? '',
       c.hasRecording ? 'Yes' : 'No',
     ];
   });
@@ -272,7 +280,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
         <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         <FilterSelect icon={Tag} value={leadStatus} onChange={setLeadStatus} options={LEAD_STATUS_OPTS} />
-        <FilterSelect icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={callStatusOpts} />
+        <FilterSelect icon={PhoneCall} value={outcomeFilter} onChange={setOutcomeFilter} options={outcomeOpts} />
         <DateFilter value={dateFilter} onChange={setDateFilter} />
       </div>
 

@@ -10,7 +10,8 @@ export interface Lead {
   email: string | null;
   state: string;
   city: string;
-  timezone: string;
+  /** Null when nobody has set one — a callback can't be scheduled until it is. */
+  timezone: string | null;
   status: string;
   // ── Lead sheet fields ──
   contactName: string | null;

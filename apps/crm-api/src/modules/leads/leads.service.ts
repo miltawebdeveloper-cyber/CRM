@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AssignmentType, Timezone, LeadStatus, Role, Prisma } from '@crm/database';
+import { timezoneWhere, tzLabel } from '../../common/timezone';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto';
@@ -614,7 +615,11 @@ export class LeadsService {
               phone: '',
               state: '',
               city: '',
-              timezone: Timezone.EST,
+              // No `timezone` fallback on purpose. Stamping EST here is how a
+              // row with a blank or unreadable zone became a lead that claimed
+              // to be Eastern, and callbacks against it were booked on the
+              // wrong clock. Left null, the lead reads as unconfigured and the
+              // scheduler asks for a zone before it will book anything.
               status: LeadStatus.new,
               ...data,
               ...assignRel,
@@ -790,7 +795,7 @@ export class LeadsService {
     // The filters the grid used to apply in the browser, over rows it had to
     // download first. Doing them here is what makes one page a correct page.
     const cityFilter = query.city ? { city: query.city } : {};
-    const zoneFilter = query.timezone ? { timezone: query.timezone } : {};
+    const zoneFilter = timezoneWhere(query.timezone);
     // A lead dispositioned through the CRM stores the outcome's SLUG
     // (`call_back`); leads imported before the outcome list existed carry the
     // display NAME ("Call Back"). Both match, exactly as the browser filter did
@@ -981,10 +986,10 @@ export class LeadsService {
     };
     const [zones, states, cities, closers] = await Promise.all([
       this.prisma.lead.groupBy({ by: ['timezone'], where: base, orderBy: { timezone: 'asc' } }),
-      this.prisma.lead.groupBy({ by: ['state'], where: { ...base, ...(query.timezone ? { timezone: query.timezone } : {}) }, orderBy: { state: 'asc' } }),
+      this.prisma.lead.groupBy({ by: ['state'], where: { ...base, ...timezoneWhere(query.timezone) }, orderBy: { state: 'asc' } }),
       this.prisma.lead.groupBy({
         by: ['city'],
-        where: { ...base, ...(query.timezone ? { timezone: query.timezone } : {}), ...(query.state ? { state: query.state } : {}) },
+        where: { ...base, ...timezoneWhere(query.timezone), ...(query.state ? { state: query.state } : {}) },
         orderBy: { city: 'asc' },
       }),
       // Who has closed anything — the Closed Leads module's employee filter.
@@ -1000,7 +1005,11 @@ export class LeadsService {
         : Promise.resolve([]),
     ]);
     return {
-      timezones: zones.map((z) => z.timezone as string).filter(Boolean),
+      // Leads with no zone are offered as their own filter value rather than
+      // dropped. Without it there is no way to list the leads that still need a
+      // zone picked — and those are exactly the ones no callback can be booked
+      // against until someone finds them.
+      timezones: zones.map((z) => tzLabel(z.timezone)),
       states: states.map((s) => s.state).filter(Boolean),
       cities: cities.map((c) => c.city).filter(Boolean),
       closers: closers.map((c) => c.name).filter(Boolean),

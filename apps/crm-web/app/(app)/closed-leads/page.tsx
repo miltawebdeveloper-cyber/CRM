@@ -8,6 +8,7 @@ import { leadsApi, type Lead, type LeadListQuery } from '@/lib/leads';
 import { useDebounced } from '@/lib/use-debounced';
 import { useInfiniteLeads, useLeadScrollSentinel } from '@/lib/use-infinite-leads';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
+import { TimezoneChip } from '@/components/timezone-chip';
 import { api } from '@/lib/api';
 import { PageHead, Avatar } from '@/components/page-head';
 import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
@@ -112,7 +113,7 @@ export default function ClosedLeadsPage() {
     l.country ?? '',
     l.state,
     l.city,
-    l.timezone,
+    l.timezone ?? '',
     l.industry ?? '',
     l.assignedTo?.name ?? '',
     l.callStatus ?? '',
@@ -150,7 +151,7 @@ export default function ClosedLeadsPage() {
     { key: 'country', header: 'Country', cellClassName: 'text-muted-foreground', render: (l) => l.country ?? '—', searchable: true, searchValue: (l) => l.country },
     { key: 'state', header: 'State', cellClassName: 'text-muted-foreground', render: (l) => l.state, searchable: true, searchValue: (l) => l.state },
     { key: 'city', header: 'City', cellClassName: 'text-muted-foreground', render: (l) => l.city, searchable: true, searchValue: (l) => l.city },
-    { key: 'tz', header: 'Time Zone', render: (l) => <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold">{l.timezone}</span> },
+    { key: 'tz', header: 'Time Zone', render: (l) => <TimezoneChip tz={l.timezone} /> },
     { key: 'industry', header: 'Industry', cellClassName: 'text-muted-foreground', render: (l) => l.industry ?? '—', searchable: true, searchValue: (l) => l.industry },
     { key: 'caller', header: 'Assigned To', render: (l) => l.assignedTo?.name ?? '—', searchable: true, searchValue: (l) => l.assignedTo?.name },
     { key: 'callStatus', header: 'Call Status', cellClassName: 'text-muted-foreground', render: (l) => l.callStatus ?? '—', searchable: true, searchValue: (l) => l.callStatus },
@@ -208,14 +209,14 @@ export default function ClosedLeadsPage() {
     <div>
       <PageHead>
         <button
-          onClick={() => runExport((rows) => downloadCsv('closed-leads', EXPORT_HEADERS, rows))}
+          onClick={() => runExport((rows) => downloadCsv('onboarding-leads', EXPORT_HEADERS, rows))}
           disabled={total === 0 || exporting}
           className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
         >
           <Download className="h-4 w-4" /> {exporting ? 'Preparing…' : 'Export CSV'}
         </button>
         <button
-          onClick={() => runExport((rows) => downloadXlsx('closed-leads', EXPORT_HEADERS, rows))}
+          onClick={() => runExport((rows) => downloadXlsx('onboarding-leads', EXPORT_HEADERS, rows))}
           disabled={total === 0 || exporting}
           className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
         >
@@ -240,16 +241,19 @@ export default function ClosedLeadsPage() {
         columns={columns}
         rows={leads}
         getRowKey={(l) => l.id}
-        title="Closed Leads"
+        // Matches the sidebar entry — a menu item leading to a card headed
+        // something else reads as the wrong page. `tableKey` deliberately stays
+        // `closed-leads`: it is the storage key for saved column preferences.
+        title="Onboarding Leads"
         subtitle={
           total === 0
-            ? 'No closed leads'
+            ? 'No onboarding leads'
             : leads.length >= total
-              ? `${total.toLocaleString()} closed lead${total === 1 ? '' : 's'}`
+              ? `${total.toLocaleString()} onboarding lead${total === 1 ? '' : 's'}`
               : `${leads.length.toLocaleString()} of ${total.toLocaleString()} loaded — scroll for more`
         }
         loading={isLoading}
-        emptyText="No closed leads match the current filters."
+        emptyText="No onboarding leads match the current filters."
         prefs={prefs}
         selectable={false}
       />
@@ -267,7 +271,7 @@ export default function ClosedLeadsPage() {
             {isFetchingNextPage ? 'Loading more…' : `Load more (${(total - leads.length).toLocaleString()} left)`}
           </button>
         ) : (
-          total > 0 && <p className="text-[12px] text-muted-foreground">All {total.toLocaleString()} closed leads loaded.</p>
+          total > 0 && <p className="text-[12px] text-muted-foreground">All {total.toLocaleString()} onboarding leads loaded.</p>
         )}
       </div>
 

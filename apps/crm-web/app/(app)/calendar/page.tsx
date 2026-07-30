@@ -10,6 +10,8 @@ import { Segmented } from '@/components/segmented';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { DateFilter } from '@/components/date-picker';
 import { FilterSelect } from '@/components/filter-controls';
+import { CallbackStatusPill } from '@/components/callback-status-pill';
+import { formatInUserZone } from '@/lib/timezone';
 import { EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -21,6 +23,14 @@ const TYPE_META: Record<ActivityType, { label: string; chip: string; dot: string
   callback: { label: 'Callback', chip: 'bg-[#fbf3e2] text-[#8a5d0a]', dot: 'bg-[#f0d589]', icon: PhoneCall },
   zoom: { label: 'Zoom Meeting', chip: 'bg-[#e7f0fb] text-[#1f5fae]', dot: 'bg-[#a9c8e6]', icon: Video },
 };
+
+/**
+ * A callback that has gone past its window is coloured as the problem it is,
+ * overriding its activity-type chip. An overdue callback sitting in the same
+ * amber as a comfortably-upcoming one is how it stays unnoticed in a full month.
+ */
+const overdueChip = (e: CalendarEvent): string | null =>
+  e.callbackStatus === 'overdue' ? 'bg-[#fbeeec] text-[#8f2b1c]' : e.callbackStatus === 'due' ? 'bg-[#f7e2c0] text-[#8a5d0a]' : null;
 
 type CalView = 'month' | 'week' | 'day';
 const VIEWS = [{ label: 'Month', value: 'month' as CalView }, { label: 'Week', value: 'week' as CalView }, { label: 'Day', value: 'day' as CalView }];
@@ -97,8 +107,16 @@ export default function CalendarPage() {
       >
         <div className="mb-[5px] text-[12px] font-semibold">{d}</div>
         {evs.slice(0, view === 'day' ? 20 : 3).map((e) => (
-          <div key={e.id} title={`${TYPE_META[e.type].label} · ${e.companyName}`} className={`mb-[3px] truncate rounded-[5px] px-1.5 py-0.5 text-[10.5px] font-semibold ${TYPE_META[e.type].chip}`}>
-            {new Date(e.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} {e.companyName}
+          // `atLabel` is the API's rendering on the CUSTOMER's clock with the
+          // zone named. The chip used to call `toLocaleTimeString` on the
+          // instant, which shows the REP's hour with nothing to say so — a
+          // Pacific callback read three hours off and looked authoritative.
+          <div
+            key={e.id}
+            title={`${TYPE_META[e.type].label} · ${e.companyName} · ${e.atLabel}`}
+            className={`mb-[3px] truncate rounded-[5px] px-1.5 py-0.5 text-[10.5px] font-semibold ${overdueChip(e) ?? TYPE_META[e.type].chip}`}
+          >
+            {e.atLabel} {e.companyName}
           </div>
         ))}
         {view !== 'day' && evs.length > 3 && <div className="px-1.5 text-[10px] text-muted-foreground">+{evs.length - 3} more</div>}
@@ -199,13 +217,19 @@ export default function CalendarPage() {
                     {e.leadName ? `${e.leadName} · ` : ''}{e.leadId}
                   </div>
                 </div>
+                {/* The customer's clock on top, the rep's underneath — the same
+                    pairing the scheduler and the reminder popup show, so the
+                    rep never has to work out the difference in their head. */}
                 <div className="hidden min-w-0 shrink-0 sm:block">
-                  <div className="text-[12px] font-medium">{new Date(e.date).toLocaleDateString()}</div>
-                  <div className="text-[11.5px] text-muted-foreground">{new Date(e.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                  <div className="text-[12px] font-medium">{e.atLabel}</div>
+                  <div className="text-[11.5px] text-muted-foreground">
+                    Your time: {formatInUserZone(new Date(e.date))}
+                  </div>
                 </div>
                 <div className="hidden w-[130px] shrink-0 truncate text-[12px] md:block">
                   <span className="text-muted-foreground">{e.assignedTo ?? 'Unassigned'}</span>
                 </div>
+                {e.callbackStatus && <CallbackStatusPill status={e.callbackStatus} className="shrink-0" />}
                 <span className={`shrink-0 rounded-full px-2 py-[3px] text-[10.5px] font-semibold capitalize ${M.chip}`}>
                   {e.status.replace(/_/g, ' ')}
                 </span>

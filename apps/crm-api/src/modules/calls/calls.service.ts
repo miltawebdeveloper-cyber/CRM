@@ -9,7 +9,7 @@ import { CallPivotDim, CallPivotQueryDto, CallStatsQueryDto, SetCallTargetDto, S
 import { closureFields } from '../leads/lead-closure';
 import { COMPLETION_ACTIONS, completedOpenLeadCounts, productiveSeconds } from './work-time';
 import { ABANDONED_STATUS, FAILED_STATUSES, MISSED_STATUSES } from './call-status';
-import { formatInZone, parseInZone } from '../../common/timezone';
+import { formatInZone, parseFutureInZone, parseInZone, timezoneWhere, tzLabel } from '../../common/timezone';
 
 function startOfToday() {
   const d = new Date();
@@ -268,6 +268,13 @@ export class CallsService {
    *
    * `extraOps` are run inside the same transaction (the call update, when there is
    * a call). The first result is returned, so callers get their own primary row.
+   *
+   * `callbackCarriedForward` marks a callback time that came off the lead rather
+   * than from the rep — see the outcome-correction paths. It is re-saved as-is
+   * and skips the "not in the past" check, because correcting last Tuesday's
+   * disposition is a retrospective edit, not a new booking, and refusing it
+   * would leave the rep unable to fix a typo on any callback that has since
+   * come and gone.
    */
   private async applyDisposition(
     leadId: string,
@@ -275,6 +282,7 @@ export class CallsService {
     userId: string,
     action: 'call_completed' | 'lead_processed' | 'outcome_updated',
     extraOps: Prisma.PrismaPromise<unknown>[] = [],
+    { callbackCarriedForward = false }: { callbackCarriedForward?: boolean } = {},
   ) {
     const oc = await this.outcomesService.bySlug(dto.outcome);
     const schedulesCallback = oc?.schedulesCallback ?? false;
@@ -283,6 +291,17 @@ export class CallsService {
       where: { id: leadId },
       select: { assignedToId: true, status: true, timezone: true },
     });
+
+    // Validated before the transaction opens, so a bad time is rejected without
+    // having already moved the lead's status. Both failures it catches — no zone
+    // on the lead, and a time already gone in the customer's zone — used to be
+    // accepted quietly and only surface later as a callback that fired at the
+    // wrong hour or arrived pre-missed.
+    const callbackAt = !schedulesCallback
+      ? null
+      : callbackCarriedForward
+        ? parseInZone(dto.callbackAt, leadObj?.timezone)
+        : parseFutureInZone(dto.callbackAt, leadObj?.timezone);
 
     const results = await this.prisma.$transaction([
       ...extraOps,
@@ -315,11 +334,15 @@ export class CallsService {
                 // read in the lead's zone. `new Date()` read it in the server's
                 // zone, which put every callback hours out unless the server
                 // happened to sit in the customer's time zone.
-                callbackAt: parseInZone(dto.callbackAt, leadObj?.timezone),
+                callbackAt,
                 callbackCompletedAt: null,
                 callbackReminderDayBeforeAt: null,
                 callbackReminderDueAt: null,
                 callbackReminderMissedAt: null,
+                // A new appointment starts with a clean on-screen slate, or the
+                // popup would stay silenced by the snooze/dismiss of the old one.
+                callbackSnoozedUntil: null,
+                callbackDismissedAt: null,
               }
             : // Any other completed outcome clears the pin (removes it from the
               // pinned section / calling queue once the outcome is updated).
@@ -409,7 +432,8 @@ export class CallsService {
     // appointment the customer is expecting. With neither, say so plainly rather
     // than writing a callback with no time on it.
     let callbackAt = dto.callbackAt;
-    if (oc.schedulesCallback && !callbackAt) {
+    const carried = oc.schedulesCallback && !callbackAt;
+    if (carried) {
       if (!call.lead?.callbackAt) {
         throw new BadRequestException(
           `"${oc.name}" schedules a callback, so it needs a date and time. Pick one, or set it from the Calling Panel.`,
@@ -425,6 +449,7 @@ export class CallsService {
       user.id,
       'outcome_updated',
       [this.prisma.call.update({ where: { id: callId }, data: { outcome: dto.outcome } })],
+      { callbackCarriedForward: carried },
     );
     return updatedCall;
   }
@@ -438,11 +463,20 @@ export class CallsService {
    * the outcome is not a loose label, it drives the lead's status, its closure
    * credit and its callback, and changing it anywhere has to move all of them.
    *
-   * The lead's most recent call is corrected alongside it. A wrong outcome was
-   * wrong on the call too, and leaving the call log saying one thing while the
-   * lead says another is exactly the mismatch this is meant to remove — it is
-   * also what keeps Calls Made and Analytics in step, since those read the call.
-   * A lead worked with no call placed simply has none to update.
+   * The lead's most recent CONTACT RECORD is corrected alongside it. A wrong
+   * outcome was wrong on that record too, and leaving the call log saying one
+   * thing while the lead says another is exactly the mismatch this is meant to
+   * remove — it is also what keeps Calls Made and Analytics in step, since those
+   * read the record rather than the lead.
+   *
+   * "Contact record", not "call", because Calls Made lists two kinds: dialled
+   * calls, and leads worked from the queue with no call placed (an activity row,
+   * rendered from `newValue`). This used to correct only the latest call, so a
+   * lead worked while calling was switched off had nothing updated at all and
+   * its row in Calls Made kept the old outcome permanently — Lead Details said
+   * one thing, the log said another. Where both kinds exist, only the newer is
+   * touched: an earlier call's outcome is genuine history of an earlier contact,
+   * not a stale copy of this one.
    */
   async updateLeadOutcome(leadId: string, dto: EndCallDto, user: { id: string; role: Role }) {
     await this.assertCanWorkLead(leadId, user);
@@ -459,7 +493,8 @@ export class CallsService {
     // expecting; with none at all, say so instead of writing a callback with no
     // time on it.
     let callbackAt = dto.callbackAt;
-    if (oc.schedulesCallback && !callbackAt) {
+    const carried = oc.schedulesCallback && !callbackAt;
+    if (carried) {
       if (!lead.callbackAt) {
         throw new BadRequestException(
           `"${oc.name}" schedules a callback, so it needs a date and time. Set one from the Calling Panel.`,
@@ -468,21 +503,48 @@ export class CallsService {
       callbackAt = lead.callbackAt.toISOString();
     }
 
-    const latestCall = await this.prisma.call.findFirst({
-      where: { leadId },
-      orderBy: { startTime: 'desc' },
-      select: { id: true },
-    });
+    // The two kinds of contact record Calls Made lists, newest of each.
+    const [latestCall, latestProcessed] = await Promise.all([
+      this.prisma.call.findFirst({
+        where: { leadId },
+        orderBy: { startTime: 'desc' },
+        select: { id: true, startTime: true },
+      }),
+      this.prisma.activity.findFirst({
+        where: { leadId, action: PROCESSED_ACTION },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, createdAt: true },
+      }),
+    ]);
+
+    // Whichever happened last is the one this correction is about.
+    const callAt = latestCall?.startTime.getTime() ?? -Infinity;
+    const processedAt = latestProcessed?.createdAt.getTime() ?? -Infinity;
+    const correctOps: Prisma.PrismaPromise<unknown>[] = [];
+    if (latestProcessed && processedAt >= callAt) {
+      correctOps.push(
+        this.prisma.activity.update({
+          where: { id: latestProcessed.id },
+          // Both fields, because `applyDisposition` writes both when it creates
+          // one of these rows — leaving `callStatus` behind would just move the
+          // inconsistency to the Lead Activity Log.
+          data: { newValue: dto.outcome, callStatus: dto.outcome },
+        }),
+      );
+    } else if (latestCall) {
+      correctOps.push(this.prisma.call.update({ where: { id: latestCall.id }, data: { outcome: dto.outcome } }));
+    }
 
     const results = await this.applyDisposition(
       leadId,
       { ...dto, callbackAt },
       user.id,
       'outcome_updated',
-      latestCall ? [this.prisma.call.update({ where: { id: latestCall.id }, data: { outcome: dto.outcome } })] : [],
+      correctOps,
+      { callbackCarriedForward: carried },
     );
     // The lead update sits straight after the extra ops in the transaction.
-    return results[latestCall ? 1 : 0];
+    return results[correctOps.length];
   }
 
   // CAL-012/013 — note after a call (lead resolved from the call record)
@@ -510,8 +572,13 @@ export class CallsService {
     // A follow-up date is a wall-clock time agreed with the customer, so it is
     // read in their zone — the same rule the callback itself follows, or the note
     // and the callback it accompanies would name two different moments.
+    // Held to the same two rules as the callback — the lead must have a zone,
+    // and the time must not already be gone there. A note is the other way a
+    // follow-up gets scheduled, so leaving it unchecked would just move the bad
+    // date one field to the left. A note with no follow-up date at all is
+    // unaffected: the empty value short-circuits before either check.
     const tz = (await this.prisma.lead.findUnique({ where: { id: leadId }, select: { timezone: true } }))?.timezone;
-    const followUp = parseInZone(dto.callbackAt ?? dto.nextFollowupDate, tz);
+    const followUp = parseFutureInZone(dto.callbackAt ?? dto.nextFollowupDate, tz, 'follow-up');
     const note = await this.prisma.note.create({
       data: {
         leadId,
@@ -737,14 +804,17 @@ export class CallsService {
         where: { id },
         data: {
           ...(dto.noteText !== undefined ? { noteText: dto.noteText } : {}),
-          ...(dto.followUpAt !== undefined ? { nextFollowupDate: parseInZone(dto.followUpAt, note.lead?.timezone) } : {}),
+          ...(dto.followUpAt !== undefined
+            ? { nextFollowupDate: parseFutureInZone(dto.followUpAt, note.lead?.timezone, 'follow-up') }
+            : {}),
         },
       });
     }
 
     const lead = await this.prisma.lead.findUnique({ where: { id } });
     if (!lead) throw new NotFoundException('Follow-up not found');
-    const rescheduled = dto.followUpAt !== undefined ? parseInZone(dto.followUpAt, lead.timezone) : undefined;
+    const rescheduled =
+      dto.followUpAt !== undefined ? parseFutureInZone(dto.followUpAt, lead.timezone) : undefined;
     const updated = await this.prisma.lead.update({
       where: { id },
       data: {
@@ -752,9 +822,17 @@ export class CallsService {
         callbackCompletedAt: null,
         // A new time is a new appointment: clear the one-shot reminder stamps so
         // the cron fires against the new instant instead of staying silent because
-        // it already reminded for the old one.
+        // it already reminded for the old one. The on-screen snooze/dismiss goes
+        // with them, for the same reason — a rep who silenced this morning's
+        // popup still wants the one for the time they just moved it to.
         ...(rescheduled !== undefined
-          ? { callbackReminderDayBeforeAt: null, callbackReminderDueAt: null, callbackReminderMissedAt: null }
+          ? {
+              callbackReminderDayBeforeAt: null,
+              callbackReminderDueAt: null,
+              callbackReminderMissedAt: null,
+              callbackSnoozedUntil: null,
+              callbackDismissedAt: null,
+            }
           : {}),
       },
     });
@@ -835,7 +913,9 @@ export class CallsService {
   /** The lead-side half of the Calls Made filter, shared with the no-call rows. */
   private leadFilter(query: CallStatsQueryDto): Prisma.LeadWhereInput {
     const lead: Prisma.LeadWhereInput = {};
-    if (query.timezone) lead.timezone = query.timezone as Timezone;
+    // `Unassigned` comes back from the geo options for leads with no zone and
+    // has to select `timezone IS NULL`, not a zone literally named that.
+    Object.assign(lead, timezoneWhere(query.timezone));
     if (query.state) lead.state = query.state;
     if (query.city) lead.city = query.city;
     if (query.leadStatus === 'assigned') lead.assignedToId = { not: null };
@@ -1292,8 +1372,10 @@ export class CallsService {
     const callStatuses = new Set<string>();
     for (const { lead } of calls) {
       if (!lead) continue;
-      geo.set(`${lead.timezone}\u0000${lead.state}\u0000${lead.city}`, {
-        timezone: lead.timezone,
+      geo.set(`${tzLabel(lead.timezone)}\u0000${lead.state}\u0000${lead.city}`, {
+        // A lead with no zone is filed under "Unassigned" rather than folded
+        // into Eastern, so the cascade can still reach it.
+        timezone: tzLabel(lead.timezone),
         state: lead.state,
         city: lead.city,
       });

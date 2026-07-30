@@ -1,5 +1,6 @@
 import { api } from './api';
 import type { Lead } from './leads';
+import type { CallbackStatus } from './callbacks';
 
 // ─────────────────────────── Metrics ───────────────────────────
 /**
@@ -235,7 +236,7 @@ export interface Followup {
   nextFollowupDate: string;
   completedAt: string | null;
   caller: string | null;
-  lead: { id: string; businessName: string; phone: string; city: string; state: string; timezone: string; status: string; callbackAt?: string | null; callbackCompletedAt?: string | null } | null;
+  lead: { id: string; businessName: string; phone: string; city: string; state: string; timezone: string | null; status: string; callbackAt?: string | null; callbackCompletedAt?: string | null } | null;
 }
 
 export interface OutcomeRecord {
@@ -243,7 +244,7 @@ export interface OutcomeRecord {
   outcome: CallOutcome | null;
   createdAt: string;
   callbackAt: string | null;
-  lead: { id: string; businessName: string; phone: string; status: string; timezone: string; callbackAt: string | null; callbackCompletedAt: string | null } | null;
+  lead: { id: string; businessName: string; phone: string; status: string; timezone: string | null; callbackAt: string | null; callbackCompletedAt: string | null } | null;
   caller: { id: string; name: string; email: string } | null;
 }
 
@@ -352,7 +353,7 @@ export interface CallRecord {
   hasRecording: boolean;
   lead: {
     id: string; leadId: string; businessName: string; contactName: string | null; phone: string; status: string;
-    timezone: string; state: string; city: string; callStatus: string | null; assignedToId: string | null;
+    timezone: string | null; state: string; city: string; callStatus: string | null; assignedToId: string | null;
   } | null;
   caller: { id: string; name: string; email: string } | null;
 }
@@ -573,6 +574,16 @@ export interface CalendarEvent {
   assignedTo: string | null;
   status: string;
   label: string;
+  /** The customer's zone, or null when the lead has none configured. */
+  timezone: string | null;
+  /**
+   * The scheduled time rendered on the CUSTOMER's clock with the zone named
+   * (`Aug 5, 10:00 AM EDT`). Render this rather than formatting `date` — a bare
+   * `toLocaleTimeString` shows the rep's hour and says nothing about whose it is.
+   */
+  atLabel: string;
+  /** Callback lifecycle, or null for scheduled calls and Zoom meetings. */
+  callbackStatus: CallbackStatus | null;
 }
 export interface CalendarResult {
   events: CalendarEvent[];
@@ -733,7 +744,7 @@ export interface CallState {
   endedAt: string | null;
   durationSecs: number;
   recordingUrl: string | null;
-  lead: { id: string; businessName: string; phone: string; city: string; state: string };
+  lead: { id: string; businessName: string; phone: string; city: string; state: string; timezone?: string | null };
   by: string | null;
   /** Caller identity (OpenPhone line) the call is going out on. */
   from?: string | null;

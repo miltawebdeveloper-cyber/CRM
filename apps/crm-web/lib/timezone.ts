@@ -14,6 +14,25 @@
 /** The lead time zones the CRM supports. Mirrors the API's Timezone enum. */
 export type LeadTimezone = 'EST' | 'CST' | 'MST' | 'PST';
 
+/** The zones a rep can pick from, for the scheduler's inline zone prompt. */
+export const LEAD_TIMEZONES: { value: LeadTimezone; label: string }[] = [
+  { value: 'EST', label: 'EST — Eastern' },
+  { value: 'CST', label: 'CST — Central' },
+  { value: 'MST', label: 'MST — Mountain' },
+  { value: 'PST', label: 'PST — Pacific' },
+];
+
+/**
+ * How a lead with no zone set is named in filters and groupings. Must match the
+ * API's `UNSET_TIMEZONE_LABEL` — the leads list sends this value straight back
+ * as a filter, where it selects the rows with no zone.
+ */
+export const UNSET_TIMEZONE_LABEL = 'Unassigned';
+
+/** Is this lead's zone actually configured? Nothing may be scheduled until it is. */
+export const hasLeadZone = (tz?: string | null): tz is LeadTimezone =>
+  !!tz && tz in IANA;
+
 /**
  * Region zones, not fixed offsets: `America/New_York` follows daylight time,
  * where a literal `EST` would sit an hour out for most of the year.
@@ -115,6 +134,91 @@ export function describeWallClock(wallClock: string, tz?: string | null): string
 export function zoneLabel(tz?: string | null): string {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: zoneOf(tz), timeZoneName: 'short' }).formatToParts(new Date());
   return parts.find((p) => p.type === 'timeZoneName')?.value ?? (tz ?? DEFAULT_TZ);
+}
+
+// ── The one conversion this module does perform ──
+//
+// Everything above is display-only, and deliberately so: the API owns the
+// wall-clock → instant conversion that gets STORED. What follows converts only
+// to answer two questions the rep needs answered before they submit — "what time
+// is that for me?" and "has that time already gone?" — and it is a mirror of the
+// API's `parseInZone` so the two can't disagree about the same input.
+
+const WALL_CLOCK = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/;
+
+/** A zone's UTC offset in ms at an instant, read off Intl rather than tabulated. */
+function offsetMsAt(instant: Date, ianaZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: ianaZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(instant);
+  const get = (type: Intl.DateTimeFormatPartTypes) => Number(parts.find((p) => p.type === type)?.value ?? '0');
+  const hour = get('hour') % 24; // some ICU builds render midnight as 24
+  return Date.UTC(get('year'), get('month') - 1, get('day'), hour, get('minute'), get('second')) - instant.getTime();
+}
+
+/**
+ * The instant a typed wall clock refers to, read in the LEAD's zone — the same
+ * reading the API will make of the same string when it stores it.
+ *
+ * Returns null for an unparseable or empty value, and for a lead with no zone:
+ * with no zone there is no instant to compute, and guessing one is what puts a
+ * call an hour out.
+ */
+export function leadWallClockToInstant(wallClock: string, tz?: string | null): Date | null {
+  const m = WALL_CLOCK.exec(wallClock ?? '');
+  if (!m || !hasLeadZone(tz)) return null;
+  const [, y, mo, d, hh, mi] = m;
+  const zone = IANA[tz];
+  const asIfUtc = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(hh), Number(mi));
+  // Two passes: the offset has to be sampled at the resulting instant, not the
+  // guess, or a time within a few hours of a DST boundary lands an hour out.
+  const firstPass = new Date(asIfUtc - offsetMsAt(new Date(asIfUtc), zone));
+  return new Date(asIfUtc - offsetMsAt(firstPass, zone));
+}
+
+/**
+ * The same instant on the REP's own clock, zone named.
+ *
+ * This is the half of the scheduler that stops the rep booking a time they can't
+ * work: "10:00 AM EST" tells an agent in India nothing about whether they will be
+ * at their desk, and "8:30 PM IST" beside it tells them immediately.
+ */
+export function formatInUserZone(date: Date | null): string {
+  if (!date || Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(date);
+}
+
+/** The rep's own zone, e.g. `IST` — for labelling their side of the comparison. */
+export function userZoneLabel(): string {
+  const parts = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(new Date());
+  return parts.find((p) => p.type === 'timeZoneName')?.value ?? '';
+}
+
+/**
+ * Has this typed time already gone by where the CUSTOMER is?
+ *
+ * Asked on the customer's clock, not the rep's — those disagree for several
+ * hours of every day, and it is the customer's clock the callback fires on. The
+ * same 60-second grace the API allows, so the form and the server can't reach
+ * opposite answers about a time typed right on the boundary.
+ */
+export function isPastInLeadZone(wallClock: string, tz?: string | null, now: Date = new Date()): boolean {
+  const at = leadWallClockToInstant(wallClock, tz);
+  if (!at) return false; // nothing to judge — the zone prompt handles this case
+  return at.getTime() < now.getTime() - 60_000;
 }
 
 /**
