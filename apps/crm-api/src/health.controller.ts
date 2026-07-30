@@ -12,3 +12,5 @@ export class HealthController {
     return { status: 'ok', ts: new Date().toISOString() };
   }
 }
+
+
