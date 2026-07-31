@@ -196,6 +196,12 @@ export interface LeadListQuery {
   timezone?: string;
   callStatus?: string;
   assigned?: 'assigned' | 'unassigned';
+  /**
+   * One employee's leads. Different question from `assigned`, which asks only
+   * whether a lead has an owner. Admin-only — the API ignores it for every
+   * other role, so sending it can never widen what somebody may see.
+   */
+  employeeId?: string;
   createdFrom?: string;
   createdTo?: string;
   /** Closed Leads dates rows by when they closed, not when they were created. */
@@ -219,7 +225,7 @@ export interface LeadPage {
 
 const LIST_KEYS: (keyof LeadListQuery)[] = [
   'mine', 'closed', 'fromLeadId', 'toLeadId', 'limit', 'q', 'status', 'state', 'city',
-  'timezone', 'callStatus', 'assigned', 'createdFrom', 'createdTo', 'closedFrom', 'closedTo',
+  'timezone', 'callStatus', 'assigned', 'employeeId', 'createdFrom', 'createdTo', 'closedFrom', 'closedTo',
   'closedBy', 'page', 'pageSize', 'sortBy', 'sortDir', 'idsOnly',
 ];
 

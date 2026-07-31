@@ -828,6 +828,25 @@ export class LeadsService {
         : {};
     const closedByFilter = query.closedBy ? { closedBy: { name: query.closedBy } } : {};
 
+    /**
+     * Narrow the book to one employee's leads — admins only.
+     *
+     * The role check lives here rather than in a guard on the route because the
+     * parameter is optional: everyone may call this endpoint, and only an admin
+     * may use this one field. An employee is already pinned to their own leads
+     * by `scope` above, but ignoring the field for them as well means a
+     * hand-written request naming somebody else's id reads as "no filter"
+     * rather than quietly relying on `scope` being spread in the right order.
+     *
+     * Team leaders are excluded deliberately — see the module docs.
+     */
+    const employeeFilter =
+      user?.role === Role.admin && query.employeeId
+        ? query.closed === true
+          ? { closedById: query.employeeId }
+          : { assignedToId: query.employeeId }
+        : {};
+
     const where: Prisma.LeadWhereInput = {
       deletedAt: null,
       status: query.status,
@@ -837,6 +856,7 @@ export class LeadsService {
       ...closedFilter,
       ...scope,
       ...mineScope,
+      ...employeeFilter,
       ...rangeFilter,
       ...searchFilter,
       ...cityFilter,

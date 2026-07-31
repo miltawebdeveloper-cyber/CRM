@@ -356,6 +356,19 @@ export class ListLeadsQueryDto {
   @IsString()
   assigned?: 'assigned' | 'unassigned';
 
+  /**
+   * Show only the leads belonging to one employee. Distinct from `assigned`,
+   * which asks whether a lead has an owner at all rather than who it is.
+   *
+   * Admin only, enforced in the service: it is ignored for every other role
+   * rather than rejected, so an employee sending it sees their own book (which
+   * is all they may see) instead of an error.
+   */
+  @ApiPropertyOptional({ description: "Leads assigned to this user id (admin only; ignored for other roles)" })
+  @IsOptional()
+  @IsUUID()
+  employeeId?: string;
+
   @ApiPropertyOptional({ description: 'Created on or after (ISO date)' })
   @IsOptional()
   @IsString()

@@ -3,8 +3,9 @@
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, X, Hourglass, Lock } from 'lucide-react';
+import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, Lock } from 'lucide-react';
 import { leadsApi, type CreateLeadInput, type Lead, type LeadListQuery } from '@/lib/leads';
+import { usersApi } from '@/lib/users';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { LeadAssignDialog } from '@/components/lead-assign-dialog';
 import { LeadOutcomeCell } from '@/components/lead-outcome-cell';
@@ -83,6 +84,9 @@ export default function LeadsPage() {
   const [city, setCity] = useState('');
   const [status, setStatus] = useState('');
   const [callStatus, setCallStatus] = useState('');
+  // Whose leads to show. Admin-only — the API ignores this parameter for every
+  // other role, so the control is hidden rather than merely disabled.
+  const [employeeId, setEmployeeId] = useState('');
   // Persisted so the chosen date filter survives navigating within the module.
   const [dateFilter, setDateFilter] = usePersistedState<DateFilterValue>('leads:date-filter', EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
@@ -121,11 +125,12 @@ export default function LeadsPage() {
     assigned: status === 'assigned' ? 'assigned' : status === 'unassigned' ? 'unassigned' : undefined,
     status: status === 'contacted' ? 'contacted' : undefined,
     callStatus: callStatus || undefined,
+    employeeId: employeeId || undefined,
     createdFrom: dateFilter.from || undefined,
     createdTo: dateFilter.to || undefined,
     sortBy: sort.key,
     sortDir: sort.dir,
-  }), [debouncedQ, tz, state, city, status, callStatus, dateFilter.from, dateFilter.to, sort.key, sort.dir]);
+  }), [debouncedQ, tz, state, city, status, callStatus, employeeId, dateFilter.from, dateFilter.to, sort.key, sort.dir]);
 
   // Changing a filter or the sort changes the query key, so the list starts
   // again from the top on its own — no page number to reset.
@@ -142,6 +147,21 @@ export default function LeadsPage() {
   });
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   const canManage = me?.role === 'admin' || me?.role === 'team_leader';
+  const isAdmin = me?.role === 'admin';
+
+  // Who the Employee filter offers. Fetched only for an admin: `usersApi.list`
+  // is itself role-gated, so asking as anyone else is a guaranteed 403 in the
+  // console for a control they cannot see anyway.
+  const { data: staff = [] } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: !!isAdmin, retry: false });
+  const employeeOpts = useMemo(
+    () => [
+      { label: 'All Employees', value: '' },
+      // Admins hold no lead book of their own, so listing them would offer
+      // filters that can only ever come back empty.
+      ...staff.filter((u) => u.role !== 'admin').map((u) => ({ label: u.name, value: u.id })),
+    ],
+    [staff],
+  );
   // The configured outcome list (Admin → Outcomes) drives both the Call Outcome
   // filter and the inline editor, so renaming or adding an outcome shows up in
   // both with no code change — and the filter can't offer a value the CRM no
@@ -507,6 +527,10 @@ export default function LeadsPage() {
         <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={[{ label: 'All Timezones', value: '' }, ...['EST', 'CST', 'MST', 'PST'].map((t) => ({ label: t, value: t }))]} />
         <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
+        {/* Admin only. Hidden rather than disabled for other roles: a team
+            leader has no use for a control the API will ignore, and an
+            employee is already pinned to their own book. */}
+        {isAdmin && <FilterSelect icon={UserIcon} value={employeeId} onChange={setEmployeeId} options={employeeOpts} />}
         <FilterSelect icon={Tag} value={status} onChange={setStatus} options={STATUS_OPTS} />
         <FilterSelect icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={callOutcomeOpts} />
         <DateFilter value={dateFilter} onChange={setDateFilter} />
