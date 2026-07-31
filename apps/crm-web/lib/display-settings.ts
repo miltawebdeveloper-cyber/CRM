@@ -21,14 +21,26 @@
  * ever a first guess for someone who has not chosen yet.
  */
 
-/** Zones offered in Settings. Region ids, so daylight saving is automatic. */
+/**
+ * Zones offered in Settings.
+ *
+ * Labelled EST/CST/MST/PST because that is the vocabulary this business already
+ * uses — the same four codes every lead carries — so one word means one thing
+ * whether it is describing a customer or the person reading the screen.
+ *
+ * The VALUE behind each label is a region id, not the fixed offset the code
+ * literally names: `America/New_York`, not `EST` (which is UTC-5 all year). The
+ * US is on daylight time for about two thirds of the year, so a literal EST
+ * would show every summer timestamp an hour early. Same decision, for the same
+ * reason, as the lead zones in `lib/timezone.ts`.
+ */
 export const DISPLAY_TIMEZONES = [
-  { value: 'America/New_York', label: 'US — Eastern', flag: '🇺🇸', hint: 'New York, Miami' },
-  { value: 'America/Chicago', label: 'US — Central', flag: '🇺🇸', hint: 'Chicago, Dallas' },
-  { value: 'America/Denver', label: 'US — Mountain', flag: '🇺🇸', hint: 'Denver, Phoenix' },
-  { value: 'America/Los_Angeles', label: 'US — Pacific', flag: '🇺🇸', hint: 'Los Angeles, Seattle' },
-  { value: 'Europe/London', label: 'UK', flag: '🇬🇧', hint: 'London' },
-  { value: 'Asia/Kolkata', label: 'India — IST', flag: '🇮🇳', hint: 'Chennai, Bengaluru' },
+  { value: 'America/New_York', label: 'EST — Eastern', flag: '🇺🇸', hint: 'New York, Miami' },
+  { value: 'America/Chicago', label: 'CST — Central', flag: '🇺🇸', hint: 'Chicago, Dallas' },
+  { value: 'America/Denver', label: 'MST — Mountain', flag: '🇺🇸', hint: 'Denver, Phoenix' },
+  { value: 'America/Los_Angeles', label: 'PST — Pacific', flag: '🇺🇸', hint: 'Los Angeles, Seattle' },
+  { value: 'Europe/London', label: 'UK — GMT/BST', flag: '🇬🇧', hint: 'London' },
+  { value: 'Asia/Kolkata', label: 'IST — India', flag: '🇮🇳', hint: 'Chennai, Bengaluru' },
 ] as const;
 
 export type DisplayTimezone = (typeof DISPLAY_TIMEZONES)[number]['value'];
