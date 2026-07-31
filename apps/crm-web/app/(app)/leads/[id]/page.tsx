@@ -13,6 +13,7 @@ import { QuoStatusBadge } from '@/components/quo-status-badge';
 import { ZoomTimeline } from '@/components/zoom-timeline';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { api } from '@/lib/api';
+import { formatDate, formatDateTime, formatTime } from '@/lib/display-settings';
 
 const SMS_TEMPLATES: { label: string; text: (name: string) => string }[] = [
   { label: 'Intro', text: (n) => `Hi, this is the team at Milta reaching out about ${n}. Is now a good time to chat?` },
@@ -237,7 +238,7 @@ export default function LeadDetailPage() {
             <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {field('Lead ID', lead.leadId)}
               {field('Lead Generation ID', lead.leadGenerationId)}
-              {field('Created Date', lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : null)}
+              {field('Created Date', lead.createdAt ? formatDate(lead.createdAt) : null)}
               {field('Lead Source', lead.leadSource)}
               {field('Company Name', lead.businessName)}
               {field('Contact Person', lead.contactName)}
@@ -257,11 +258,11 @@ export default function LeadDetailPage() {
               {field('Address', lead.address)}
               {field('Assigned To', lead.assignedTo?.name)}
               {field('Call Status', lead.callStatus)}
-              {field('First Contact', lead.firstContact ? new Date(lead.firstContact).toLocaleDateString() : null)}
-              {field('Last Contact', lead.lastContact ? new Date(lead.lastContact).toLocaleDateString() : null)}
-              {field('Next Follow-up', lead.nextFollowUpDate ? new Date(lead.nextFollowUpDate).toLocaleDateString() : null)}
+              {field('First Contact', lead.firstContact ? formatDate(lead.firstContact) : null)}
+              {field('Last Contact', lead.lastContact ? formatDate(lead.lastContact) : null)}
+              {field('Next Follow-up', lead.nextFollowUpDate ? formatDate(lead.nextFollowUpDate) : null)}
               {field('Follow-up Count', lead.followupCount != null ? String(lead.followupCount) : null)}
-              {field('Meeting Date', lead.meetingDate ? new Date(lead.meetingDate).toLocaleDateString() : null)}
+              {field('Meeting Date', lead.meetingDate ? formatDate(lead.meetingDate) : null)}
               {field('Lost Reason', lead.lostReason)}
               {field('Status', <span className="capitalize">{lead.status.replace('_', ' ')}</span>)}
             </dl>
@@ -372,7 +373,7 @@ export default function LeadDetailPage() {
 
           <dl className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
             {field('Quo Lead ID', lead.quoExternalId)}
-            {field('Last synced', lead.quoSyncedAt ? new Date(lead.quoSyncedAt).toLocaleString() : null)}
+            {field('Last synced', lead.quoSyncedAt ? formatDateTime(lead.quoSyncedAt) : null)}
             {field('Sync attempts', String(logs.length))}
           </dl>
 
@@ -417,7 +418,7 @@ export default function LeadDetailPage() {
                   </span>
                   <span className="text-muted-foreground">
                     {log.durationMs != null ? `${log.durationMs}ms · ` : ''}
-                    {new Date(log.createdAt).toLocaleTimeString()}
+                    {formatTime(log.createdAt)}
                   </span>
                 </div>
               ))}
@@ -451,7 +452,7 @@ export default function LeadDetailPage() {
                       {t.by ? <span className="ml-2 font-normal text-muted-foreground">· {t.by}</span> : ''}
                       {t.kind === 'call' && !inbound && t.from ? <span className="ml-2 font-normal text-muted-foreground">· from <span className="font-mono">{t.from}</span></span> : ''}
                     </span>
-                    <span className="shrink-0 text-[11.5px] text-muted-foreground">{new Date(t.at).toLocaleString()}</span>
+                    <span className="shrink-0 text-[11.5px] text-muted-foreground">{formatDateTime(t.at)}</span>
                   </div>
                   {t.body && <p className="mt-1 whitespace-pre-wrap text-[13px] text-foreground">{t.body}</p>}
                   {t.aiSummary && <p className="mt-1 text-[12.5px] text-muted-foreground"><strong>AI summary:</strong> {t.aiSummary}</p>}

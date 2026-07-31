@@ -4,9 +4,10 @@ import { useQuery } from '@tanstack/react-query';
 import { ShieldCheck, X } from 'lucide-react';
 import { activitiesApi, type Activity } from '@/lib/crm';
 import { LeadAssignmentHistory } from '@/components/lead-assignment-history';
+import { formatDateTime } from '@/lib/display-settings';
 
 const fmt = (iso: string) =>
-  new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  formatDateTime(iso);
 
 // Friendly labels for the action keys written across modules.
 const ACTION_LABEL: Record<string, string> = {
@@ -43,7 +44,7 @@ function showVal(v: string | null): string {
   if (isUuid(v)) return '—';
   const d = new Date(v);
   if (!Number.isNaN(d.getTime()) && /\d{4}-\d{2}-\d{2}T/.test(v)) {
-    return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return formatDateTime(d);
   }
   return v.replace(/_/g, ' ');
 }

@@ -28,6 +28,7 @@ import { dayInLeadZone, formatScheduleInLeadZone, nowInLeadZone, zoneLabel } fro
 import { CallbackScheduler, callbackInputError } from '@/components/callback-scheduler';
 import { invalidateCallActivity } from '@/lib/sync';
 import { useShortcutHint } from '@/components/command-palette';
+import { formatTime } from '@/lib/display-settings';
 
 /**
  * How often the panel re-reads its two live sources. The queue is checked more
@@ -995,7 +996,12 @@ export default function CallingPage() {
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[13px] font-semibold">{m.lead?.businessName ?? 'Client'}</div>
                       <div className="truncate text-[11.5px] text-muted-foreground">
-                        {new Date(m.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {m.durationMins} min
+                        {/* The rep's own clock, not the browser's. Ideally this
+                            would also name the customer's, as the Zoom form
+                            does — but the due feed doesn't carry the lead's
+                            zone, so that needs an API change rather than a
+                            guess here. */}
+                        {formatTime(m.scheduledAt)} · {m.durationMins} min
                         {m.status === 'in_progress' ? ' · live' : ''}
                       </div>
                     </div>

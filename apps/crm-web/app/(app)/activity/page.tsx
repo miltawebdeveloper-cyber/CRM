@@ -11,6 +11,7 @@ import { DataTable, type ColumnDef } from '@/components/data-table';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { downloadCsv } from '@/lib/export';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
+import { formatDateTime, formatTime } from '@/lib/display-settings';
 
 export default function ActivityPage() {
   const { data: allActivities = [] } = useQuery({ queryKey: ['activities'], queryFn: activitiesApi.list, retry: false });
@@ -46,7 +47,7 @@ export default function ActivityPage() {
   ];
 
   const columns = useMemo<ColumnDef<Activity>[]>(() => [
-    { key: 'time', header: 'Time', cellClassName: 'font-mono text-[12px] text-muted-foreground', render: (a) => new Date(a.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
+    { key: 'time', header: 'Time', cellClassName: 'font-mono text-[12px] text-muted-foreground', render: (a) => formatTime(a.createdAt) },
     { key: 'lead', header: 'Lead', required: true, render: (a) => <div className="flex items-center gap-[10px]"><Avatar name={a.lead?.businessName ?? '—'} /><span className="font-semibold">{a.lead?.businessName ?? '—'}</span></div> },
     { key: 'by', header: 'By', cellClassName: 'text-muted-foreground', render: (a) => a.user?.name ?? '—' },
     { key: 'action', header: 'Action', render: (a) => <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">{a.action}</span> },
@@ -59,7 +60,7 @@ export default function ActivityPage() {
         <SearchInput value={q} onChange={setQ} placeholder="Search lead, user, outcome…" className="min-w-[220px]" />
         <DateFilter value={dateRange} onChange={setDateRange} />
         <button
-          onClick={() => downloadCsv('activity-log', ['Time', 'Lead', 'By', 'Action', 'Outcome'], activities.map((a) => [new Date(a.createdAt).toLocaleString(), a.lead?.businessName ?? '', a.user?.name ?? '', a.action, a.newValue ?? '']))}
+          onClick={() => downloadCsv('activity-log', ['Time', 'Lead', 'By', 'Action', 'Outcome'], activities.map((a) => [formatDateTime(a.createdAt), a.lead?.businessName ?? '', a.user?.name ?? '', a.action, a.newValue ?? '']))}
           disabled={activities.length === 0}
           className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
         ><Download className="h-4 w-4" /> Export</button>

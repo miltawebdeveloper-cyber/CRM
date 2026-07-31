@@ -19,6 +19,7 @@ import { formatScheduleInLeadZone } from '@/lib/timezone';
 import { DateFilter } from '@/components/filter-controls';
 import { EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { downloadCsv } from '@/lib/export';
+import { formatDateLong, formatDateTime } from '@/lib/display-settings';
 
 const LIVE_MS = 15_000;
 
@@ -68,7 +69,7 @@ const closedColumns: Column<Lead>[] = [
   { key: 'status', header: 'Status', cell: (r) => <StatusPill status={r.status} /> },
 ];
 const missedColumns: Column<MissedCall>[] = [
-  { key: 'at', header: 'When', cell: (r) => new Date(r.at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) },
+  { key: 'at', header: 'When', cell: (r) => formatDateTime(r.at) },
   { key: 'businessName', header: 'Customer', cell: (r) => <Link href={`/leads/${r.leadId}`} className="font-medium hover:underline">{r.businessName}</Link> },
   { key: 'phone', header: 'Phone' },
   { key: 'assignedTo', header: 'Assigned To', cell: (r) => r.assignedTo ?? '—' },
@@ -142,7 +143,7 @@ export default function DashboardPage() {
   }
 
   const openTasks = tasks.filter((t) => t.status !== 'done');
-  const dateLabel = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  const dateLabel = formatDateLong(new Date());
 
   return (
     <div className="space-y-5">

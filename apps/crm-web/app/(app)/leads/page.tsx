@@ -27,6 +27,7 @@ import { usePersistedState } from '@/lib/use-persisted-state';
 import { useDebounced } from '@/lib/use-debounced';
 import { useInfiniteLeads, useLeadScrollSentinel } from '@/lib/use-infinite-leads';
 import { pushToast } from '@/lib/toast';
+import { formatDate } from '@/lib/display-settings';
 
 /** Ceiling for an export — the API's own `limit` cap, and five times what the
  *  module could reach before. Beyond it the user is told what was left out
@@ -216,7 +217,7 @@ export default function LeadsPage() {
   const exportRows = (rows: Lead[]) => rows.map((l) => [
     l.leadId,
     l.leadGenerationId ?? '',
-    l.createdAt ? new Date(l.createdAt).toLocaleDateString() : '',
+    l.createdAt ? formatDate(l.createdAt) : '',
     l.leadSource ?? '',
     l.businessName,
     l.contactName ?? '',
@@ -236,11 +237,11 @@ export default function LeadsPage() {
     l.address ?? '',
     l.assignedTo?.name ?? '',
     l.callStatus ?? '',
-    l.firstContact ? new Date(l.firstContact).toLocaleDateString() : '',
-    l.lastContact ? new Date(l.lastContact).toLocaleDateString() : '',
-    l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '',
+    l.firstContact ? formatDate(l.firstContact) : '',
+    l.lastContact ? formatDate(l.lastContact) : '',
+    l.nextFollowUpDate ? formatDate(l.nextFollowUpDate) : '',
     l.followupCount ?? '',
-    l.meetingDate ? new Date(l.meetingDate).toLocaleDateString() : '',
+    l.meetingDate ? formatDate(l.meetingDate) : '',
     l.lostReason ?? '',
     l.comments ?? ''
   ]);
@@ -317,7 +318,7 @@ export default function LeadsPage() {
       ),
     },
     { key: 'leadGenerationId', header: 'Lead Generation ID', cellClassName: 'text-muted-foreground', render: (l) => l.leadGenerationId ?? '—', searchable: true, sortable: true, searchValue: (l) => l.leadGenerationId },
-    { key: 'createdDate', header: 'Created Date', cellClassName: 'text-muted-foreground', render: (l) => l.createdAt ? new Date(l.createdAt).toLocaleDateString() : '—' },
+    { key: 'createdDate', header: 'Created Date', cellClassName: 'text-muted-foreground', render: (l) => l.createdAt ? formatDate(l.createdAt) : '—' },
     { key: 'leadSource', header: 'Lead Source', cellClassName: 'text-muted-foreground', render: (l) => l.leadSource ?? '—', searchable: true, sortable: true, searchValue: (l) => l.leadSource },
     { key: 'businessName', header: 'Company Name', render: (l) => l.businessName, searchable: true, sortable: true, searchValue: (l) => l.businessName },
     { key: 'contactName', header: 'Contact Person', render: (l) => l.contactName ?? '—', searchable: true, sortable: true, searchValue: (l) => l.contactName },
@@ -367,13 +368,13 @@ export default function LeadsPage() {
       sortable: true,
       searchValue: (l) => l.callStatus,
     },
-    { key: 'firstContact', header: 'First Contact', cellClassName: 'text-muted-foreground', render: (l) => l.firstContact ? new Date(l.firstContact).toLocaleDateString() : '—' },
-    { key: 'lastContact', header: 'Last Contact', cellClassName: 'text-muted-foreground', render: (l) => l.lastContact ? new Date(l.lastContact).toLocaleDateString() : '—' },
-    { key: 'followup', header: 'Next Follow-up', cellClassName: 'text-muted-foreground', render: (l) => l.nextFollowUpDate ? new Date(l.nextFollowUpDate).toLocaleDateString() : '—', trackable: true },
+    { key: 'firstContact', header: 'First Contact', cellClassName: 'text-muted-foreground', render: (l) => l.firstContact ? formatDate(l.firstContact) : '—' },
+    { key: 'lastContact', header: 'Last Contact', cellClassName: 'text-muted-foreground', render: (l) => l.lastContact ? formatDate(l.lastContact) : '—' },
+    { key: 'followup', header: 'Next Follow-up', cellClassName: 'text-muted-foreground', render: (l) => l.nextFollowUpDate ? formatDate(l.nextFollowUpDate) : '—', trackable: true },
     { key: 'followupCount', header: 'Follow-up Count', cellClassName: 'text-muted-foreground', render: (l) => l.followupCount ?? '—' },
     // Requested tail order: Meeting Date → Comments → Lost Reason → Actions. Comments
     // and Lost Reason both edit in place; Comments also syncs with call notes.
-    { key: 'meetingDate', header: 'Meeting Date', cellClassName: 'text-muted-foreground', render: (l) => l.meetingDate ? new Date(l.meetingDate).toLocaleDateString() : '—' },
+    { key: 'meetingDate', header: 'Meeting Date', cellClassName: 'text-muted-foreground', render: (l) => l.meetingDate ? formatDate(l.meetingDate) : '—' },
     {
       key: 'comments',
       header: 'Comments',

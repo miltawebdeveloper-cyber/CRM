@@ -3,12 +3,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, UserPlus, Repeat } from 'lucide-react';
 import { leadsApi, type LeadAssignment } from '@/lib/leads';
+import { formatDateTime } from '@/lib/display-settings';
 
 /** Local date and time, to the minute — an audit entry needs the clock, not the day. */
 const stamp = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, {
-    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
-  });
+  formatDateTime(iso);
 
 /**
  * A lead's ownership history — every assignment and reassignment, newest first.

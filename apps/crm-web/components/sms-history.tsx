@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, RefreshCw, MessageSquare, Check, CheckCheck, Clock, AlertTriangle, Send, Loader2 } from 'lucide-react';
 import { communicationsApi, type SmsMessage } from '@/lib/crm';
+import { formatDateShort, formatDateTime } from '@/lib/display-settings';
 
 const LIVE_MS = 15_000;
 
@@ -185,7 +186,7 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="truncate text-[13px] font-semibold">{t.name}</span>
                     <span className="shrink-0 text-[10.5px] text-muted-foreground">
-                      {new Date(t.lastAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                      {formatDateShort(t.lastAt)}
                     </span>
                   </div>
                   <div className="truncate font-mono text-[11px] text-muted-foreground">{t.phone}</div>
@@ -244,7 +245,7 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
                         <span className="font-mono">{m.to}</span>
                         {out && m.by && <><span>·</span><span>by {m.by}</span></>}
                         <span>·</span>
-                        <span>{new Date(m.at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                        <span>{formatDateTime(m.at)}</span>
                         <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-px font-semibold ${st.cls}`}>
                           <st.Icon className="h-2.5 w-2.5" /> {st.label}
                         </span>

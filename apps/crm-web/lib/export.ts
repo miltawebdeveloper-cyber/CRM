@@ -1,6 +1,7 @@
 // Client-side export helpers — CSV / Excel download + print-to-PDF.
 
 import * as XLSX from 'xlsx';
+import { formatDateTime } from '@/lib/display-settings';
 
 /** Download rows as a real .xlsx workbook (opens natively in Excel). */
 export function downloadXlsx(
@@ -47,7 +48,7 @@ export function printTable(title: string, headers: string[], rows: (string | num
     td{padding:8px 10px;border-bottom:1px solid #eaf1ea}
     tr:nth-child(even){background:#f5faf5}
   </style></head><body>
-    <h1>${esc(title)}</h1><div class="sub">Ranger CRM · ${new Date().toLocaleString()}</div>
+    <h1>${esc(title)}</h1><div class="sub">Ranger CRM · ${formatDateTime(new Date())}</div>
     <table><thead><tr>${headers.map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead>
     <tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>
   </body></html>`);

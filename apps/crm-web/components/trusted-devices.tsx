@@ -6,6 +6,7 @@ import { Laptop, Loader2, MonitorSmartphone, ShieldOff } from 'lucide-react';
 import { trustedDevicesApi, type TrustedDevice } from '@/lib/crm';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { toast } from '@/lib/toast';
+import { formatDate, formatDateTime } from '@/lib/display-settings';
 
 function msgOf(err: unknown, fallback: string): string {
   const m = (err as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
@@ -14,8 +15,8 @@ function msgOf(err: unknown, fallback: string): string {
 }
 
 const fmt = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
+  formatDateTime(iso);
+const fmtDate = (iso: string) => formatDate(iso);
 
 /** Days left on the trust window — the number that actually matters at a glance. */
 function daysLeft(iso: string): number {

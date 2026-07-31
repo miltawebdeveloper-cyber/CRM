@@ -12,6 +12,7 @@ import { CallbackReminders } from '@/components/callback-reminder';
 import { CommandPalette } from '@/components/command-palette';
 import { CallProvider } from '@/components/call-provider';
 import { PageTabsProvider } from '@/components/page-tabs';
+import { DisplaySettingsProvider } from '@/components/display-settings-provider';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -46,6 +47,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [role, pathname, router]);
 
   return (
+    // Outermost, so the user's zone and language are published to the
+    // formatters before anything below renders a timestamp.
+    <DisplaySettingsProvider>
     <CallProvider>
       {/* Wraps the topbar and the page together, so a page can render its view
           tabs into the slot the topbar exposes beside the title. */}
@@ -81,5 +85,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </div>
       </PageTabsProvider>
     </CallProvider>
+    </DisplaySettingsProvider>
   );
 }

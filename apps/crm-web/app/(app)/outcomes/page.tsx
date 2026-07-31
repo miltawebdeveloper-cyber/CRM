@@ -13,6 +13,7 @@ import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-contr
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { formatInLeadZone } from '@/lib/timezone';
 import { invalidateCallActivity } from '@/lib/sync';
+import { formatDateTime } from '@/lib/display-settings';
 
 /**
  * The Outcome column: a pill that becomes a picker on a single click.
@@ -156,7 +157,7 @@ export default function OutcomesPage() {
   const canEdit = (r: OutcomeRecord) => isManager || (!!me?.id && r.caller?.id === me.id);
 
   const columns = useMemo<ColumnDef<OutcomeRecord>[]>(() => [
-    { key: 'when', header: 'When', required: true, render: (r) => new Date(r.createdAt).toLocaleString() },
+    { key: 'when', header: 'When', required: true, render: (r) => formatDateTime(r.createdAt) },
     { key: 'lead', header: 'Lead', required: true, render: (r) => r.lead?.businessName ?? '—' },
     { key: 'caller', header: 'Caller', render: (r) => r.caller?.name ?? '—' },
     { key: 'phone', header: 'Phone', render: (r) => r.lead?.phone ?? '—' },

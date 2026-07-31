@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { History, Loader2 } from 'lucide-react';
 import { leadsApi, type Lead } from '@/lib/leads';
+import { formatDateTime } from '@/lib/display-settings';
 
 /**
  * The Comments cell in Lead Management: shows the latest remark, edits in place,
@@ -131,7 +132,7 @@ function CommentHistoryDialog({ lead, onClose }: { lead: Lead; onClose: () => vo
                     {c.source}
                   </span>
                   <span className="font-medium text-foreground">{c.user}</span>
-                  <span>{new Date(c.at).toLocaleString()}</span>
+                  <span>{formatDateTime(c.at)}</span>
                 </div>
                 <p className="whitespace-pre-wrap text-[12.5px]">{c.text}</p>
               </div>

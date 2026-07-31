@@ -9,6 +9,9 @@ import { PageHead, Avatar } from '@/components/page-head';
 import { AuthenticationSettings } from '@/components/authentication-settings';
 import { TrustedDevices } from '@/components/trusted-devices';
 import { CallingModeSettings } from '@/components/calling-mode-settings';
+import { DisplayPreferences } from '@/components/display-preferences';
+import { useDisplaySettings } from '@/components/display-settings-provider';
+import { LANGUAGES, timezoneLabel } from '@/lib/display-settings';
 
 function Toggle({ on: initial }: { on: boolean }) {
   const [on, setOn] = useState(initial);
@@ -37,11 +40,15 @@ function Row({ t, d, on }: { t: string; d: string; on: boolean }) {
   );
 }
 
-const TABS = ['Profile', 'Notifications', 'Calling', 'Security', 'API & Keys'] as const;
+// Preferences sits second, right after Profile: it is the tab every role has a
+// reason to open, and the only one whose settings change what every other screen
+// looks like.
+const TABS = ['Profile', 'Preferences', 'Notifications', 'Calling', 'Security', 'API & Keys'] as const;
 type Tab = (typeof TABS)[number];
 
 export default function SettingsPage() {
   const [tab, setTab] = useState<Tab>('Profile');
+  const { language } = useDisplaySettings();
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   const { data: cfg } = useQuery({ queryKey: ['config-status'], queryFn: configApi.status, retry: false });
   const name = me?.name ?? me?.email?.split('@')[0] ?? 'User';
@@ -66,11 +73,27 @@ export default function SettingsPage() {
             <Field label="Full Name" value={me?.name ?? ''} />
             <Field label="Email" value={me?.email ?? ''} />
             <Field label="Phone" value="" />
-            <label className="flex flex-col gap-1.5"><span className="text-[12.5px] font-semibold">Timezone</span><select className="rounded-[10px] border bg-background px-3 py-2.5 text-[13.5px] outline-none">{['EST', 'CST', 'MST', 'PST'].map((t) => <option key={t}>{t}</option>)}</select></label>
+            {/* The time-zone control that used to sit here was a decorative
+                EST/CST/MST/PST dropdown wired to nothing — and it listed LEAD
+                zones, which are a different thing entirely. The real, saved
+                setting lives on the Preferences tab. */}
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[12.5px] font-semibold">Time Zone &amp; Language</span>
+              <button
+                onClick={() => setTab('Preferences')}
+                className="rounded-[10px] border bg-background px-3 py-2.5 text-left text-[13.5px] hover:bg-muted"
+              >
+                {timezoneLabel()} · {LANGUAGES.find((l) => l.value === language)?.label ?? 'English'}
+                <span className="ml-1 text-muted-foreground">— change in Preferences</span>
+              </button>
+            </label>
           </div>
           <div className="mt-[22px] flex justify-end gap-2.5"><button className="rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted">Cancel</button><button className="rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground">Save Changes</button></div>
         </div>
       )}
+
+      {/* Every role: time zone and language are personal, not privileged. */}
+      {tab === 'Preferences' && <DisplayPreferences />}
 
       {tab === 'Notifications' && (
         <div className="max-w-[760px] rounded-2xl border bg-card p-[18px] shadow-sm">

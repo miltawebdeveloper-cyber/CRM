@@ -8,6 +8,7 @@ import { zoomApi, STATUS_META, ACTION_LABEL, type ZoomMeeting, type ZoomMeetingS
 import { Avatar } from '@/components/page-head';
 import { ZoomTimeline } from '@/components/zoom-timeline';
 import { formatInLeadZone } from '@/lib/timezone';
+import { formatDateTime } from '@/lib/display-settings';
 
 function StatusPill({ status }: { status: ZoomMeetingStatus }) {
   const m = STATUS_META[status];
@@ -25,7 +26,7 @@ function StatusPill({ status }: { status: ZoomMeetingStatus }) {
  */
 const fmt = (iso: string | null, tz?: string | null) => (iso ? formatInLeadZone(iso, tz) : '—');
 const fmtStamp = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+  iso ? formatDateTime(iso) : '—';
 
 /**
  * Full Zoom-meeting detail with Meeting History / Activity Log tabs.

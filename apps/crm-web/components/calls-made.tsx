@@ -12,6 +12,7 @@ import { KpiCard } from '@/components/dashboard/kpi-card';
 import { CAT, DirectionPill, useCallFilters } from '@/components/calls-shared';
 import { DateFilter, FilterSelect, optionsFrom } from '@/components/filter-controls';
 import { useCallingEnabled } from '@/lib/use-calling-enabled';
+import { formatDate, formatDateTime, formatTime } from '@/lib/display-settings';
 
 const LEAD_STATUS_OPTS = [
   { label: 'All Lead Statuses', value: '' },
@@ -79,11 +80,11 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
   const columns = useMemo<ColumnDef<CallRecord>[]>(() => [
     {
       key: 'startTime', header: 'Call Date & Time', required: true, searchable: true,
-      searchValue: (c) => new Date(c.startTime).toLocaleString(),
+      searchValue: (c) => formatDateTime(c.startTime),
       render: (c) => (
         <div>
-          <div className="font-medium">{new Date(c.startTime).toLocaleDateString()}</div>
-          <div className="text-[11.5px] text-muted-foreground">{new Date(c.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+          <div className="font-medium">{formatDate(c.startTime)}</div>
+          <div className="text-[11.5px] text-muted-foreground">{formatTime(c.startTime)}</div>
         </div>
       ),
     },
@@ -195,8 +196,8 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
     const o = outcomeOf(c.outcome);
     const start = new Date(c.startTime);
     return [
-      start.toLocaleDateString(),
-      start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      formatDate(start),
+      formatTime(start),
       c.lead?.businessName ?? '',
       c.lead?.contactName ?? '',
       c.lead?.phone ?? '',

@@ -10,6 +10,7 @@ import { Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { SearchInput } from '@/components/filter-controls';
 import { formatInLeadZone } from '@/lib/timezone';
+import { formatDate, formatDateTime, formatTime } from '@/lib/display-settings';
 
 /** Kept in step with the user's call history without needing a manual reload. */
 const POLL_MS = 30_000;
@@ -61,12 +62,12 @@ export function MissedCalls() {
         header: 'Date & Time',
         required: true,
         searchable: true,
-        searchValue: (r) => new Date(r.at).toLocaleString(),
+        searchValue: (r) => formatDateTime(r.at),
         render: (r) => (
           <div>
-            <div className="font-medium">{new Date(r.at).toLocaleDateString()}</div>
+            <div className="font-medium">{formatDate(r.at)}</div>
             <div className="text-[11.5px] text-muted-foreground">
-              {new Date(r.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {formatTime(r.at)}
             </div>
           </div>
         ),

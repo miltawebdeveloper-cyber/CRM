@@ -6,6 +6,7 @@ import { Bell, Filter } from 'lucide-react';
 import { notificationsApi } from '@/lib/crm';
 import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
+import { formatDateTime } from '@/lib/display-settings';
 
 const READ_OPTS = [
   { label: 'All', value: '' },
@@ -85,7 +86,7 @@ export default function NotificationsPage() {
               </div>
               <p className="text-sm text-muted-foreground">{n.body}</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {new Date(n.createdAt).toLocaleString()}
+                {formatDateTime(n.createdAt)}
               </p>
             </div>
           </div>

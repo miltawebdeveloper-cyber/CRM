@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { DateFilter, FilterSelect } from '@/components/filter-controls';
 import { Filter } from 'lucide-react';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
+import { formatDateTime } from '@/lib/display-settings';
 
 export default function SecurityPage() {
   const { data: activities = [], isLoading, isError } = useQuery({
@@ -21,7 +22,7 @@ export default function SecurityPage() {
   const filtered = activities.filter((a) => (!action || a.action === action) && inDateBounds(a.createdAt, dateRange));
 
   const columns = useMemo<ColumnDef<Activity>[]>(() => [
-    { key: 'when', header: 'When', required: true, cellClassName: 'text-muted-foreground', render: (a) => new Date(a.createdAt).toLocaleString() },
+    { key: 'when', header: 'When', required: true, cellClassName: 'text-muted-foreground', render: (a) => formatDateTime(a.createdAt) },
     { key: 'user', header: 'User', render: (a) => a.user?.name ?? '—' },
     { key: 'action', header: 'Action', render: (a) => <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">{a.action}</span> },
     { key: 'lead', header: 'Lead', render: (a) => a.lead?.businessName ?? '—' },

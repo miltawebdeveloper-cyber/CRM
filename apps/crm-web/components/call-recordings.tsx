@@ -12,6 +12,7 @@ import { api } from '@/lib/api';
 import { DateFilter } from '@/components/filter-controls';
 import { EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { toast } from '@/lib/toast';
+import { formatDate, formatDateTime, formatTime } from '@/lib/display-settings';
 
 const LIVE_MS = 20_000;
 
@@ -311,8 +312,8 @@ function RecordingRow({
         </div>
 
         <div className="hidden text-right sm:block">
-          <div className="text-[12.5px] font-medium">{when.toLocaleDateString()}</div>
-          <div className="text-[11.5px] text-muted-foreground">{when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+          <div className="text-[12.5px] font-medium">{formatDate(when)}</div>
+          <div className="text-[11.5px] text-muted-foreground">{formatTime(when)}</div>
         </div>
 
         <div className="w-[64px] text-right font-mono text-[12.5px]">{formatDuration(call.durationSecs ?? 0)}</div>
@@ -499,7 +500,7 @@ function InsightModal({
           <div className="min-w-0">
             <div className="truncate font-display text-[15px] font-semibold">{call.customerName}</div>
             <div className="truncate text-xs text-muted-foreground">
-              {when.toLocaleDateString()} · {when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {formatDuration(call.durationSecs ?? 0)}
+              {formatDate(when)} · {formatTime(when)} · {formatDuration(call.durationSecs ?? 0)}
               {call.by ? ` · by ${call.by}` : ''}
             </div>
           </div>
@@ -568,7 +569,7 @@ function InsightModal({
           <div className="flex items-center justify-between gap-3 border-t px-5 py-3 text-[11px] text-muted-foreground">
             <span>
               {data?.model === 'heuristic' ? 'Generated automatically (no AI model configured)' : `AI-generated${data?.model ? ` · ${data.model}` : ''}`}
-              {data?.generatedAt ? ` · ${new Date(data.generatedAt).toLocaleString()}` : ''}
+              {data?.generatedAt ? ` · ${formatDateTime(data.generatedAt)}` : ''}
             </span>
             <button
               onClick={regenerate}

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Circle, Power, Phone, PhoneForwarded, Clock, Video, SquareKanban, ArrowRightLeft, X } from 'lucide-react';
 import { availabilityApi, REASSIGN_LABEL, OFFLINE_REASONS, type ReassignType } from '@/lib/availability';
+import { formatDateTime } from '@/lib/display-settings';
 
 const TYPE_ICON: Record<ReassignType, typeof Phone> = {
   call: Phone,
@@ -13,7 +14,7 @@ const TYPE_ICON: Record<ReassignType, typeof Phone> = {
   task: SquareKanban,
 };
 const fmt = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+  iso ? formatDateTime(iso) : '—';
 
 export function AvailabilityPanel() {
   const qc = useQueryClient();
