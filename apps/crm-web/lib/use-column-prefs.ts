@@ -49,6 +49,60 @@ export interface SortState {
 }
 
 /**
+ * The text a row offers to the table's search box.
+ *
+ * Two sources, in order of preference:
+ *
+ *  1. The columns that declare `searchValue` AND are still switched on in the
+ *     Column Chooser's "Searchable Columns" section. This is the intended path:
+ *     the user controls exactly which fields a search looks at, and the value is
+ *     plain text the column author chose rather than whatever its cell rendered.
+ *
+ *  2. Failing that — a table that declares no searchable columns at all — every
+ *     primitive value on the row object. Without this, the search box on tables
+ *     like Caller Productivity or City Targets would silently match nothing,
+ *     which is worse than matching a shade too much. It can match a field that
+ *     is not on screen (an id, say), and that is the accepted cost: pasting an
+ *     id to find its row is useful, and nobody types one by accident.
+ *
+ * Cells are `ReactNode`, so there is deliberately no third option of scraping
+ * rendered output — a cell holding a pill, a link or a chart has no text to take.
+ */
+function searchTextFor<T>(row: T, columns: ColumnDef<T>[], enabled: Set<string>): string {
+  const declared = columns.filter((c) => c.searchValue && enabled.has(c.key));
+  if (declared.length > 0) {
+    return declared.map((c) => c.searchValue!(row) ?? '').join(' ').toLowerCase();
+  }
+  if (row === null || typeof row !== 'object') return String(row ?? '').toLowerCase();
+  return Object.values(row as Record<string, unknown>)
+    .filter((v) => typeof v === 'string' || typeof v === 'number')
+    .join(' ')
+    .toLowerCase();
+}
+
+/**
+ * Narrow rows to those matching a search box query.
+ *
+ * Whitespace splits the query into terms and EVERY term must match somewhere in
+ * the row — so "miami closed" finds Miami leads that are closed, rather than
+ * every row containing that exact phrase in one field. Order doesn't matter,
+ * which is what makes typing two half-remembered details work.
+ */
+export function filterRows<T>(
+  rows: T[],
+  query: string,
+  columns: ColumnDef<T>[],
+  enabled: Set<string>,
+): T[] {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return rows;
+  return rows.filter((row) => {
+    const text = searchTextFor(row, columns, enabled);
+    return terms.every((t) => text.includes(t));
+  });
+}
+
+/**
  * Order rows by the active sort. Blank values always sink to the bottom whichever
  * way the sort runs — an empty cell isn't "smallest", it's just missing, and
  * floating them to the top of an ascending sort buries the real data.

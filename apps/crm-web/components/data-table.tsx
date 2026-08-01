@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { SlidersHorizontal, GripVertical, X, RotateCcw, Pencil, Trash2, ArrowUp, ArrowDown, ChevronsUpDown } from 'lucide-react';
-import { useColumnPrefs, type ColumnDef, type ColumnPrefs, type SortState } from '@/lib/use-column-prefs';
+import { SlidersHorizontal, GripVertical, X, RotateCcw, Pencil, Trash2, ArrowUp, ArrowDown, ChevronsUpDown, Search } from 'lucide-react';
+import { filterRows, useColumnPrefs, type ColumnDef, type ColumnPrefs, type SortState } from '@/lib/use-column-prefs';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 
 export type { ColumnDef } from '@/lib/use-column-prefs';
@@ -94,12 +94,21 @@ interface DataTableProps<T> {
    * rather than shouting.
    */
   uppercaseHeaders?: boolean;
+  /**
+   * Search box in the table header, filtering these rows against the columns the
+   * user has enabled under "Searchable Columns". On by default — pass
+   * `searchable={false}` for a table whose rows are already narrowed by a
+   * page-level search, so the two can't disagree about what's on screen.
+   */
+  searchable?: boolean;
+  /** Placeholder for the search box. Defaults to a generic prompt. */
+  searchPlaceholder?: string;
 }
 
 export function DataTable<T>({
   tableKey,
   columns,
-  rows,
+  rows: allRows,
   getRowKey,
   title,
   subtitle,
@@ -124,6 +133,8 @@ export function DataTable<T>({
   sort,
   onSortChange,
   uppercaseHeaders,
+  searchable,
+  searchPlaceholder = 'Search this table…',
 }: DataTableProps<T>) {
   // Always create an instance (hooks can't be conditional); prefer the page's
   // shared prefs when provided so config stays in sync with the page's data.
@@ -131,6 +142,20 @@ export function DataTable<T>({
   const prefs = prefsProp ?? ownPrefs;
   const [panelOpen, setPanelOpen] = useState(false);
   const cols = prefs.visible;
+
+  // ── Table search ──
+  // Applied here, at the top, so everything downstream — selection, drag ranges,
+  // the footer totals row and the empty state — sees exactly the rows on screen.
+  // Filtering later would leave the footer totalling records the grid isn't
+  // showing, and let a bulk Delete reach a row the search had hidden.
+  const searchOn = searchable !== false;
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const rows = useMemo(
+    () => (searchOn && query ? filterRows(allRows, query, prefs.ordered, prefs.searchable) : allRows),
+    [searchOn, query, allRows, prefs.ordered, prefs.searchable],
+  );
+  const closeSearch = () => { setQuery(''); setSearchOpen(false); };
 
   // ── Row selection ── on by default; opt out with selectable={false}.
   const selectionOn = selectable !== false;
@@ -348,7 +373,10 @@ export function DataTable<T>({
 
   return (
     <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
-      {(title || subtitle || toolbar || (selectionOn && selectedRows.length > 0)) && (
+      {/* `searchOn` is in the condition so a table with no title still gets its
+          header bar — otherwise Pipeline, which passes neither title nor toolbar,
+          would be the one leads table with no search box and no Columns button. */}
+      {(title || subtitle || toolbar || searchOn || (selectionOn && selectedRows.length > 0)) && (
         <div className="flex flex-wrap items-center justify-between gap-2.5 border-b px-[18px] py-4">
           <div>
             {title && <h3 className="font-display text-[15px] font-semibold">{title}</h3>}
@@ -388,6 +416,43 @@ export function DataTable<T>({
               </div>
             )}
             {toolbar}
+            {/* Table search — collapsed to an icon until asked for, so it costs a
+                header row nothing on the tables nobody searches. Stays expanded
+                while a query is live: collapsing it would hide the reason the
+                grid is showing four rows out of four hundred. */}
+            {searchOn && (
+              searchOpen || query ? (
+                <div className="flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium">
+                  <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <input
+                    autoFocus
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Escape') closeSearch(); }}
+                    placeholder={searchPlaceholder}
+                    aria-label={`Search ${title ?? 'table'}`}
+                    className="w-[180px] border-none bg-transparent font-medium outline-none placeholder:text-muted-foreground"
+                  />
+                  <button
+                    onClick={closeSearch}
+                    title="Clear search"
+                    aria-label="Clear search"
+                    className="grid h-5 w-5 shrink-0 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setSearchOpen(true)}
+                  title="Search this table"
+                  aria-label="Search this table"
+                  className="grid h-[38px] w-[38px] place-items-center rounded-md border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <Search className="h-3.5 w-3.5" />
+                </button>
+              )
+            )}
             {/* Sort direction — sits immediately left of the Column Chooser. Shows
                 which column is ordering the grid and flips asc/desc; the active
                 arrow is the highlighted one. */}
@@ -490,8 +555,24 @@ export function DataTable<T>({
             {loading && (
               <tr><td colSpan={bodyColSpan} className="px-4 py-8 text-center text-muted-foreground">Loading…</td></tr>
             )}
+            {/* An empty grid because the SEARCH matched nothing is a different
+                fact from an empty table, and says so — otherwise "No records."
+                reads as no data and hides the query that caused it. */}
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={bodyColSpan} className="px-4 py-8 text-center text-muted-foreground">{emptyText}</td></tr>
+              <tr>
+                <td colSpan={bodyColSpan} className="px-4 py-8 text-center text-muted-foreground">
+                  {query && allRows.length > 0 ? (
+                    <>
+                      No records match “{query}”.{' '}
+                      <button onClick={closeSearch} className="font-semibold text-primary hover:underline">
+                        Clear search
+                      </button>
+                    </>
+                  ) : (
+                    emptyText
+                  )}
+                </td>
+              </tr>
             )}
             {!loading && rows.map((row, i) => {
               const key = getRowKey(row);
