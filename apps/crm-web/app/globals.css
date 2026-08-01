@@ -114,3 +114,50 @@
     outline-offset: 2px;
   }
 }
+
+/* ── Laptop scaling ──────────────────────────────────────────────────
+   The desktop layout is the reference design, and a laptop gets the SAME
+   layout — same structure, navigation, component positions, visibility and
+   spacing — scaled down to fit rather than re-flowed.
+
+   `zoom` is what makes that literally true: every length in the subtree is
+   multiplied by one factor, so nothing can move, hide, wrap or collapse at a
+   laptop width. It re-lays-out at the scaled size (unlike `transform: scale`,
+   which would blur text and leave the original box occupying the space).
+
+   Why zoom rather than scaling type: the UI is written in px throughout
+   (`text-[13px]`, `w-[248px]`, `px-[18px]`), so there is no rem knob to turn.
+
+   DESIGN WIDTH is 1500px — the narrowest viewport that fits the widest layout
+   in the CRM intact (the Call Panel's 300px queue + centre + 360px dial pad,
+   beside the 248px sidebar) and the width the shell already caps content at.
+   Each band's factor is width ÷ 1500 taken at the band's NARROWEST point, so
+   the layout fits everywhere in the band and the extra at the wide end falls
+   into the margins the content cap creates anyway.
+
+   Bands, not a continuous JS measurement: no hydration flash, no resize
+   listener, and nothing to go wrong before first paint.
+
+   Below 1280px the factor is 1 and the tablet/mobile layout takes over — a
+   1024px screen would need 0.68, which puts 13px type under 9px. Scaling stops
+   where it would cost legibility, and responsive design takes it from there.
+
+   At or above 1500px nothing happens at all, so the desktop is untouched. */
+.app-shell {
+  --app-zoom: 1;
+  zoom: var(--app-zoom);
+  /* `h-screen` would be 100vh of LOCAL px, which renders at 100vh × zoom and
+     leaves a gap below the fold. Dividing by the factor makes the scaled height
+     exactly one viewport. */
+  height: calc(100vh / var(--app-zoom));
+}
+
+@media (min-width: 1280px) and (max-width: 1365.98px) {
+  .app-shell { --app-zoom: 0.853; } /* 1280 ÷ 1500 */
+}
+@media (min-width: 1366px) and (max-width: 1439.98px) {
+  .app-shell { --app-zoom: 0.911; } /* 1366 ÷ 1500 — the common Windows laptop */
+}
+@media (min-width: 1440px) and (max-width: 1499.98px) {
+  .app-shell { --app-zoom: 0.96; }  /* 1440 ÷ 1500 — 13" MacBook Air */
+}

@@ -365,7 +365,12 @@ export function DateFilter({
     if (!open && ref.current) {
       const r = ref.current.getBoundingClientRect();
       const contentLeft = (ref.current.closest('main')?.getBoundingClientRect().left ?? 0) + 8;
-      setAlignLeft(r.right - FILTER_POPOVER_W < contentLeft);
+      // Both edges are glass coordinates, so the panel's width has to be one too:
+      // `FILTER_POPOVER_W` is a layout px constant, and the shell draws laptops
+      // at a scale. Comparing it unconverted made the panel flip left slightly
+      // sooner than it needed to.
+      const scale = ref.current.offsetWidth > 0 ? r.width / ref.current.offsetWidth : 1;
+      setAlignLeft(r.right - FILTER_POPOVER_W * (scale > 0 ? scale : 1) < contentLeft);
     }
     setOpen((v) => !v);
   }

@@ -300,13 +300,17 @@ export default function LeadDetailPage() {
                 <input className={editInput} value={form.website ?? ''} onChange={(e) => set('website', e.target.value)} /></label>
               <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Social Media</span>
                 <input className={editInput} value={form.socialMedia ?? ''} onChange={(e) => set('socialMedia', e.target.value)} /></label>
-              <div className="grid grid-cols-2 gap-3">
+              {/* Field pairs sit side by side from `sm` up and stack below it.
+                  Fixed at two columns they left each input about 165px on a
+                  375px phone — narrow enough that a city or an email scrolled
+                  inside its own box while being typed. */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Country</span>
                   <input className={editInput} value={form.country ?? ''} onChange={(e) => set('country', e.target.value)} /></label>
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">State</span>
                   <input className={editInput} value={form.state ?? ''} onChange={(e) => set('state', e.target.value)} required /></label>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">City</span>
                   <input className={editInput} value={form.city ?? ''} onChange={(e) => set('city', e.target.value)} required /></label>
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Timezone</span>
@@ -322,31 +326,31 @@ export default function LeadDetailPage() {
               </div>
               <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Caller (name / email)</span>
                 <input className={editInput} value={form.caller ?? ''} onChange={(e) => set('caller', e.target.value)} placeholder="Reassign to a user…" /></label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Industry</span>
                   <input className={editInput} value={form.industry ?? ''} onChange={(e) => set('industry', e.target.value)} /></label>
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Company Size</span>
                   <input className={editInput} value={form.companySize ?? ''} onChange={(e) => set('companySize', e.target.value)} /></label>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Founded Year</span>
                   <input className={editInput} value={form.foundedYear ?? ''} onChange={(e) => set('foundedYear', e.target.value)} /></label>
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Call Status</span>
                   <input className={editInput} value={form.callStatus ?? ''} onChange={(e) => set('callStatus', e.target.value)} /></label>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">First Contact</span>
                   <input type="date" className={editInput} value={form.firstContact ?? ''} onChange={(e) => set('firstContact', e.target.value)} /></label>
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Last Contact</span>
                   <input type="date" className={editInput} value={form.lastContact ?? ''} onChange={(e) => set('lastContact', e.target.value)} /></label>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Next Follow-up</span>
                   <input type="date" className={editInput} value={form.nextFollowUpDate ?? ''} onChange={(e) => set('nextFollowUpDate', e.target.value)} /></label>
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Follow-up Count</span>
                   <input type="number" className={editInput} value={form.followupCount ?? ''} onChange={(e) => set('followupCount', e.target.value)} /></label>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Meeting Date</span>
                   <input type="date" className={editInput} value={form.meetingDate ?? ''} onChange={(e) => set('meetingDate', e.target.value)} /></label>
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Lost Reason</span>

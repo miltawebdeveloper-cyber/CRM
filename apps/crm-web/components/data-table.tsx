@@ -296,12 +296,32 @@ export function DataTable<T>({
     const measure = () => {
       const node = scrollRef.current;
       if (!node) return;
-      const viewH = scroller ? scroller.clientHeight : window.innerHeight;
+      /**
+       * Rendered px → layout px.
+       *
+       * The shell scales itself on laptop widths (see `.app-shell`), and the two
+       * families of measurement below disagree under any scale:
+       * `getBoundingClientRect()` reports what is on the GLASS, while
+       * `clientHeight`, `scrollTop` and the `maxHeight` we set are all in the
+       * element's own layout units. Mixing them makes the offset read ~9% short
+       * on a 1366px laptop, so the table is handed more height than there is room
+       * for and the page scrolls — the one thing capping the height prevents.
+       *
+       * Derived from the element rather than read from the CSS variable, so it
+       * stays right wherever the scale is declared, and comes out at exactly 1
+       * when there is none.
+       */
+      const box = node.getBoundingClientRect();
+      const scale = node.offsetWidth > 0 ? box.width / node.offsetWidth : 1;
+      const toLayoutPx = (renderedPx: number) => (scale > 0 ? renderedPx / scale : renderedPx);
+
+      // `clientHeight` is already layout px; `innerHeight` is glass px.
+      const viewH = scroller ? scroller.clientHeight : toLayoutPx(window.innerHeight);
       // Our offset *within the scrolled content*, so the result holds no matter
       // how far the user has scrolled when this runs.
       const offset = scroller
-        ? node.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop
-        : node.getBoundingClientRect().top + window.scrollY;
+        ? toLayoutPx(box.top - scroller.getBoundingClientRect().top) + scroller.scrollTop
+        : toLayoutPx(box.top) + window.scrollY;
       const below = viewH - offset - VIEWPORT_GAP;
       // A table near the top of a page takes the room left below it, so the page
       // itself barely scrolls and the horizontal scrollbar never leaves the
@@ -356,9 +376,17 @@ export function DataTable<T>({
     e.preventDefault();
     e.stopPropagation();
     const th = (e.currentTarget as HTMLElement).parentElement as HTMLElement;
-    const startW = th.getBoundingClientRect().width;
+    // `offsetWidth` is the column's LAYOUT width, which is the unit `setWidth`
+    // stores and CSS applies. `clientX` is a glass coordinate, so the drag
+    // distance is converted with the same scale the shell is drawn at —
+    // otherwise, on a scaled laptop, the column jumped narrower on grab (a
+    // rendered width written back as a layout width) and then trailed the
+    // cursor by the scale factor for the rest of the drag.
+    const scale = th.offsetWidth > 0 ? th.getBoundingClientRect().width / th.offsetWidth : 1;
+    const startW = th.offsetWidth;
     const startX = e.clientX;
-    const move = (me: MouseEvent) => prefs.setWidth(key, startW + (me.clientX - startX));
+    const move = (me: MouseEvent) =>
+      prefs.setWidth(key, startW + (me.clientX - startX) / (scale > 0 ? scale : 1));
     const up = () => {
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', up);
