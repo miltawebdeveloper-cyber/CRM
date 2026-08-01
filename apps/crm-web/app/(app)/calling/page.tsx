@@ -591,36 +591,40 @@ export default function CallingPage() {
               </div>
 
               {/* Counts are of the zone-filtered queue, since they label that list.
-                  Wraps rather than scrolls: the queue column is 280px and four
-                  tabs don't fit on one line, so `overflow-x-auto` put a scrollbar
-                  under them and hid the last tab off the edge. Wrapping keeps all
-                  four visible and costs one row of height at most. */}
-              <div className="mt-2.5 flex flex-wrap items-center gap-1 text-[11px]">
+                  All four sit on ONE row: the queue column is 280px at `xl`, which
+                  the tabs overflow at their natural width — that overflow first
+                  drew a scrollbar (`overflow-x-auto`, which also hid the last tab
+                  off the edge) and then wrapped "New" onto a second line. Sharing
+                  the row in equal quarters (`flex-1` + `min-w-0`) fits them at any
+                  column width; `truncate` is the backstop for counts long enough
+                  that even a quarter is too narrow, so they ellipsize rather than
+                  breaking the row again. */}
+              <div className="mt-2.5 flex items-center gap-1 text-[10.5px]">
                 <button
                   type="button"
                   onClick={() => setQueueFilter('all')}
-                  className={`shrink-0 rounded-md px-2 py-1 font-semibold transition-colors ${queueFilter === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
+                  className={`flex-1 min-w-0 truncate rounded-md px-1 py-1 text-center font-semibold transition-colors ${queueFilter === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
                 >
                   All ({zoneQueue.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setQueueFilter('callback')}
-                  className={`shrink-0 rounded-md px-2 py-1 font-semibold transition-colors ${queueFilter === 'callback' ? 'bg-[#9e2b21] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
+                  className={`flex-1 min-w-0 truncate rounded-md px-1 py-1 text-center font-semibold transition-colors ${queueFilter === 'callback' ? 'bg-[#9e2b21] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
                 >
                   Callback ({zoneQueue.filter((l) => getQueueItemType(l).type === 'callback').length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setQueueFilter('zoom')}
-                  className={`shrink-0 rounded-md px-2 py-1 font-semibold transition-colors ${queueFilter === 'zoom' ? 'bg-[#2c5d8f] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
+                  className={`flex-1 min-w-0 truncate rounded-md px-1 py-1 text-center font-semibold transition-colors ${queueFilter === 'zoom' ? 'bg-[#2c5d8f] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
                 >
                   Zoom ({zoneQueue.filter((l) => getQueueItemType(l).type === 'zoom').length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setQueueFilter('new_call')}
-                  className={`shrink-0 rounded-md px-2 py-1 font-semibold transition-colors ${queueFilter === 'new_call' ? 'bg-[#266929] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
+                  className={`flex-1 min-w-0 truncate rounded-md px-1 py-1 text-center font-semibold transition-colors ${queueFilter === 'new_call' ? 'bg-[#266929] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
                 >
                   New ({zoneQueue.filter((l) => getQueueItemType(l).type === 'new_call').length})
                 </button>
