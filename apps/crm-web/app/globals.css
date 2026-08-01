@@ -142,22 +142,29 @@
    1024px screen would need 0.68, which puts 13px type under 9px. Scaling stops
    where it would cost legibility, and responsive design takes it from there.
 
-   At or above 1500px nothing happens at all, so the desktop is untouched. */
-.app-shell {
-  --app-zoom: 1;
-  zoom: var(--app-zoom);
-  /* `h-screen` would be 100vh of LOCAL px, which renders at 100vh × zoom and
-     leaves a gap below the fold. Dividing by the factor makes the scaled height
-     exactly one viewport. */
-  height: calc(100vh / var(--app-zoom));
-}
+   At or above 1500px nothing happens at all, so the desktop is untouched.
 
+   NOTHING IS DECLARED OUTSIDE THE BANDS. The shell keeps Tailwind's `h-screen`
+   as its height, and each band overrides it with a literal `calc(100vh / f)` to
+   match its own factor — `h-screen` is 100vh of LOCAL px, which renders at
+   100vh × f and would leave a gap below the fold.
+
+   Both halves are written per band, with the factor spelled out, rather than
+   through a `--app-zoom` custom property. `calc(100vh / var(--x))` is division
+   by a token stream the parser cannot know is a number, so engines are entitled
+   to drop the whole declaration — and with `h-screen` removed in favour of it,
+   dropping it left the shell with NO height at all and collapsed every page. A
+   literal divisor cannot fail to parse, and if this entire block went missing
+   the app would simply render unscaled. */
 @media (min-width: 1280px) and (max-width: 1365.98px) {
-  .app-shell { --app-zoom: 0.853; } /* 1280 ÷ 1500 */
+  /* 1280 ÷ 1500 */
+  .app-shell { zoom: 0.853; height: calc(100vh / 0.853); }
 }
 @media (min-width: 1366px) and (max-width: 1439.98px) {
-  .app-shell { --app-zoom: 0.911; } /* 1366 ÷ 1500 — the common Windows laptop */
+  /* 1366 ÷ 1500 — the common Windows laptop */
+  .app-shell { zoom: 0.911; height: calc(100vh / 0.911); }
 }
 @media (min-width: 1440px) and (max-width: 1499.98px) {
-  .app-shell { --app-zoom: 0.96; }  /* 1440 ÷ 1500 — 13" MacBook Air */
+  /* 1440 ÷ 1500 — 13" MacBook Air */
+  .app-shell { zoom: 0.96; height: calc(100vh / 0.96); }
 }

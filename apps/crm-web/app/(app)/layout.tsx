@@ -58,14 +58,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           flex row and pushing the page off-screen — without it the shell grows to
           the table's width and the whole document scrolls sideways.
 
-          `app-shell` (globals.css) carries the laptop scaling and owns the
-          height — hence no `h-screen` here, which would fight it. Between 1280
-          and 1499px it scales the WHOLE subtree by one factor so a laptop shows
-          the desktop layout intact rather than a reflowed one; at 1500px and up
-          it does nothing. Every overlay below is inside it deliberately, so
-          dialogs, drawers and the command palette scale with the page instead of
+          `h-screen` is the height, always. `app-shell` (globals.css) adds the
+          laptop scaling on top: between 1280 and 1499px it scales the WHOLE
+          subtree by one factor, so a laptop shows the desktop layout intact
+          rather than a reflowed one, and overrides the height to match. At
+          1500px and up it does nothing at all.
+
+          The height stays HERE rather than moving into `.app-shell` because the
+          shell must have one even if that rule never applies — dropping
+          `h-screen` in favour of a computed height left the whole app with no
+          height the moment the computed one failed to parse.
+
+          Every overlay below is inside the shell deliberately, so dialogs,
+          drawers and the command palette scale with the page rather than
           floating over it at a different size. */}
-      <div className="app-shell flex overflow-hidden bg-background">
+      <div className="app-shell flex h-screen overflow-hidden bg-background">
         <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} />
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <Topbar email={me?.email} onMenu={() => setNavOpen(true)} />
