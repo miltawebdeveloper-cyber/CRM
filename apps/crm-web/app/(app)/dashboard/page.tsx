@@ -79,12 +79,14 @@ export default function DashboardPage() {
   const qc = useQueryClient();
   const [dateFilter, setDateFilter] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
 
+  // `yyyy-mm-dd`, exactly as the picker produces it and as Lead Management sends
+  // it. It used to be widened to a full ISO instant here — `new Date(from)` and
+  // a `T23:59:59.999Z` suffix — which the API then read as an Invalid Date and
+  // every card came back wrong. The API resolves a bare date to the whole local
+  // day at its end, so there is nothing for the client to compute.
   const range = useMemo(() => {
     if (!dateFilter.from && !dateFilter.to) return {};
-    return {
-      from: dateFilter.from ? new Date(dateFilter.from).toISOString() : undefined,
-      to: dateFilter.to ? new Date(dateFilter.to + 'T23:59:59.999Z').toISOString() : undefined,
-    };
+    return { from: dateFilter.from || undefined, to: dateFilter.to || undefined };
   }, [dateFilter]);
 
   // Two small widgets, two small queries.
@@ -153,7 +155,16 @@ export default function DashboardPage() {
       {/* Page head */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="text-[13px] text-muted-foreground">Live snapshot — {dateLabel}. Targets refresh nightly.</div>
+          {/* Says which half of the page the date filter moves. It scopes the
+              CARDS only — the widgets below are today's work and a live feed by
+              definition, so a historical range has nothing to say to "Today's
+              Callbacks" or "Missed Calls". Unlabelled, a filtered page looked
+              like one period and was showing two. */}
+          <div className="text-[13px] text-muted-foreground">
+            {dateFilter.from || dateFilter.to
+              ? 'Cards show the selected date range. The lists below stay live.'
+              : `Live snapshot — ${dateLabel}. Targets refresh nightly.`}
+          </div>
           <div className="mt-2"><LiveIndicator updatedAt={summaryQ.dataUpdatedAt || Date.now()} fetching={summaryQ.isFetching} /></div>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
@@ -190,7 +201,12 @@ export default function DashboardPage() {
               ['Progress to Target', `${s?.targetProgressPct ?? 0}%`],
               ['Open Tasks', openTasks.length],
               ['Upcoming Follow-Ups', followups.length],
-              ['Leads Added Today', todaysLeads.length],
+              // "Leads Added Today" used to be exported here from the widget's
+              // rows. That query asks for `pageSize: WIDGET_ROWS`, so the figure
+              // could never exceed 10 — a spreadsheet reporting 10 on a day that
+              // added two hundred. A capped list is fine to look at and not fine
+              // to count, and there is no card behind this one to take the real
+              // total from.
             ])}
             className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted"
           >

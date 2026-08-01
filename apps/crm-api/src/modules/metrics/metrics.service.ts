@@ -10,9 +10,30 @@ interface Node {
   planned: number;
 }
 
-// Parse a yyyy-mm-dd string into the first/last instant of that local day.
-const dayStart = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d, 0, 0, 0, 0); };
-const dayEnd = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d, 23, 59, 59, 999); };
+/**
+ * The calendar day a filter value names, as `[y, m, d]`.
+ *
+ * `from`/`to` are declared `@IsDateString()`, which accepts BOTH `2026-08-01`
+ * and a full `2026-08-01T00:00:00.000Z`, and the two callers of this endpoint
+ * sent one each: Lead Management the bare date, the Dashboard the timestamp.
+ * Splitting the raw string on `-` only ever worked for the first — the third
+ * piece of the second is `01T00:00:00.000Z`, whose `Number()` is NaN, so the
+ * bound became an Invalid Date and every card on the Dashboard broke the moment
+ * a date range was applied.
+ *
+ * Taking the leading `yyyy-mm-dd` off the front handles both shapes. Deliberately
+ * NOT `new Date(s)`: that reads a bare date as UTC midnight and a timestamp on
+ * its own offset, so the same day would mean different instants depending on
+ * which caller sent it.
+ */
+const datePartsOf = (s: string): [number, number, number] => {
+  const [y, m, d] = s.slice(0, 10).split('-').map(Number);
+  return [y, m, d];
+};
+
+// First/last instant of that local day.
+const dayStart = (s: string) => { const [y, m, d] = datePartsOf(s); return new Date(y, m - 1, d, 0, 0, 0, 0); };
+const dayEnd = (s: string) => { const [y, m, d] = datePartsOf(s); return new Date(y, m - 1, d, 23, 59, 59, 999); };
 
 @Injectable()
 export class MetricsService {
