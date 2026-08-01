@@ -32,27 +32,12 @@ const dayEnd = (s: string) => { const [y, m, d] = s.split('-').map(Number); retu
  */
 const QUEUE_MAX = 2_000;
 
-/**
- * Ascending Lead ID order — the queue's default, and the order the panel hands
- * leads to the agent one after another.
- *
- * Ids look like `L-2026-42` and carry no zero padding, so a plain string compare
- * is wrong twice over: it sorts L-2026-10 ahead of L-2026-2, and it can't order
- * across years on the trailing number alone (L-2025-500 must still come before
- * L-2026-1). Both halves are therefore compared in their own right — the prefix
- * as text, the sequence as a number. Ids in some other shape sort last rather
- * than colliding at position zero, and ties fall back to the raw id so the order
- * is total and a refresh can never shuffle two leads past each other.
- */
-function compareLeadId(a: string, b: string): number {
-  const split = (id: string) => {
-    const m = id.match(/^(.*?)(\d+)\s*$/);
-    return m ? { prefix: m[1], seq: Number(m[2]) } : { prefix: id, seq: Number.MAX_SAFE_INTEGER };
-  };
-  const x = split(a);
-  const y = split(b);
-  return x.prefix.localeCompare(y.prefix) || x.seq - y.seq || a.localeCompare(b);
-}
+// The queue's default order is `lead.importSeq` — the position the lead held in
+// the file it was imported from. It replaced a `compareLeadId` helper that
+// unpicked `L-2026-42` into a prefix and a number to sort ids in their true
+// sequence: correct as far as it went, but the id is not the import order when
+// an import supplies its own ids, and an integer column the database can index
+// beats parsing a string on every comparison.
 
 /**
  * How long a call may sit with no end time before it's treated as abandoned.
@@ -696,7 +681,9 @@ export class CallsService {
     };
   }
 
-  // CAL-016/017 — next unworked assigned lead (lowest leadId, skip closed/rejected)
+  // CAL-016/017 — next unworked assigned lead (earliest in import order, skip
+  // closed/rejected). Was `leadId: 'asc'`, a string sort that handed the rep
+  // L-2026-10 before L-2026-2.
   async nextLead(callerId: string) {
     const lead = await this.prisma.lead.findFirst({
       where: {
@@ -704,7 +691,7 @@ export class CallsService {
         deletedAt: null,
         status: { notIn: ['closed', 'rejected'] },
       },
-      orderBy: [{ status: 'asc' }, { leadId: 'asc' }],
+      orderBy: [{ status: 'asc' }, { importSeq: 'asc' }],
     });
     return lead ?? null;
   }
@@ -1521,11 +1508,13 @@ export class CallsService {
           },
         },
       },
-      // Creation order, NOT `leadId: 'asc'`. Ids are handed out in creation order,
-      // so this is the true ascending sequence — while a string sort would make
-      // the cap below keep L-2026-1000..1099 and drop L-2026-2, i.e. truncate the
-      // wrong end of the queue. The final in-memory sort orders what comes back.
-      orderBy: { createdAt: 'asc' },
+      // Import order — the sequence the leads arrived in. NOT `leadId: 'asc'`: a
+      // string sort would make the cap below keep L-2026-1000..1099 and drop
+      // L-2026-2, i.e. truncate the wrong end of the queue. NOT `createdAt`
+      // either: an import writes hundreds of rows inside one millisecond, so the
+      // cap would cut an arbitrary set of them. The final in-memory sort orders
+      // what comes back.
+      orderBy: { importSeq: 'asc' },
       // Was 200, which silently truncated the queue of anyone holding more — the
       // Assigned Leads card counted the whole book while the queue below it showed
       // a fraction, and the leads past the cut were unreachable from the panel.
@@ -1604,22 +1593,23 @@ export class CallsService {
     };
 
     /**
-     * Ascending Lead ID is the queue's default order — the smallest id first, and
-     * the order the panel walks the agent through. Only genuinely time-critical
-     * work overrides it, and only within its own band: an appointment at a stated
-     * hour has to come before an appointment an hour later, whatever their ids.
-     * Every other band, including the backlog the agent spends the day in, reads
-     * in strict ascending id order.
+     * Import order is the queue's default — the file's first lead first, and the
+     * order the panel walks the agent through. Only genuinely time-critical work
+     * overrides it, and only within its own band: an appointment at a stated hour
+     * has to come before an appointment an hour later, whatever their position in
+     * the file. Every other band, including the backlog the agent spends the day
+     * in, reads in strict import order.
      *
-     * Each comparator ends in `compareLeadId`, so the order is TOTAL — no two
-     * leads can ever compare equal. That is what stops the queue reshuffling
-     * between refreshes and handing the agent a lead they have already passed.
+     * Each comparator ends in `bySeq`, so the order is TOTAL — `importSeq` is
+     * unique, so no two leads can ever compare equal. That is what stops the
+     * queue reshuffling between refreshes and handing the agent a lead they have
+     * already passed.
      */
     return enriched.sort((a, b) => {
       const ra = rank(a);
       const rb = rank(b);
       if (ra !== rb) return ra - rb;
-      const byId = compareLeadId(a.leadId, b.leadId);
+      const byId = a.importSeq - b.importSeq;
       // Bands 0/1 are appointments: soonest first, then ascending id.
       if (ra === 0) return (a.callbackAt?.getTime() ?? 0) - (b.callbackAt?.getTime() ?? 0) || byId;
       if (ra === 1) {
@@ -1637,7 +1627,7 @@ export class CallsService {
       // Finished leads sit at the bottom, most recently finished first, so the
       // agent can see what they just did without it re-entering the run.
       if (ra === 5) return (finishedAt(b) ?? 0) - (finishedAt(a) ?? 0) || byId;
-      return byId; // band 3 — the backlog, strictly ascending Lead ID
+      return byId; // band 3 — the backlog, strictly in import order
     });
   }
 }

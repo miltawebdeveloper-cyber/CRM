@@ -307,10 +307,15 @@ export class AssignmentsService {
       // still holds for one released back to the pool later the same day.
       assignments: { none: { isActive: true, assignedAt: { gte: startOfToday() } } },
     };
+    // Import order, so a distribution hands leads out in the sequence the file
+    // listed them: A → B → C → D goes to the callers in that order, whatever the
+    // strategy then does with them. `leadId: 'asc'` was a STRING sort, so it fed
+    // L-2026-10 to the round-robin before L-2026-2 — the file's order shuffled
+    // before a single lead was allocated.
     const leads = await this.prisma.lead.findMany({
       where,
       select: { id: true, state: true, timezone: true },
-      orderBy: { leadId: 'asc' },
+      orderBy: { importSeq: 'asc' },
     });
     if (leads.length === 0) return { assigned: 0, perCaller: {} };
 

@@ -60,6 +60,8 @@ const DEFAULT_PAGE_SIZE = 50;
  */
 const LIST_SELECT = {
   id: true,
+  /** The import position — the grid's default order, and a column users can show. */
+  importSeq: true,
   leadId: true,
   leadGenerationId: true,
   businessName: true,
@@ -110,15 +112,16 @@ const LIST_SELECT = {
  * into an orderBy — an open one would let a caller order by any column, or by a
  * relation, and turn a page into a full scan and sort.
  *
- * `leadId` maps to `createdAt`. Sorting by the id STRING is wrong — "L-2026-10"
+ * `leadId` maps to `importSeq`. Sorting by the id STRING is wrong — "L-2026-10"
  * sorts before "L-2026-2" — and sorting by the parsed sequence number needs an
  * expression no index covers, which is a scan and a sort of the whole book on
- * the module's DEFAULT ordering. Ids are minted in creation order, so createdAt
- * is the same order and is indexed. (findAll already relies on this equivalence
- * for ranged reads, and has since before this change.)
+ * the module's DEFAULT ordering. `importSeq` is the order the leads arrived in,
+ * is unique and is indexed. (It used to map to `createdAt`, which is the same
+ * order only until an import writes two rows in one millisecond.)
  */
 const SORTABLE: Record<string, (dir: Prisma.SortOrder) => Prisma.LeadOrderByWithRelationInput> = {
-  leadId: (dir) => ({ createdAt: dir }),
+  importSeq: (dir) => ({ importSeq: dir }),
+  leadId: (dir) => ({ importSeq: dir }),
   createdAt: (dir) => ({ createdAt: dir }),
   businessName: (dir) => ({ businessName: dir }),
   contactName: (dir) => ({ contactName: dir }),
@@ -866,19 +869,27 @@ export class LeadsService {
       ...createdFilter,
     };
 
-    // A ranged read is listed oldest-first: lead ids are handed out in creation
-    // order, so that IS ascending sequence order — and unlike `leadId: 'asc'` it
-    // doesn't put L-2026-10 ahead of L-2026-2.
+    // ── Default ordering: the order the leads arrived in ──
+    //
+    // Lead #1 of the imported file is row 1 of the grid, #2 is row 2, and so on.
+    // The default was `createdAt: 'desc'`, which showed an import upside down —
+    // and, because a bulk import writes many rows inside one millisecond, showed
+    // the rows within a millisecond in no fixed order at all.
+    //
+    // An explicit `sortBy` from the user still wins; that is the one thing that
+    // may reorder the grid. The Closed Leads scope keeps `closedAt: 'desc'`: it
+    // answers "what was closed recently", a question about closing order rather
+    // than import order, and its own filters already narrow it to that.
     const primaryOrder: Prisma.LeadOrderByWithRelationInput = ranged
-      ? { createdAt: 'asc' }
+      ? { importSeq: 'asc' }
       : query.sortBy
         ? sortClause(query.sortBy, query.sortDir === 'asc' ? 'asc' : 'desc')
         : query.closed === true
           ? { closedAt: 'desc' }
-          : { createdAt: 'desc' };
+          : { importSeq: 'asc' };
 
     /**
-     * The sort, made total by `id`.
+     * The sort, made total by `importSeq`.
      *
      * Every sortable column here has ties — leads created in the same
      * millisecond by an import, a whole state's worth of one city, any column
@@ -888,16 +899,16 @@ export class LeadsService {
      * scrolls, so that would show one lead twice and silently skip another —
      * with nothing wrong in any single response, only at the seam between two.
      *
-     * `id` is unique, which makes the ordering total and every chunk boundary
-     * deterministic. It never changes the visible order; it only decides what
-     * was previously undefined.
-     *
-     * This is a guarantee, not a repair: walking 180 leads that share a single
-     * createdAt returned each exactly once without it too, because nothing
-     * forced Postgres to change plan between chunks. Relying on that is relying
-     * on the planner not to do something it is entitled to do.
+     * `importSeq` is unique, which makes the ordering total and every chunk
+     * boundary deterministic. The tie-break used to be `id`, a random uuid,
+     * which settled the order but settled it arbitrarily. Breaking ties on the
+     * import sequence instead is what makes filtering and sorting PRESERVE the
+     * file's order among equal rows: filter to one city and those leads stay in
+     * the order they were imported in; sort by status and each status block
+     * reads in import order. Clearing the filter restores the whole sequence
+     * because nothing ever left it.
      */
-    const orderBy: Prisma.LeadOrderByWithRelationInput[] = [primaryOrder, { id: 'asc' }];
+    const orderBy: Prisma.LeadOrderByWithRelationInput[] = [primaryOrder, { importSeq: 'asc' }];
 
     // `idsOnly` exists for the callers that must reach across the whole book but
     // render none of it — the assign-by-range dialog wants 5,000 ids, not 5,000

@@ -330,6 +330,22 @@ model Employee {
 /// `deletedAt` column is retained for historical rows / backward compat.
 model Lead {
   id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Position in the order this lead entered the CRM — the row it occupied in the
+  /// imported spreadsheet, or where a manually-created lead falls after them.
+  ///
+  /// This is the DEFAULT ordering for Lead Management, auto-assignment, the
+  /// calling queue and every ranged read, and it is the tie-breaker under every
+  /// other sort — which is what makes "apply a filter, keep the import order"
+  /// true without each caller arranging it.
+  ///
+  /// `leadId` cannot do this job. It is a string (`L-2026-10` sorts before
+  /// `L-2026-2`), and an import may supply its own, so it need not run in file
+  /// order at all. `createdAt` cannot either: a bulk import writes many rows
+  /// inside the same millisecond, leaving their relative order undefined.
+  ///
+  /// Filled from a Postgres sequence, so it is assigned server-side in insert
+  /// order and two concurrent imports cannot collide on a number.
+  importSeq    Int        @unique @default(autoincrement()) @map("import_seq")
   leadId       String     @map("lead_id") // external id from import
   businessName String     @map("business_name")
   phone        String

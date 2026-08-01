@@ -13,11 +13,18 @@ import { PrismaService } from '../../prisma/prisma.service';
  * It exists as a service rather than a private helper because it previously
  * WASN'T shared. The leads module generated `L-2026-1251`, while a lead minted
  * from an unrecognised inbound caller got `L-${Date.now().toString(36)}` —
- * `L-M8XK2P9`. Those ids sort wrongly against every other lead, break the
- * queue's ascending-Lead-ID ordering (which parses the prefix and the trailing
- * sequence), and read as a different kind of record to anyone looking at them.
- * A second copy of "how do we number a lead" is exactly how that happens, so
- * now there is one copy and both modules call it.
+ * `L-M8XK2P9`. Those ids sort wrongly against every other lead and read as a
+ * different kind of record to anyone looking at them. A second copy of "how do
+ * we number a lead" is exactly how that happens, so now there is one copy and
+ * both modules call it.
+ *
+ * Ordering no longer depends on any of this. Lead Management, auto-assignment
+ * and the calling queue all read `lead.importSeq` — the position the lead held
+ * in the file it arrived in — which is filled from a Postgres sequence on
+ * insert. `create` below therefore needs no ordering logic: creating rows in
+ * file order is what puts them in file order. The retry can leave GAPS in that
+ * sequence, since a rolled-back transaction does not return the number it took;
+ * gaps are harmless, because only the relative order is ever read.
  */
 @Injectable()
 export class LeadIdService {

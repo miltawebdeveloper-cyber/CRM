@@ -92,10 +92,12 @@ export default function LeadsPage() {
   // Persisted so the chosen date filter survives navigating within the module.
   const [dateFilter, setDateFilter] = usePersistedState<DateFilterValue>('leads:date-filter', EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
-  // Lead lists open in ascending order (by lead id) until the user says
-  // otherwise. Declared here because the list query below is built from it —
-  // ordering is the server's job now, not a pass over rows already downloaded.
-  const [sort, setSort] = useState<SortState>({ key: 'leadId', dir: 'asc' });
+  // Lead lists open in IMPORT order — row 1 of the uploaded file first — until
+  // the user sorts by something else. Declared here because the list query below
+  // is built from it: ordering is the server's job, not a pass over rows already
+  // downloaded. Was `leadId`, which the API had to reinterpret because sorting
+  // the id as a string puts L-2026-10 ahead of L-2026-2.
+  const [sort, setSort] = useState<SortState>({ key: 'importSeq', dir: 'asc' });
 
   // Only active leads — one marked closed moves to /closed-leads.
   //
@@ -318,6 +320,15 @@ export default function LeadsPage() {
   const closeForm = () => { setForm(EMPTY); setShowForm(false); create.reset(); };
 
   const columns = useMemo<ColumnDef<Lead>[]>(() => [
+    // The order the leads arrived in, and the grid's default sort. Hidden by
+    // default — it is the order the rows are already in, so it earns its space
+    // only when someone wants to see or re-apply the position explicitly.
+    {
+      key: 'importSeq', header: 'Import Order', defaultHidden: true, sortable: true,
+      cellClassName: 'tabular-nums text-muted-foreground',
+      sortValue: (l) => l.importSeq,
+      render: (l) => l.importSeq,
+    },
     {
       key: 'leadId', header: 'Lead ID', required: true, searchable: true, sortable: true,
       searchValue: (l) => l.leadId,

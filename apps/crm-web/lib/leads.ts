@@ -4,6 +4,12 @@ export type QuoStatus = 'not_synced' | 'pending' | 'synced' | 'failed';
 
 export interface Lead {
   id: string;
+  /**
+   * Position in the order this lead entered the CRM — its row in the imported
+   * spreadsheet. The grid's default order and the tie-breaker under every other
+   * sort, so filtering never disturbs the file's sequence.
+   */
+  importSeq: number;
   leadId: string;
   businessName: string;
   phone: string;
