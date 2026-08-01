@@ -39,6 +39,8 @@ export const DISPLAY_TIMEZONES = [
   { value: 'America/Chicago', label: 'CST — Central', flag: '🇺🇸', hint: 'Chicago, Dallas' },
   { value: 'America/Denver', label: 'MST — Mountain', flag: '🇺🇸', hint: 'Denver, Phoenix' },
   { value: 'America/Los_Angeles', label: 'PST — Pacific', flag: '🇺🇸', hint: 'Los Angeles, Seattle' },
+  { value: 'America/Anchorage', label: 'AKST — Alaska', flag: '🇺🇸', hint: 'Anchorage, Fairbanks' },
+  { value: 'Pacific/Honolulu', label: 'HST — Hawaii', flag: '🇺🇸', hint: 'Honolulu, Hilo' },
   { value: 'Europe/London', label: 'UK — GMT/BST', flag: '🇬🇧', hint: 'London' },
   { value: 'Asia/Kolkata', label: 'IST — India', flag: '🇮🇳', hint: 'Chennai, Bengaluru' },
 ] as const;

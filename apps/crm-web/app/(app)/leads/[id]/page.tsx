@@ -14,6 +14,7 @@ import { ZoomTimeline } from '@/components/zoom-timeline';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { api } from '@/lib/api';
 import { formatDate, formatDateTime, formatTime } from '@/lib/display-settings';
+import { LEAD_TIMEZONES } from '@/lib/timezone';
 
 const SMS_TEMPLATES: { label: string; text: (name: string) => string }[] = [
   { label: 'Intro', text: (n) => `Hi, this is the team at Milta reaching out about ${n}. Is now a good time to chat?` },
@@ -48,7 +49,14 @@ export default function LeadDetailPage() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<UpdateLeadInput>({});
   const edit = useMutation({
-    mutationFn: () => leadsApi.update(id, form),
+    // A lead with no zone seeds `timezone: ''`, which the API's `@IsEnum(Timezone)`
+    // rejects outright — so saving ANY edit to a zone-less lead used to fail with
+    // a validation error that named a field the manager hadn't touched. Omit the
+    // key instead: `@IsOptional()` then leaves the stored zone alone.
+    mutationFn: () => {
+      const { timezone, ...rest } = form;
+      return leadsApi.update(id, timezone ? { ...rest, timezone } : rest);
+    },
     meta: { successMessage: 'Changes saved' },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['lead', id] });
@@ -302,8 +310,14 @@ export default function LeadDetailPage() {
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">City</span>
                   <input className={editInput} value={form.city ?? ''} onChange={(e) => set('city', e.target.value)} required /></label>
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Timezone</span>
-                  <select className={editInput} value={form.timezone ?? 'EST'} onChange={(e) => set('timezone', e.target.value)}>
-                    {['EST', 'CST', 'MST', 'PST'].map((t) => <option key={t}>{t}</option>)}
+                  <select className={editInput} value={form.timezone ?? ''} onChange={(e) => set('timezone', e.target.value)}>
+                    {/* A lead with no zone shows blank rather than displaying
+                        Eastern, which is what this control used to do: the value
+                        behind it was still empty, so the form showed a zone the
+                        lead did not have. Disabled, so blank can be shown but not
+                        chosen — clearing a zone is not an edit this form offers. */}
+                    <option value="" disabled>— Not set —</option>
+                    {LEAD_TIMEZONES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select></label>
               </div>
               <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Caller (name / email)</span>

@@ -22,8 +22,18 @@ if (!process.env.SEED_PASSWORD) {
   );
 }
 
-// Representative US cities grouped by timezone (state, city).
+// Representative calling locations grouped by timezone (state/region, city).
 const GEO: Record<Timezone, Array<[string, string]>> = {
+  UK: [
+    ['England', 'London'],
+    ['England', 'Manchester'],
+    ['Scotland', 'Edinburgh'],
+  ],
+  IND: [
+    ['Tamil Nadu', 'Chennai'],
+    ['Karnataka', 'Bengaluru'],
+    ['Maharashtra', 'Mumbai'],
+  ],
   EST: [
     ['Florida', 'Miami'],
     ['Florida', 'Tampa'],
@@ -53,6 +63,14 @@ const GEO: Record<Timezone, Array<[string, string]>> = {
     ['California', 'San Diego'],
     ['Washington', 'Seattle'],
     ['Nevada', 'Las Vegas'],
+  ],
+  AKST: [
+    ['Alaska', 'Anchorage'],
+    ['Alaska', 'Fairbanks'],
+  ],
+  HST: [
+    ['Hawaii', 'Honolulu'],
+    ['Hawaii', 'Hilo'],
   ],
 };
 

@@ -50,7 +50,7 @@ export const KNOWLEDGE_BASE: KbEntry[] = [
     topic: AiTopic.company_ops,
     keywords: ['services', 'what do we offer', 'timezone', 'markets'],
     answer:
-      'We are a US tax & bookkeeping firm running outbound sales across all four US timezones (EST, CST, MST, PST), organized by Timezone → State → City. Services: tax prep & filing, monthly bookkeeping, payroll, and advisory for small businesses and CPAs.',
+      'We are a US tax & bookkeeping firm running outbound sales across every US timezone (EST, CST, MST, PST, AKST, HST) plus the UK and India, organized by Timezone → State → City. Services: tax prep & filing, monthly bookkeeping, payroll, and advisory for small businesses and CPAs.',
   },
 ];
 

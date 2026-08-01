@@ -24,7 +24,8 @@ import { DialPad } from '@/components/dial-pad';
 import { useCall } from '@/components/call-provider';
 import { useCanCall } from '@/lib/use-can-call';
 import { launchQuoCall } from '@/lib/dialer';
-import { dayInLeadZone, formatScheduleInLeadZone, nowInLeadZone, zoneLabel } from '@/lib/timezone';
+import { dayInLeadZone, formatScheduleInLeadZone, nowInLeadZone, zoneLabel, TIMEZONE_FILTER_OPTIONS } from '@/lib/timezone';
+import { usePersistedState } from '@/lib/use-persisted-state';
 import { CallbackScheduler, callbackInputError } from '@/components/callback-scheduler';
 import { invalidateCallActivity } from '@/lib/sync';
 import { useShortcutHint } from '@/components/command-palette';
@@ -93,6 +94,11 @@ export default function CallingPage() {
   // back doesn't disturb an in-progress call.
   const [tab, setTab] = useState<'panel' | 'made' | 'analytics' | 'recordings' | 'missed' | 'sms'>('panel');
   const [queueFilter, setQueueFilter] = useState<'all' | 'callback' | 'zoom' | 'new_call'>('all');
+  // Which zone's leads the queue is showing. `''` is All Time Zones. Persisted so
+  // it survives switching to Calls Made and back, or following a lead into Lead
+  // Management and returning — a rep working one region shouldn't have to reset
+  // it every time they leave the panel. Cleared only by choosing All again.
+  const [tzFilter, setTzFilter] = usePersistedState<string>('calling:queue-timezone', '');
   const [active, setActive] = useState<{ callId: string; lead: Lead; startedAt: number; from?: string; callerName?: string } | null>(null);
   const [live, setLive] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -228,11 +234,25 @@ export default function CallingPage() {
     !!l.lastWorkedAt ||
     processed.has(l.id);
   const queue = leads;
-  const filteredQueue = queue.filter((q) => {
+
+  // ── Time-zone filter ──
+  // Purely a view over the queue: it narrows what the list DISPLAYS and the
+  // counts on the type tabs, which describe that list. It deliberately does not
+  // touch `nextPending` or `current` below — those decide which lead the panel
+  // hands the rep and are what the call, the outcome and the status update are
+  // recorded against, so a display filter must not be able to move them.
+  //
+  // Matched on the lead's OWN configured zone, compared exactly. A lead with no
+  // zone set therefore matches no selection and appears only under All Time
+  // Zones — filing it under Eastern is precisely the guess the rest of this
+  // module exists to refuse.
+  const zoneQueue = tzFilter ? queue.filter((l) => l.timezone === tzFilter) : queue;
+  const filteredQueue = zoneQueue.filter((q) => {
     if (queueFilter === 'all') return true;
     return getQueueItemType(q).type === queueFilter;
   });
-  // The next lead to work: first not-yet-done in ascending queue order.
+  // The next lead to work: first not-yet-done in ascending queue order. Read off
+  // the FULL queue, not the filtered view — see above.
   const nextPending = queue.find((l) => !isDone(l));
 
   // User may call ANY record: an explicit selection wins, else the next pending
@@ -533,45 +553,86 @@ export default function CallingPage() {
         <div className="space-y-[18px]">
           <div className="rounded-2xl border bg-card shadow-sm">
             <div className="border-b px-[18px] py-3.5">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <h3 className="font-display text-[15px] font-semibold">Your Queue</h3>
-                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
-                  {queue.length} leads
+                {/* Counts the leads actually listed below, so it moves with the
+                    zone filter rather than claiming a size the list doesn't show. */}
+                <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
+                  {zoneQueue.length} leads
                 </span>
               </div>
+
+              {/* Time Zone filter — sits above the queue list and narrows it to
+                  leads whose configured zone matches. Full-width because the
+                  queue column is 280–300px: the shared FilterSelect is sized for
+                  a horizontal filter bar and would overflow here. */}
+              <div className="mt-3">
+                <label
+                  htmlFor="queue-timezone"
+                  className="mb-1 block text-[11px] font-semibold uppercase tracking-[.06em] text-muted-foreground"
+                >
+                  Time Zone
+                </label>
+                <div className="flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium text-[#163618] dark:text-foreground">
+                  <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <select
+                    id="queue-timezone"
+                    value={tzFilter}
+                    onChange={(e) => setTzFilter(e.target.value)}
+                    className="w-full min-w-0 cursor-pointer truncate border-none bg-transparent font-medium outline-none"
+                  >
+                    {TIMEZONE_FILTER_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Counts are of the zone-filtered queue, since they label that list. */}
               <div className="mt-2.5 flex items-center gap-1 overflow-x-auto text-[11px]">
                 <button
                   type="button"
                   onClick={() => setQueueFilter('all')}
-                  className={`rounded-md px-2 py-1 font-semibold transition-colors ${queueFilter === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
+                  className={`shrink-0 rounded-md px-2 py-1 font-semibold transition-colors ${queueFilter === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
                 >
-                  All ({queue.length})
+                  All ({zoneQueue.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setQueueFilter('callback')}
-                  className={`rounded-md px-2 py-1 font-semibold transition-colors ${queueFilter === 'callback' ? 'bg-[#9e2b21] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
+                  className={`shrink-0 rounded-md px-2 py-1 font-semibold transition-colors ${queueFilter === 'callback' ? 'bg-[#9e2b21] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
                 >
-                  Callback ({queue.filter((l) => getQueueItemType(l).type === 'callback').length})
+                  Callback ({zoneQueue.filter((l) => getQueueItemType(l).type === 'callback').length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setQueueFilter('zoom')}
-                  className={`rounded-md px-2 py-1 font-semibold transition-colors ${queueFilter === 'zoom' ? 'bg-[#2c5d8f] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
+                  className={`shrink-0 rounded-md px-2 py-1 font-semibold transition-colors ${queueFilter === 'zoom' ? 'bg-[#2c5d8f] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
                 >
-                  Zoom ({queue.filter((l) => getQueueItemType(l).type === 'zoom').length})
+                  Zoom ({zoneQueue.filter((l) => getQueueItemType(l).type === 'zoom').length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setQueueFilter('new_call')}
-                  className={`rounded-md px-2 py-1 font-semibold transition-colors ${queueFilter === 'new_call' ? 'bg-[#266929] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
+                  className={`shrink-0 rounded-md px-2 py-1 font-semibold transition-colors ${queueFilter === 'new_call' ? 'bg-[#266929] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
                 >
-                  New ({queue.filter((l) => getQueueItemType(l).type === 'new_call').length})
+                  New ({zoneQueue.filter((l) => getQueueItemType(l).type === 'new_call').length})
                 </button>
               </div>
             </div>
             <div className="max-h-[620px] overflow-y-auto p-[14px]">
-              {filteredQueue.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">No items in this queue.</p>}
+              {/* Two different empty states: an empty zone is worth naming, since
+                  otherwise "no items in this queue" reads as an empty queue and
+                  the rep has no reason to suspect a filter they set days ago. */}
+              {filteredQueue.length === 0 && (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  {tzFilter && zoneQueue.length === 0
+                    ? 'No leads available for the selected time zone.'
+                    : 'No items in this queue.'}
+                </p>
+              )}
               {filteredQueue.map((q) => {
                 const closed = q.status === 'closed' || q.status === 'rejected';
                 const activeCall = !!q.lastCallAt && !q.lastCallEndedAt && !q.lastWorkedAt;

@@ -11,6 +11,7 @@ import { Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { CAT, DirectionPill, useCallFilters } from '@/components/calls-shared';
 import { DateFilter, FilterSelect, optionsFrom } from '@/components/filter-controls';
+import { TIMEZONE_FILTER_OPTIONS } from '@/lib/timezone';
 import { useCallingEnabled } from '@/lib/use-calling-enabled';
 import { formatDate, formatDateTime, formatTime } from '@/lib/display-settings';
 
@@ -21,7 +22,6 @@ const LEAD_STATUS_OPTS = [
   { label: 'Contacted', value: 'contacted' },
 ] as const;
 
-const TIMEZONES = ['EST', 'CST', 'MST', 'PST'];
 
 /**
  * Calls Made — the call log: what was dialled in the selected range, summarised,
@@ -277,7 +277,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
       {/* Call Details filters — same geography/status/date bar as Lead Management. */}
       <div className="mb-[14px] flex flex-wrap items-center gap-2.5">
         {isManager && <FilterSelect icon={UserIcon} value={userId} onChange={setUserId} options={userOpts} />}
-        <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={[{ label: 'All Timezones', value: '' }, ...TIMEZONES.map((t) => ({ label: t, value: t }))]} />
+        <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={TIMEZONE_FILTER_OPTIONS} />
         <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         <FilterSelect icon={Tag} value={leadStatus} onChange={setLeadStatus} options={LEAD_STATUS_OPTS} />

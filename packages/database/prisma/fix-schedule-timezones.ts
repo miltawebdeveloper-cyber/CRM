@@ -45,10 +45,14 @@ const DEFAULT_FIX_AT = '2026-07-27T12:33:24Z';
  * and does not depend on the API being built.
  */
 const IANA: Record<Timezone, string> = {
+  UK: 'Europe/London',
+  IND: 'Asia/Kolkata',
   EST: 'America/New_York',
   CST: 'America/Chicago',
   MST: 'America/Denver',
   PST: 'America/Los_Angeles',
+  AKST: 'America/Anchorage',
+  HST: 'Pacific/Honolulu',
 };
 
 /** The zone's UTC offset in ms at a given instant — DST falls out of this. */

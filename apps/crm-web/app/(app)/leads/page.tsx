@@ -19,6 +19,8 @@ import { StatusPill } from '@/components/status-pill';
 import { TimezoneChip } from '@/components/timezone-chip';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
+import { LeadProgress } from '@/components/dashboard/lead-progress';
+import { LEAD_TIMEZONES, TIMEZONE_FILTER_OPTIONS } from '@/lib/timezone';
 import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
 import { type SortState } from '@/lib/use-column-prefs';
@@ -279,17 +281,6 @@ export default function LeadsPage() {
     retry: false,
   });
 
-  // Leads still outstanding — always the remainder of whichever ratio the
-  // Progress card shows, so the two cards can never disagree.
-  //   employee: Progress is contacted/total  → balance is the leads left to contact
-  //   manager:  Progress is total/planned    → balance is `balanceLeads` (planned − total)
-  // An employee's balance can't use `balanceLeads`: targets are set per
-  // territory, not per user, so `plannedLeads` is the whole territory's target
-  // and would dwarf one person's book.
-  const balanceLeads = isEmployee
-    ? Math.max((s?.totalLeads ?? 0) - (s?.contactedLeads ?? 0), 0)
-    : (s?.balanceLeads ?? 0);
-
   // Soft-delete selected leads (Admin / TL). Runs sequentially, then refreshes.
   // One transaction, not a loop of requests — deleting a few hundred leads used to
   // fire that many round-trips. Refreshes the table and every dashboard count.
@@ -512,19 +503,32 @@ export default function LeadsPage() {
         <div className="mb-3 rounded-md border bg-muted/50 px-3 py-2 text-[13px] text-muted-foreground">{syncMsg}</div>
       )}
 
-      {/* KPIs — for employees every card is derived from their own assigned book. */}
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+      {/* KPIs — for employees every card is derived from their own assigned book.
+          All four counts come straight from the API under one set of rules, so
+          this row reads the same as the dashboard's. The "Assigned Leads" card
+          used to show `plannedLeads` for a manager — the territory's monthly
+          TARGET, not the number of leads anyone had been given — which made
+          Balance and Progress answer a different question than their labels. */}
+      <div className="mb-4 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
         <KpiCard icon={Target} iconBg="#e7f0f8" iconColor="#2c5d8f" value={(s?.totalLeads ?? 0).toLocaleString()} label="Total Leads" />
-        <KpiCard icon={Zap} iconBg="#d8eed9" iconColor="#266929" value={(isEmployee ? (s?.totalLeads ?? 0) : (s?.plannedLeads ?? 0)).toLocaleString()} label="Assigned Leads" />
+        <KpiCard icon={Zap} iconBg="#d8eed9" iconColor="#266929" value={(s?.assignedLeads ?? 0).toLocaleString()} label="Assigned Leads" />
         <KpiCard icon={PhoneCall} iconBg="#e3f1ee" iconColor="#2f6f63" value={(s?.contactedLeads ?? 0).toLocaleString()} label="Contacted" />
-        <KpiCard icon={Hourglass} iconBg="#fbf3e2" iconColor="#c98a18" value={balanceLeads.toLocaleString()} label="Balance Leads" />
-        <KpiCard icon={Percent} iconBg="#e4f2e4" iconColor="#317d34" value={`${isEmployee ? (s?.contactedPct ?? 0) : (s?.progressPct ?? 0)}%`} label={isEmployee ? 'Progress' : 'Progress to Target'} />
+        <KpiCard icon={Hourglass} iconBg="#fbf3e2" iconColor="#c98a18" value={(s?.balanceLeads ?? 0).toLocaleString()} label="Balance Leads" />
+        <KpiCard icon={Percent} iconBg="#e4f2e4" iconColor="#317d34" value={`${s?.progressPct ?? 0}%`} label="Progress" />
+      </div>
+      <div className="mb-5">
+        <LeadProgress
+          contacted={s?.contactedLeads ?? 0}
+          assigned={s?.assignedLeads ?? 0}
+          pct={s?.progressPct}
+          label={isEmployee ? 'My Progress' : 'Progress'}
+        />
       </div>
 
       {/* Filter bar */}
       <div className="mb-[18px] flex flex-wrap items-center gap-2.5">
         <SearchInput value={q} onChange={setQ} placeholder="Search business, ID, phone, email…" className="min-w-[260px] flex-1" />
-        <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={[{ label: 'All Timezones', value: '' }, ...['EST', 'CST', 'MST', 'PST'].map((t) => ({ label: t, value: t }))]} />
+        <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={TIMEZONE_FILTER_OPTIONS} />
         <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         {/* Admin only. Hidden rather than disabled for other roles: a team
@@ -588,7 +592,7 @@ export default function LeadsPage() {
           <label className="space-y-1 text-sm">
             <span className="font-medium">Timezone</span>
             <select value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2">
-              {['EST', 'CST', 'MST', 'PST'].map((t) => <option key={t}>{t}</option>)}
+              {LEAD_TIMEZONES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </label>
           <label className="space-y-1 text-sm">

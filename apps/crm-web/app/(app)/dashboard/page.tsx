@@ -3,13 +3,14 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { RefreshCw, Download, PhoneCall, Target, Percent, Phone, PhoneMissed, CheckCircle2, Clock, Users, TrendingUp, Video } from 'lucide-react';
+import { RefreshCw, Download, PhoneCall, Target, Percent, Phone, PhoneMissed, CheckCircle2, Hourglass, Users, TrendingUp, Video } from 'lucide-react';
 import Link from 'next/link';
 import { leadsApi, type Lead } from '@/lib/leads';
 import { metricsApi, tasksApi, callsApi, communicationsApi, type Task, type Followup, type MissedCall } from '@/lib/crm';
 import { AvailabilityPanel } from '@/components/availability-panel';
 import { WidgetCard, type Column } from '@/components/dashboard/widget-card';
 import { KpiCard } from '@/components/dashboard/kpi-card';
+import { LeadProgress } from '@/components/dashboard/lead-progress';
 import { AnimatedNumber } from '@/components/animated-number';
 import { LiveIndicator } from '@/components/live-indicator';
 import { StatusPill } from '@/components/status-pill';
@@ -170,7 +171,8 @@ export default function DashboardPage() {
               [card('Total Leads'), s?.totalLeads ?? 0],
               [card('Assigned Leads'), s?.assignedLeads ?? 0],
               [card('Contacted Leads'), s?.contactedLeads ?? 0],
-              [card('Pending Leads'), s?.pendingLeads ?? 0],
+              [card('Balance Leads'), s?.balanceLeads ?? 0],
+              ['Progress (Contacted / Assigned)', `${s?.progressPct ?? 0}%`],
               [card('Follow-up Leads'), s?.followUpLeads ?? 0],
               [card('Converted Leads'), s?.convertedLeads ?? 0],
               // Named to match the sidebar and the module it links to. The
@@ -185,7 +187,7 @@ export default function DashboardPage() {
               [card('Callback Calls'), s?.callbackCalls ?? 0],
               ['Conversion Rate', `${s?.conversionPct ?? 0}%`],
               ['Planned Leads', s?.plannedLeads ?? 0],
-              ['Progress to Target', `${s?.progressPct ?? 0}%`],
+              ['Progress to Target', `${s?.targetProgressPct ?? 0}%`],
               ['Open Tasks', openTasks.length],
               ['Upcoming Follow-Ups', followups.length],
               ['Leads Added Today', todaysLeads.length],
@@ -214,7 +216,11 @@ export default function DashboardPage() {
           <KpiCard index={0} icon={Target} iconBg="#e7f0f8" iconColor="#2c5d8f" value={<AnimatedNumber value={s?.totalLeads ?? 0} />} label={card('Total Leads')} />
           <KpiCard index={1} icon={Users} iconBg="#e7f0f8" iconColor="#2c5d8f" value={<AnimatedNumber value={s?.assignedLeads ?? 0} />} label={card('Assigned Leads')} />
           <KpiCard index={2} icon={PhoneCall} iconBg="#e3f1ee" iconColor="#2f6f63" value={<AnimatedNumber value={s?.contactedLeads ?? 0} />} label={card('Contacted Leads')} />
-          <KpiCard index={3} icon={Clock} iconBg="#fbf3e2" iconColor="#c98a18" value={<AnimatedNumber value={s?.pendingLeads ?? 0} />} label={card('Pending Leads')} />
+          {/* Assigned minus contacted — the leads still owed a first conversation.
+              This replaced a "Pending Leads" card that measured total minus
+              contacted: for an admin that swept in every UNASSIGNED lead, so the
+              card counted work nobody had been given as work someone was late on. */}
+          <KpiCard index={3} icon={Hourglass} iconBg="#fbf3e2" iconColor="#c98a18" value={<AnimatedNumber value={s?.balanceLeads ?? 0} />} label={card('Balance Leads')} />
           <KpiCard index={4} icon={RefreshCw} iconBg="#fbf3e2" iconColor="#c98a18" value={<AnimatedNumber value={s?.followUpLeads ?? 0} />} label={card('Follow-up Leads')} />
           <KpiCard index={5} icon={TrendingUp} iconBg="#e4f2e4" iconColor="#317d34" value={<AnimatedNumber value={s?.convertedLeads ?? 0} />} label={card('Converted Leads')} />
           <KpiCard index={6} icon={CheckCircle2} iconBg="#e4f2e4" iconColor="#317d34" value={<AnimatedNumber value={s?.closedLeads ?? 0} />} label={card('Onboarding Leads')} />
@@ -223,6 +229,16 @@ export default function DashboardPage() {
           {!mine && s?.avgLeadsPerEmployee !== null && (
             <KpiCard index={7} icon={Users} iconBg="#d8eed9" iconColor="#266929" value={<AnimatedNumber value={s?.avgLeadsPerEmployee ?? 0} decimals={1} />} label="Avg Leads / Employee" />
           )}
+        </div>
+        {/* Contacted out of assigned — the same three numbers as the cards above,
+            so the bar can only ever move when one of them does. */}
+        <div className="mt-4">
+          <LeadProgress
+            contacted={s?.contactedLeads ?? 0}
+            assigned={s?.assignedLeads ?? 0}
+            pct={s?.progressPct}
+            label={mine ? 'My Progress' : 'Progress'}
+          />
         </div>
       </section>
 

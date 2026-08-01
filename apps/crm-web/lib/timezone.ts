@@ -11,15 +11,62 @@
  * which is wrong for any rep not sitting in the customer's time zone.
  */
 
-/** The lead time zones the CRM supports. Mirrors the API's Timezone enum. */
-export type LeadTimezone = 'EST' | 'CST' | 'MST' | 'PST';
+/**
+ * Region zones, not fixed offsets: `America/New_York` follows daylight time,
+ * where a literal `EST` would sit an hour out for most of the year. Same reason
+ * for `Europe/London` over `GMT`. Mirrors the API's `IANA_BY_TIMEZONE`, and the
+ * key order mirrors the `Timezone` enum's declaration order — which is the order
+ * every dropdown below offers them in.
+ */
+const IANA = {
+  UK: 'Europe/London',
+  IND: 'Asia/Kolkata',
+  EST: 'America/New_York',
+  CST: 'America/Chicago',
+  MST: 'America/Denver',
+  PST: 'America/Los_Angeles',
+  AKST: 'America/Anchorage',
+  HST: 'Pacific/Honolulu',
+} as const;
 
-/** The zones a rep can pick from, for the scheduler's inline zone prompt. */
-export const LEAD_TIMEZONES: { value: LeadTimezone; label: string }[] = [
-  { value: 'EST', label: 'EST — Eastern' },
-  { value: 'CST', label: 'CST — Central' },
-  { value: 'MST', label: 'MST — Mountain' },
-  { value: 'PST', label: 'PST — Pacific' },
+/** The lead time zones the CRM supports. Mirrors the API's Timezone enum. */
+export type LeadTimezone = keyof typeof IANA;
+
+/** Full names, as the filters and pickers spell them out. */
+export const TIMEZONE_LABELS: Record<LeadTimezone, string> = {
+  UK: 'UK (Europe/London)',
+  IND: 'India (Asia/Kolkata)',
+  EST: 'EST (Eastern Standard Time)',
+  CST: 'CST (Central Standard Time)',
+  MST: 'MST (Mountain Standard Time)',
+  PST: 'PST (Pacific Standard Time)',
+  AKST: 'AKST (Alaska Standard Time)',
+  HST: 'HST (Hawaii Standard Time)',
+};
+
+/**
+ * Every zone code, in offer order. Derived from `IANA` rather than written out
+ * again, so a zone can't be added to the CRM and then be missing from one filter
+ * — which is exactly how six screens ended up hardcoding the four US zones.
+ */
+export const TIMEZONE_CODES = Object.keys(IANA) as LeadTimezone[];
+
+/**
+ * The zones a rep can pick from: the scheduler's inline zone prompt, the lead
+ * form, the import mapper and every zone filter all read this one list.
+ */
+export const LEAD_TIMEZONES: { value: LeadTimezone; label: string }[] = TIMEZONE_CODES.map((value) => ({
+  value,
+  label: TIMEZONE_LABELS[value],
+}));
+
+/**
+ * Options for a zone <select> that can also mean "don't filter". The empty value
+ * is the no-filter sentinel every list endpoint already treats as absent.
+ */
+export const TIMEZONE_FILTER_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'All Time Zones' },
+  ...LEAD_TIMEZONES,
 ];
 
 /**
@@ -32,17 +79,6 @@ export const UNSET_TIMEZONE_LABEL = 'Unassigned';
 /** Is this lead's zone actually configured? Nothing may be scheduled until it is. */
 export const hasLeadZone = (tz?: string | null): tz is LeadTimezone =>
   !!tz && tz in IANA;
-
-/**
- * Region zones, not fixed offsets: `America/New_York` follows daylight time,
- * where a literal `EST` would sit an hour out for most of the year.
- */
-const IANA: Record<LeadTimezone, string> = {
-  EST: 'America/New_York',
-  CST: 'America/Chicago',
-  MST: 'America/Denver',
-  PST: 'America/Los_Angeles',
-};
 
 const DEFAULT_TZ: LeadTimezone = 'EST';
 

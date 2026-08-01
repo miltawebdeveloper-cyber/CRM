@@ -9,6 +9,7 @@ import { leadsApi } from '@/lib/leads';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { ImportDuplicatesDialog, type CheckFieldsState } from '@/components/import-duplicates-dialog';
 import { PageHead } from '@/components/page-head';
+import { TIMEZONE_CODES } from '@/lib/timezone';
 
 /** Server message if there is one, else the transport error. */
 function errorText(err: unknown): string {
@@ -63,7 +64,14 @@ const STATUS_MAP: Record<string, string> = {
   'closed won': 'closed',
   rejected: 'rejected',
 };
-const TIMEZONES = ['EST', 'CST', 'MST', 'PST'];
+/**
+ * Zone codes an import may carry, read off the shared list so a spreadsheet
+ * column saying `HST` is accepted the moment Hawaii becomes a supported zone —
+ * rather than being silently dropped by a copy of the list that was never
+ * updated. Anything unrecognised still normalises to undefined, leaving the lead
+ * honestly zone-less instead of guessing Eastern for it.
+ */
+const TIMEZONES: readonly string[] = TIMEZONE_CODES;
 
 function splitCsvLine(line: string): string[] {
   const out: string[] = [];

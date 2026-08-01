@@ -4,7 +4,7 @@ import { Timezone } from '@crm/database';
 /**
  * Lead time zones, and the one place a wall-clock time is turned into an instant.
  *
- * Every lead carries a US time zone, and a callback or Zoom meeting is agreed in
+ * Every lead carries a calling region, and a callback or Zoom meeting is agreed in
  * the CUSTOMER's local time — "four o'clock" means four o'clock where they are.
  * Nothing used to carry that: the panel posted a bare `2026-08-01T16:00` and the
  * API ran it through `new Date()`, which reads it in whatever zone the server
@@ -17,13 +17,43 @@ import { Timezone } from '@crm/database';
 /**
  * Region zones, not fixed offsets. `America/New_York` is deliberate: the fixed
  * `EST` zone would sit an hour out for the two thirds of the year the US is on
- * daylight time, so a summer callback would fire at the wrong hour.
+ * daylight time, so a summer callback would fire at the wrong hour. The same
+ * reasoning picks `Europe/London` over `GMT` (British Summer Time) and
+ * `America/Anchorage` over `AKST`.
+ *
+ * `Asia/Kolkata` and `Pacific/Honolulu` observe no daylight time, so for those
+ * two the region and the offset happen to coincide all year — they are written
+ * as regions anyway, so every entry here is read the same way.
  */
 export const IANA_BY_TIMEZONE: Record<Timezone, string> = {
+  [Timezone.UK]: 'Europe/London',
+  [Timezone.IND]: 'Asia/Kolkata',
   [Timezone.EST]: 'America/New_York',
   [Timezone.CST]: 'America/Chicago',
   [Timezone.MST]: 'America/Denver',
   [Timezone.PST]: 'America/Los_Angeles',
+  [Timezone.AKST]: 'America/Anchorage',
+  [Timezone.HST]: 'Pacific/Honolulu',
+};
+
+/**
+ * Every zone the CRM supports, in the order the UI offers them. Derived from the
+ * map above so a zone added to the enum cannot be left out of a filter, a chart
+ * or a dropdown — which is how the analytics breakdown came to enumerate four
+ * zones by hand and quietly total less than the lead count.
+ */
+export const ALL_TIMEZONES = Object.keys(IANA_BY_TIMEZONE) as Timezone[];
+
+/** Human name for a zone, for dropdowns and reports. */
+export const TIMEZONE_LABELS: Record<Timezone, string> = {
+  [Timezone.UK]: 'UK (Europe/London)',
+  [Timezone.IND]: 'India (Asia/Kolkata)',
+  [Timezone.EST]: 'EST (Eastern Standard Time)',
+  [Timezone.CST]: 'CST (Central Standard Time)',
+  [Timezone.MST]: 'MST (Mountain Standard Time)',
+  [Timezone.PST]: 'PST (Pacific Standard Time)',
+  [Timezone.AKST]: 'AKST (Alaska Standard Time)',
+  [Timezone.HST]: 'HST (Hawaii Standard Time)',
 };
 
 /**

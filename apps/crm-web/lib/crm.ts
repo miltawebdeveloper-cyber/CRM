@@ -16,10 +16,15 @@ export interface MetricsSummary {
   totalLeads: number;
   /** Leads that have an owner. For an employee this equals their total. */
   assignedLeads: number;
-  /** Leads successfully contacted (completed call or contacted-or-beyond status). */
+  /**
+   * Assigned leads successfully contacted (completed call or contacted-or-beyond
+   * status). Counted within `assignedLeads`, never across the whole book.
+   */
   contactedLeads: number;
-  /** Assigned but not yet reached — total minus contacted. */
-  pendingLeads: number;
+  /** Assigned but not yet reached — `assignedLeads − contactedLeads`. */
+  balanceLeads: number;
+  /** `contactedLeads ÷ assignedLeads` as a percentage; 0 when nothing is assigned. */
+  progressPct: number;
   /** Leads carrying an outstanding callback or a note with a next date. */
   followUpLeads: number;
   /** Reached a real opportunity or a deal (interested or closed). */
@@ -38,11 +43,12 @@ export interface MetricsSummary {
   /** Callbacks still owed. */
   callbackCalls: number;
   // ── Targets / rates ──
+  /** Monthly target summed over the matching territories. */
   plannedLeads: number;
-  balanceLeads: number;
-  /** Contacted as a % of total — per-book progress used for the employee view. */
-  contactedPct: number;
-  progressPct: number;
+  /** Shortfall against that target — `plannedLeads − totalLeads`. Not `balanceLeads`. */
+  targetBalanceLeads: number;
+  /** `totalLeads ÷ plannedLeads` as a percentage. Not `progressPct`. */
+  targetProgressPct: number;
   /** Converted as a share of the book. */
   conversionPct: number;
 }

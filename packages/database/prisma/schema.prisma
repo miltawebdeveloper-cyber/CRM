@@ -21,11 +21,23 @@ enum Role {
   viewer
 }
 
+/// Lead calling regions. Declared in the order they are offered in the UI, which
+/// is also the order Postgres sorts them in — so a `GROUP BY timezone` comes back
+/// west-to-east across the US with the two non-US regions ahead of it, rather
+/// than alphabetically.
+///
+/// These are region labels, not fixed offsets: `EST` selects `America/New_York`
+/// and therefore follows US daylight time. See `common/timezone.ts`, which owns
+/// the mapping and is the only place a wall clock is turned into an instant.
 enum Timezone {
+  UK // Europe/London
+  IND // Asia/Kolkata
   EST
   CST
   MST
   PST
+  AKST // America/Anchorage
+  HST // Pacific/Honolulu
 }
 
 enum LeadStatus {

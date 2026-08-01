@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { LeadStatus, Prisma, Timezone, Role, ZoomMeetingStatus } from '@crm/database';
+import { LeadStatus, Prisma, Role, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
-import { tzLabel, UNSET_TIMEZONE_LABEL } from '../../common/timezone';
+import { ALL_TIMEZONES, tzLabel, UNSET_TIMEZONE_LABEL } from '../../common/timezone';
 import { MetricsQueryDto } from './dto/metrics.dto';
 import { CONNECTED_CALL, MISSED_INBOUND_CALL } from '../calls/call-status';
 
@@ -57,6 +57,10 @@ export class MetricsService {
    * A lead counts as contacted once someone has actually reached it: a call that
    * completed, or a status of contacted-or-beyond. Derived live rather than
    * stored, so the count stays right as leads progress, are reworked or removed.
+   *
+   * Note this is a fragment, always spread onto an already-scoped clause — it is
+   * never the whole WHERE. The Contacted card counts contacted leads WITHIN the
+   * assigned set, not across the whole book.
    */
   private static readonly CONTACTED: Prisma.LeadWhereInput = {
     OR: [
@@ -80,11 +84,38 @@ export class MetricsService {
    * connected-call definition comes from call-status.ts, closed leads mean what
    * the Closed Leads module lists, follow-ups mean what the Follow-Ups page
    * shows — so a card can never disagree with the screen it summarises.
+   *
+   * THE FOUR LEAD CARDS AND THE PROGRESS BAR reconcile by construction:
+   *   Total     = every lead in scope
+   *   Assigned  = those with an owner (an employee's own book — so = Total)
+   *   Contacted = of the ASSIGNED ones, those reached
+   *   Balance   = Assigned − Contacted
+   *   Progress  = Contacted ÷ Assigned × 100, or 0 with nothing assigned
+   * Contacted is measured inside Assigned, not across Total, which is what makes
+   * Contacted + Balance add back up to Assigned on both the admin and the
+   * employee dashboard.
    */
   async summary(q: MetricsQueryDto, user?: { id: string; role: Role }) {
     const isEmployee = user?.role === Role.employee;
     // Already carries the employee scope — see `leadWhere`.
     const leadWhere = this.leadWhere(q, user);
+
+    // The assigned book: the denominator the Contacted, Balance and Progress
+    // cards are all measured against.
+    //
+    // For an employee this is simply their own leads — every lead they can see is
+    // one assigned to them, so their Total and Assigned agree by construction.
+    // For an admin it is the share of the book that has an owner at all, which is
+    // the number that actually moves.
+    //
+    // The employee branch must NOT spread `assignedToId: { not: null }` over the
+    // scoped clause — that key would replace the `assignedToId: <them>` the scope
+    // just set, widening every count to the whole organisation. Same key, same
+    // object; the last one wins. Deriving the clause once, here, is what stops
+    // that mistake being re-made per metric.
+    const assignedWhere: Prisma.LeadWhereInput = isEmployee
+      ? leadWhere
+      : { ...leadWhere, assignedToId: { not: null } };
 
     // Calls are filtered on when the call happened, matching the Calls Made
     // dashboard, and scoped to the employee who placed them.
@@ -111,18 +142,12 @@ export class MetricsService {
       employeeCount,
     ] = await Promise.all([
       this.prisma.lead.count({ where: leadWhere }),
-      // For an employee this necessarily equals their total: every lead they can
-      // see is one assigned to them. For an admin it is the share of the book
-      // that has an owner at all, which is the number that actually moves.
-      //
-      // The employee branch must NOT spread `assignedToId: { not: null }` over
-      // the scoped clause — that key would replace the `assignedToId: <them>`
-      // the scope just set, widening the count to every assigned lead in the
-      // organisation. Same key, same object; the last one wins.
-      this.prisma.lead.count({
-        where: isEmployee ? leadWhere : { ...leadWhere, assignedToId: { not: null } },
-      }),
-      this.prisma.lead.count({ where: { ...leadWhere, ...MetricsService.CONTACTED } }),
+      this.prisma.lead.count({ where: assignedWhere }),
+      // Contacted leads out of the ASSIGNED ones — the card reads as a share of
+      // the row above it, and Balance is exactly the remainder. Counting across
+      // the whole book instead would let an admin's Contacted exceed a plausible
+      // fraction of Assigned, and would make Assigned − Contacted meaningless.
+      this.prisma.lead.count({ where: { ...assignedWhere, ...MetricsService.CONTACTED } }),
       // Leads awaiting a follow-up, counted the way the Follow-Ups page lists
       // them: a callback still outstanding, or a note carrying a next date.
       // Counting LEADS (not rows) is what stops a lead with three notes being
@@ -163,15 +188,25 @@ export class MetricsService {
       isEmployee ? Promise.resolve(0) : this.prisma.user.count({ where: { role: Role.employee, isActive: true } }),
     ]);
 
-    // Pending = assigned leads nobody has reached yet, so Contacted + Pending
-    // accounts for the whole book and neither can drift from the other.
-    const pendingLeads = Math.max(totalLeads - contacted, 0);
+    // Balance = assigned leads nobody has reached yet. Contacted + Balance is
+    // exactly Assigned, so the three cards always reconcile and neither can
+    // drift from the other. `Math.max` is belt-and-braces: contacted is counted
+    // within the assigned set, so it can never exceed it.
+    const balanceLeads = Math.max(assignedLeads - contacted, 0);
+    // The progress bar measures how far through the assigned book the team is —
+    // contacted over assigned. With nothing assigned there is nothing to be a
+    // fraction of, so progress is 0 rather than a divide-by-zero NaN.
+    const progressPct = assignedLeads > 0 ? Number(((contacted / assignedLeads) * 100).toFixed(2)) : 0;
+
+    // ── Targets ──
+    // A different question entirely: how the book compares to the monthly target
+    // set per territory. Kept under `target…` names so it can't be mistaken for
+    // the contacted progress above — the two used to share the names `balanceLeads`
+    // and `progressPct`, which is how a target number ended up on a card that
+    // claimed to be about contacting leads.
     const plannedLeads = plannedAgg._sum.monthlyTarget ?? 0;
-    const balanceLeads = Math.max(plannedLeads - totalLeads, 0);
-    const progressPct = plannedLeads > 0 ? Number(((totalLeads / plannedLeads) * 100).toFixed(2)) : 0;
-    // Progress through the contacted pipeline — used for employees, whose target
-    // is per-book rather than per-territory.
-    const contactedPct = totalLeads > 0 ? Number(((contacted / totalLeads) * 100).toFixed(2)) : 0;
+    const targetBalanceLeads = Math.max(plannedLeads - totalLeads, 0);
+    const targetProgressPct = plannedLeads > 0 ? Number(((totalLeads / plannedLeads) * 100).toFixed(2)) : 0;
 
     return {
       /** Which set of numbers these are, so the UI can label the cards honestly. */
@@ -180,7 +215,10 @@ export class MetricsService {
       totalLeads,
       assignedLeads,
       contactedLeads: contacted,
-      pendingLeads,
+      /** Assigned minus contacted — the leads still owed a first conversation. */
+      balanceLeads,
+      /** Contacted ÷ assigned, as a percentage. Drives the progress bar. */
+      progressPct,
       followUpLeads,
       convertedLeads,
       closedLeads,
@@ -193,11 +231,10 @@ export class MetricsService {
       missedCalls,
       scheduledCalls,
       callbackCalls,
-      // ── Targets / rates (existing consumers) ──
+      // ── Targets / rates ──
       plannedLeads,
-      balanceLeads,
-      contactedPct,
-      progressPct,
+      targetBalanceLeads,
+      targetProgressPct,
       /** Converted as a share of the book — a real rate, unlike progress-to-target. */
       conversionPct: totalLeads > 0 ? Number(((convertedLeads / totalLeads) * 100).toFixed(1)) : 0,
     };
@@ -210,14 +247,16 @@ export class MetricsService {
       where: this.leadWhere(q, user),
       _count: { _all: true },
     });
-    const all: Timezone[] = ['EST', 'CST', 'MST', 'PST'];
-    const rows: { timezone: string; count: number }[] = all.map((tz) => ({
+    // Read off the enum rather than a hand-written list: the four US zones used
+    // to be spelled out here, so UK, India, Alaska and Hawaii leads would have
+    // been dropped from the chart the day they became selectable.
+    const rows: { timezone: string; count: number }[] = ALL_TIMEZONES.map((tz) => ({
       timezone: tz,
       count: grouped.find((g) => g.timezone === tz)?._count._all ?? 0,
     }));
     // Leads with no zone are a real bucket and get their own bar. Enumerating
-    // only the four zones dropped them from the chart, so the breakdown quietly
-    // added up to less than the lead count — and the leads that most need
+    // only the configured zones dropped them from the chart, so the breakdown
+    // quietly added up to less than the lead count — and the leads that most need
     // attention (no zone, so no callback can be booked) were the invisible ones.
     const unset = grouped.find((g) => g.timezone === null)?._count._all ?? 0;
     if (unset > 0) rows.push({ timezone: UNSET_TIMEZONE_LABEL, count: unset });
@@ -301,13 +340,19 @@ export class MetricsService {
     return [...byDay.entries()].map(([date, count]) => ({ date, count }));
   }
 
-  /** CHT-001 — bar chart: total / planned / balance. */
+  /**
+   * CHT-001 — bar chart: total / planned / balance.
+   *
+   * "Balance" here is the shortfall against the monthly target, not the
+   * uncontacted balance the dashboard cards show — this chart sits beside
+   * Planned, so it is the target sense of the word.
+   */
   async bar(q: MetricsQueryDto, user?: { id: string; role: Role }) {
     const s = await this.summary(q, user);
     return [
       { name: 'Total', value: s.totalLeads },
       { name: 'Planned', value: s.plannedLeads },
-      { name: 'Balance', value: s.balanceLeads },
+      { name: 'Balance', value: s.targetBalanceLeads },
     ];
   }
 
