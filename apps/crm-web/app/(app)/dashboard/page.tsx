@@ -10,7 +10,6 @@ import { metricsApi, tasksApi, callsApi, communicationsApi, type Task, type Foll
 import { AvailabilityPanel } from '@/components/availability-panel';
 import { WidgetCard, type Column } from '@/components/dashboard/widget-card';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { LeadProgress } from '@/components/dashboard/lead-progress';
 import { AnimatedNumber } from '@/components/animated-number';
 import { LiveIndicator } from '@/components/live-indicator';
 import { StatusPill } from '@/components/status-pill';
@@ -229,16 +228,6 @@ export default function DashboardPage() {
           {!mine && s?.avgLeadsPerEmployee !== null && (
             <KpiCard index={7} icon={Users} iconBg="#d8eed9" iconColor="#266929" value={<AnimatedNumber value={s?.avgLeadsPerEmployee ?? 0} decimals={1} />} label="Avg Leads / Employee" />
           )}
-        </div>
-        {/* Contacted out of assigned — the same three numbers as the cards above,
-            so the bar can only ever move when one of them does. */}
-        <div className="mt-4">
-          <LeadProgress
-            contacted={s?.contactedLeads ?? 0}
-            assigned={s?.assignedLeads ?? 0}
-            pct={s?.progressPct}
-            label={mine ? 'My Progress' : 'Progress'}
-          />
         </div>
       </section>
 

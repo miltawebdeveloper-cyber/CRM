@@ -19,7 +19,6 @@ import { StatusPill } from '@/components/status-pill';
 import { TimezoneChip } from '@/components/timezone-chip';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { LeadProgress } from '@/components/dashboard/lead-progress';
 import { LEAD_TIMEZONES, TIMEZONE_FILTER_OPTIONS } from '@/lib/timezone';
 import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
@@ -520,20 +519,12 @@ export default function LeadsPage() {
           used to show `plannedLeads` for a manager — the territory's monthly
           TARGET, not the number of leads anyone had been given — which made
           Balance and Progress answer a different question than their labels. */}
-      <div className="mb-4 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
         <KpiCard icon={Target} iconBg="#e7f0f8" iconColor="#2c5d8f" value={(s?.totalLeads ?? 0).toLocaleString()} label="Total Leads" />
         <KpiCard icon={Zap} iconBg="#d8eed9" iconColor="#266929" value={(s?.assignedLeads ?? 0).toLocaleString()} label="Assigned Leads" />
         <KpiCard icon={PhoneCall} iconBg="#e3f1ee" iconColor="#2f6f63" value={(s?.contactedLeads ?? 0).toLocaleString()} label="Contacted" />
         <KpiCard icon={Hourglass} iconBg="#fbf3e2" iconColor="#c98a18" value={(s?.balanceLeads ?? 0).toLocaleString()} label="Balance Leads" />
         <KpiCard icon={Percent} iconBg="#e4f2e4" iconColor="#317d34" value={`${s?.progressPct ?? 0}%`} label="Progress" />
-      </div>
-      <div className="mb-5">
-        <LeadProgress
-          contacted={s?.contactedLeads ?? 0}
-          assigned={s?.assignedLeads ?? 0}
-          pct={s?.progressPct}
-          label={isEmployee ? 'My Progress' : 'Progress'}
-        />
       </div>
 
       {/* Filter bar */}
