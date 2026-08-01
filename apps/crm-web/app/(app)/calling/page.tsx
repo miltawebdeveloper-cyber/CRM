@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Phone, Check, Target, CheckCircle2, Clock, Percent, Video, ExternalLink, MessageSquare, Mail, Briefcase, UserRound, Send, X, Loader2 } from 'lucide-react';
+import { Phone, Check, Target, CheckCircle2, Clock, Percent, Video, ExternalLink, MessageSquare, Mail, Briefcase, Factory, UserRound, Send, X, Loader2 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { callsApi, communicationsApi, outcomesApi, formatDuration, type CallPhase } from '@/lib/crm';
 import { api } from '@/lib/api';
@@ -768,6 +768,13 @@ export default function CallingPage() {
                     )}
                     {current.contactName2 && (
                       <span className="inline-flex items-center gap-1.5 text-[#d8eed9]"><Briefcase className="h-3.5 w-3.5 text-[#a6c74d]" /> {current.contactName2}</span>
+                    )}
+                    {/* What the business actually does — the line a rep opens on,
+                        and the one thing they otherwise had to leave the panel to
+                        look up. Sits after the contact and their role, before the
+                        ways to reach them. */}
+                    {current.industry && (
+                      <span className="inline-flex items-center gap-1.5 text-[#d8eed9]" title="Industry"><Factory className="h-3.5 w-3.5 text-[#a6c74d]" /> {current.industry}</span>
                     )}
                     {current.email && (
                       <a href={`mailto:${current.email}`} className="inline-flex items-center gap-1.5 text-[#d8eed9] hover:underline"><Mail className="h-3.5 w-3.5 text-[#a6c74d]" /> {current.email}</a>
