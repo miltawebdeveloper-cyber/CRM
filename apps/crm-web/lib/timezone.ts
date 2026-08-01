@@ -63,10 +63,29 @@ export const LEAD_TIMEZONES: { value: LeadTimezone; label: string }[] = TIMEZONE
 /**
  * Options for a zone <select> that can also mean "don't filter". The empty value
  * is the no-filter sentinel every list endpoint already treats as absent.
+ *
+ * Spelled out in full, for a control with room for it — the Call Panel's own
+ * dropdown, which owns a whole column.
  */
 export const TIMEZONE_FILTER_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'All Time Zones' },
   ...LEAD_TIMEZONES,
+];
+
+/**
+ * The same filter, by code, for the horizontal filter BARS.
+ *
+ * A native `<select>` takes its width from its widest option, so
+ * `EST (Eastern Standard Time)` makes the zone filter roughly twice the width of
+ * its neighbours — enough on its own to push the last filter in the row onto a
+ * second line. The codes are the CRM's own vocabulary and are what these bars
+ * showed before the zone list grew, so nothing is lost by using them where space
+ * is shared; `UK` and `India` are named rather than coded because neither has a
+ * code anyone would recognise.
+ */
+export const TIMEZONE_FILTER_OPTIONS_COMPACT: { value: string; label: string }[] = [
+  { value: '', label: 'All Time Zones' },
+  ...TIMEZONE_CODES.map((value) => ({ value, label: value === 'IND' ? 'India' : value })),
 ];
 
 /**

@@ -19,7 +19,7 @@ import { StatusPill } from '@/components/status-pill';
 import { TimezoneChip } from '@/components/timezone-chip';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { LEAD_TIMEZONES, TIMEZONE_FILTER_OPTIONS } from '@/lib/timezone';
+import { LEAD_TIMEZONES, TIMEZONE_FILTER_OPTIONS_COMPACT } from '@/lib/timezone';
 import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
 import { type SortState } from '@/lib/use-column-prefs';
@@ -527,18 +527,24 @@ export default function LeadsPage() {
         <KpiCard icon={Percent} iconBg="#e4f2e4" iconColor="#317d34" value={`${s?.progressPct ?? 0}%`} label="Progress" />
       </div>
 
-      {/* Filter bar */}
-      <div className="mb-[18px] flex flex-wrap items-center gap-2.5">
-        <SearchInput value={q} onChange={setQ} placeholder="Search business, ID, phone, email…" className="min-w-[260px] flex-1" />
-        <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={TIMEZONE_FILTER_OPTIONS} />
-        <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
-        <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
+      {/* Filter bar — one row on a laptop and up.
+          Each control takes `min-w-0 flex-1` so the row divides its width between
+          them rather than letting any one take its intrinsic size. A native
+          `<select>` is otherwise as wide as its longest option — the longest
+          employee name, the longest city — which is what overflowed the row and
+          wrapped the date filter onto a line of its own. Below `lg` it still
+          wraps, which is what a tablet and a phone want. */}
+      <div className="mb-[18px] flex flex-wrap items-center gap-2.5 lg:flex-nowrap">
+        <SearchInput value={q} onChange={setQ} placeholder="Search business, ID, phone, email…" className="min-w-[260px] flex-[2]" />
+        <FilterSelect className="min-w-0 flex-1" icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={TIMEZONE_FILTER_OPTIONS_COMPACT} />
+        <FilterSelect className="min-w-0 flex-1" icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
+        <FilterSelect className="min-w-0 flex-1" icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         {/* Admin only. Hidden rather than disabled for other roles: a team
             leader has no use for a control the API will ignore, and an
             employee is already pinned to their own book. */}
-        {isAdmin && <FilterSelect icon={UserIcon} value={employeeId} onChange={setEmployeeId} options={employeeOpts} />}
-        <FilterSelect icon={Tag} value={status} onChange={setStatus} options={STATUS_OPTS} />
-        <FilterSelect icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={callOutcomeOpts} />
+        {isAdmin && <FilterSelect className="min-w-0 flex-1" icon={UserIcon} value={employeeId} onChange={setEmployeeId} options={employeeOpts} />}
+        <FilterSelect className="min-w-0 flex-1" icon={Tag} value={status} onChange={setStatus} options={STATUS_OPTS} />
+        <FilterSelect className="min-w-0 flex-1" icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={callOutcomeOpts} />
         <DateFilter value={dateFilter} onChange={setDateFilter} />
       </div>
 

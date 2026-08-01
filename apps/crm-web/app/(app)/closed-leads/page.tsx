@@ -18,7 +18,7 @@ import { EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { usePersistedState } from '@/lib/use-persisted-state';
 import { pushToast } from '@/lib/toast';
 import { formatDate } from '@/lib/display-settings';
-import { TIMEZONE_FILTER_OPTIONS } from '@/lib/timezone';
+import { TIMEZONE_FILTER_OPTIONS_COMPACT } from '@/lib/timezone';
 
 /** Ceiling for an export — the API's `limit` cap. Beyond it the user is told
  *  what was left out rather than handed a short file that looks complete. */
@@ -226,14 +226,14 @@ export default function ClosedLeadsPage() {
         </button>
       </PageHead>
 
-      {/* Filter bar */}
-      <div className="mb-[18px] flex flex-wrap items-center gap-2.5">
-        <SearchInput value={q} onChange={setQ} placeholder="Search business, ID, phone, email…" className="min-w-[260px] flex-1" />
-        <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={TIMEZONE_FILTER_OPTIONS} />
-        <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
-        <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
-        {canManage && <FilterSelect icon={Info} value={closedBy} onChange={setClosedBy} options={closerOpts} />}
-        <FilterSelect icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={CALL_STATUS_OPTS} />
+      {/* Filter bar — one row from `lg` up; see the note on Lead Management's. */}
+      <div className="mb-[18px] flex flex-wrap items-center gap-2.5 lg:flex-nowrap">
+        <SearchInput value={q} onChange={setQ} placeholder="Search business, ID, phone, email…" className="min-w-[260px] flex-[2]" />
+        <FilterSelect className="min-w-0 flex-1" icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={TIMEZONE_FILTER_OPTIONS_COMPACT} />
+        <FilterSelect className="min-w-0 flex-1" icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
+        <FilterSelect className="min-w-0 flex-1" icon={Building2} value={city} onChange={setCity} options={cityOpts} />
+        {canManage && <FilterSelect className="min-w-0 flex-1" icon={Info} value={closedBy} onChange={setClosedBy} options={closerOpts} />}
+        <FilterSelect className="min-w-0 flex-1" icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={CALL_STATUS_OPTS} />
         <DateFilter value={dateFilter} onChange={setDateFilter} />
       </div>
 

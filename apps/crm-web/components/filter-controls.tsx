@@ -6,25 +6,36 @@ import { CalendarRange, Search, type LucideIcon } from 'lucide-react';
  * Controlled filter dropdown used across list pages. Pass the current `value`
  * and an `onChange`; options are `{ label, value }` pairs. The first option is
  * typically the "All …" reset whose value is an empty string.
+ *
+ * `className` is for the filter BAR to size the control — pass `min-w-0 flex-1`
+ * and the row shares its width out evenly instead of wrapping. That is not the
+ * default because a native `<select>` takes its intrinsic width from its WIDEST
+ * OPTION, so an unconstrained control is as wide as the longest employee name
+ * or city in the list. Left to itself a seven-filter row overflows and wraps;
+ * given a flex basis it can't.
  */
 export function FilterSelect({
   icon: Icon,
   value,
   onChange,
   options,
+  className = '',
 }: {
   icon: LucideIcon;
   value: string;
   onChange: (v: string) => void;
   options: readonly { label: string; value: string }[];
+  className?: string;
 }) {
   return (
-    <div className="flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium text-[#163618] dark:text-foreground">
-      <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+    <div className={`flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium text-[#163618] dark:text-foreground ${className}`}>
+      <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      {/* `w-full min-w-0` is what lets the wrapper's width win over the widest
+          option; without it the select refuses to shrink below its content. */}
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="cursor-pointer border-none bg-transparent font-medium outline-none"
+        className="w-full min-w-0 cursor-pointer truncate border-none bg-transparent font-medium outline-none"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>
