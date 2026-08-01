@@ -590,8 +590,12 @@ export default function CallingPage() {
                 </div>
               </div>
 
-              {/* Counts are of the zone-filtered queue, since they label that list. */}
-              <div className="mt-2.5 flex items-center gap-1 overflow-x-auto text-[11px]">
+              {/* Counts are of the zone-filtered queue, since they label that list.
+                  Wraps rather than scrolls: the queue column is 280px and four
+                  tabs don't fit on one line, so `overflow-x-auto` put a scrollbar
+                  under them and hid the last tab off the edge. Wrapping keeps all
+                  four visible and costs one row of height at most. */}
+              <div className="mt-2.5 flex flex-wrap items-center gap-1 text-[11px]">
                 <button
                   type="button"
                   onClick={() => setQueueFilter('all')}
