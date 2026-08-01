@@ -85,15 +85,31 @@ export class MetricsService {
    * the Closed Leads module lists, follow-ups mean what the Follow-Ups page
    * shows — so a card can never disagree with the screen it summarises.
    *
-   * THE FOUR LEAD CARDS AND THE PROGRESS BAR reconcile by construction:
-   *   Total     = every lead in scope
-   *   Assigned  = those with an owner (an employee's own book — so = Total)
-   *   Contacted = of the ASSIGNED ones, those reached
-   *   Balance   = Assigned − Contacted
-   *   Progress  = Contacted ÷ Assigned × 100, or 0 with nothing assigned
-   * Contacted is measured inside Assigned, not across Total, which is what makes
-   * Contacted + Balance add back up to Assigned on both the admin and the
-   * employee dashboard.
+   * THE LEAD CARDS RECONCILE BY CONSTRUCTION. Two nested sets, and every card
+   * says which one it belongs to:
+   *
+   *   Total       = every lead in scope
+   *    ├ Unassigned = no owner yet — nobody can have worked it
+   *    └ Assigned   = has an owner (an employee's own book — so = Total)
+   *        ├ Contacted = of those, the ones reached
+   *        └ Balance   = Assigned − Contacted
+   *       Follow-up / Converted / Onboarding are further cuts of ASSIGNED.
+   *
+   *   Progress    = Contacted ÷ Assigned × 100, or 0 with nothing assigned
+   *
+   * Every count below Assigned is measured inside it. That is not a detail:
+   * Follow-up, Converted and Onboarding used to be counted across the whole
+   * book while Contacted was counted inside Assigned, so an admin could be shown
+   * more Converted leads than Contacted ones — a lead reported as won that the
+   * row above said nobody had spoken to. Sharing one denominator is what stops a
+   * card exceeding the row it is a subset of.
+   *
+   * The trade this makes: a lead that is closed but has NO owner (worked and
+   * then unassigned, or imported with a status) no longer reaches the Onboarding
+   * card, though the Closed Leads module still lists it. That is the lesser
+   * inconsistency — the module answers "what is closed", this row answers "what
+   * has the team done with the leads it holds", and a row that cannot add up is
+   * worse than a row that is honestly about a smaller set.
    */
   async summary(q: MetricsQueryDto, user?: { id: string; role: Role }) {
     const isEmployee = user?.role === Role.employee;
@@ -154,7 +170,7 @@ export class MetricsService {
       // counted three times.
       this.prisma.lead.count({
         where: {
-          ...leadWhere,
+          ...assignedWhere,
           OR: [
             { callbackAt: { not: null }, callbackCompletedAt: null },
             { notes: { some: { nextFollowupDate: { not: null } } } },
@@ -164,8 +180,8 @@ export class MetricsService {
       // Converted = the lead became a real opportunity or a deal. Closed is the
       // narrower "won" set the Closed Leads module lists, so the two cards say
       // different things rather than repeating one number twice.
-      this.prisma.lead.count({ where: { ...leadWhere, status: { in: [LeadStatus.interested, LeadStatus.closed] } } }),
-      this.prisma.lead.count({ where: { ...leadWhere, status: LeadStatus.closed } }),
+      this.prisma.lead.count({ where: { ...assignedWhere, status: { in: [LeadStatus.interested, LeadStatus.closed] } } }),
+      this.prisma.lead.count({ where: { ...assignedWhere, status: LeadStatus.closed } }),
       this.prisma.target.aggregate({ where: this.targetWhere(q), _sum: { monthlyTarget: true } }),
       this.prisma.call.count({ where: callWhere }),
       this.prisma.call.count({ where: { ...callWhere, ...CONNECTED_CALL } }),
@@ -193,6 +209,12 @@ export class MetricsService {
     // drift from the other. `Math.max` is belt-and-braces: contacted is counted
     // within the assigned set, so it can never exceed it.
     const balanceLeads = Math.max(assignedLeads - contacted, 0);
+    // The rest of the book — leads nobody owns yet. Reported rather than left
+    // implicit so Total adds up on screen: without it an admin saw Total 471 and
+    // Assigned 181 with no account of the other 290, which read as a figure the
+    // dashboard had lost rather than work not yet handed out. Always 0 for an
+    // employee, whose scope is their own assigned leads by definition.
+    const unassignedLeads = Math.max(totalLeads - assignedLeads, 0);
     // The progress bar measures how far through the assigned book the team is —
     // contacted over assigned. With nothing assigned there is nothing to be a
     // fraction of, so progress is 0 rather than a divide-by-zero NaN.
@@ -213,12 +235,16 @@ export class MetricsService {
       scope: isEmployee ? ('personal' as const) : ('organization' as const),
       // ── Leads ──
       totalLeads,
+      /** Total minus assigned — the leads still waiting to be handed out. */
+      unassignedLeads,
       assignedLeads,
       contactedLeads: contacted,
       /** Assigned minus contacted — the leads still owed a first conversation. */
       balanceLeads,
       /** Contacted ÷ assigned, as a percentage. Drives the progress bar. */
       progressPct,
+      // All three are cuts of the ASSIGNED book, like Contacted and Balance —
+      // see the header note on why they can't be counted across Total.
       followUpLeads,
       convertedLeads,
       closedLeads,
@@ -235,8 +261,16 @@ export class MetricsService {
       plannedLeads,
       targetBalanceLeads,
       targetProgressPct,
-      /** Converted as a share of the book — a real rate, unlike progress-to-target. */
-      conversionPct: totalLeads > 0 ? Number(((convertedLeads / totalLeads) * 100).toFixed(1)) : 0,
+      /**
+       * Converted as a share of the ASSIGNED book — a real rate, unlike
+       * progress-to-target.
+       *
+       * Over `totalLeads` it would divide an assigned-scoped numerator by a
+       * whole-book denominator, which is the same mismatch the cards above had:
+       * every lead not yet handed out would drag the rate down as though the
+       * team had tried and failed to convert it.
+       */
+      conversionPct: assignedLeads > 0 ? Number(((convertedLeads / assignedLeads) * 100).toFixed(1)) : 0,
     };
   }
 

@@ -14,6 +14,8 @@ export interface MetricsSummary {
   scope: 'organization' | 'personal';
   // ── Leads ──
   totalLeads: number;
+  /** `totalLeads − assignedLeads` — still waiting to be handed out. 0 for an employee. */
+  unassignedLeads: number;
   /** Leads that have an owner. For an employee this equals their total. */
   assignedLeads: number;
   /**
@@ -25,11 +27,13 @@ export interface MetricsSummary {
   balanceLeads: number;
   /** `contactedLeads ÷ assignedLeads` as a percentage; 0 when nothing is assigned. */
   progressPct: number;
-  /** Leads carrying an outstanding callback or a note with a next date. */
+  // These three are cuts of the ASSIGNED book, like contacted/balance above, so
+  // no card can exceed the row it is a subset of.
+  /** Assigned leads carrying an outstanding callback or a note with a next date. */
   followUpLeads: number;
-  /** Reached a real opportunity or a deal (interested or closed). */
+  /** Assigned leads that reached a real opportunity or a deal (interested or closed). */
   convertedLeads: number;
-  /** Won — the same set the Closed Leads module lists. */
+  /** Assigned leads that are won. Excludes any closed lead with no owner. */
   closedLeads: number;
   /** Org-wide only; null on an employee's dashboard. */
   avgLeadsPerEmployee: number | null;
