@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto';
 import { closureCreateFields, closureFields } from './lead-closure';
-import { buildMatchKeys, decisionKey, emailDomain, type LeadMatchOptions, type MatchableRecord, type MatchSignal } from './lead-dedupe';
+import { buildMatchKeys, decisionKey, emailDomain, longestWord, type LeadMatchOptions, type MatchableRecord, type MatchSignal } from './lead-dedupe';
 import { LeadIdService } from './lead-id.service';
 
 /**
@@ -373,14 +373,17 @@ export class LeadsService {
    */
   /**
    * Flag which import rows duplicate an existing lead or an earlier row in the
-   * same file. A row is a duplicate only when its Phone or its Email matches
-   * EXACTLY — either one on its own is enough.
+   * same file. A row is a duplicate when its Phone or its Email matches
+   * EXACTLY — either one on its own is enough — and, where the options ask for
+   * them, on the company domain or on the location.
    *
-   * Company name is deliberately not compared, and nothing here scores partial
-   * or percentage similarity. Two records either share a contact point or they
-   * are two records: a name-shaped guess is what makes an import review argue
-   * with the person reading it, over franchise branches and common trading
-   * names that were never the same firm.
+   * Company name ALONE is deliberately not compared, and nothing here scores
+   * partial or percentage similarity. A name-shaped guess is what makes an
+   * import review argue with the person reading it, over franchise branches and
+   * common trading names that were never the same firm. The location rule is
+   * the answer to that rather than a retreat from it: the name only counts when
+   * the city and the state agree with it too, which is what tells one branch
+   * from another.
    *
    * Used both by the pre-import check (so the user is warned before anything is
    * written) and by the import itself when "skip duplicates" is chosen, so the
@@ -431,11 +434,13 @@ export class LeadsService {
     const wantPhone = new Set<string>();
     const wantEmail = new Set<string>();
     const wantDomain = new Set<string>();
+    const wantLocation = new Set<string>();
     const wantLeadId = new Set<string>();
     for (const [i, k] of rowKeys.entries()) {
       for (const ph of k.phone) wantPhone.add(ph);
       if (k.email) wantEmail.add(k.email);
       for (const d of k.domain) wantDomain.add(d);
+      if (k.location) wantLocation.add(k.location);
       if (rows[i].leadId) wantLeadId.add(rows[i].leadId!);
     }
 
@@ -491,6 +496,7 @@ export class LeadsService {
     const exPhone = new Map<string, Match>();
     const exEmail = new Map<string, Match>();
     const exDomain = new Map<string, Match>();
+    const exLocation = new Map<string, Match>();
     const exLeadId = new Map<string, Match>();
     const exUpdate = new Map<string, Match>();
 
@@ -517,8 +523,9 @@ export class LeadsService {
       if (page.length === 0) break;
 
       for (const l of page) {
-        // The company name rides along because the review has to NAME the lead
-        // it matched — it just has no say in whether they matched.
+        // The company name rides along for the review, which has to NAME the
+        // lead it matched. It has a say in whether they matched only under the
+        // location rule, and only alongside the city and the state.
         const m = toMatch(l);
         const k = keysOf(l);
         for (const ph of k.phone) {
@@ -527,6 +534,9 @@ export class LeadsService {
         if (k.email && wantEmail.has(k.email) && !exEmail.has(k.email)) exEmail.set(k.email, m);
         for (const d of k.domain) {
           if (wantDomain.has(d) && !exDomain.has(d)) exDomain.set(d, m);
+        }
+        if (k.location && wantLocation.has(k.location) && !exLocation.has(k.location)) {
+          exLocation.set(k.location, m);
         }
         if (wantLeadId.has(l.leadId) && !exLeadId.has(l.leadId)) exLeadId.set(l.leadId, m);
         for (const w of updateWindows(l.phone)) {
@@ -542,6 +552,7 @@ export class LeadsService {
     const seenPhone = new Set<string>();
     const seenEmail = new Set<string>();
     const seenDomain = new Set<string>();
+    const seenLocation = new Set<string>();
     const perRow = rows.map((r, index) => {
       const k = rowKeys[index];
       const on: MatchSignal[] = [];
@@ -568,9 +579,15 @@ export class LeadsService {
         if (ex || seenDomain.has(d)) domainHit = true;
       }
       if (domainHit) on.push('Company Domain');
+      if (k.location && (exLocation.has(k.location) || seenLocation.has(k.location))) {
+        on.push('Location');
+        const ex = exLocation.get(k.location);
+        if (ex) matches.set(ex.leadId, ex);
+      }
       for (const ph of k.phone) seenPhone.add(ph);
       if (k.email) seenEmail.add(k.email);
       for (const d of k.domain) seenDomain.add(d);
+      if (k.location) seenLocation.add(k.location);
 
       /**
        * What importing this row would actually DO, which is not the same
@@ -650,6 +667,7 @@ export class LeadsService {
       checkFields: dto.checkFields,
       ignorePhoneFormatting: dto.ignorePhoneFormatting,
       matchCompanyDomain: dto.matchCompanyDomain,
+      matchLocation: dto.matchLocation,
     });
     const dupByIndex = analysis.rows;
     const skipRowSet = new Set(dto.skipRowIndexes ?? []);
@@ -923,7 +941,7 @@ export class LeadsService {
     const rawDomain = emailDomain(rec.email);
 
     const phoneList = [...keys.phone];
-    if (phoneList.length === 0 && !rawDomain && domains.length === 0) return [];
+    if (phoneList.length === 0 && !rawDomain && domains.length === 0 && !keys.location) return [];
 
     const or: Prisma.LeadWhereInput[] = [];
     if (phoneList.length) {
@@ -941,6 +959,23 @@ export class LeadsService {
     for (const d of new Set([rawDomain, ...domains].filter(Boolean))) {
       or.push({ email: { endsWith: `@${d}`, mode: 'insensitive' } });
     }
+    // Location, narrowed the same way the email is: by something the folding
+    // cannot alter. Both `contains` terms are strict supersets of the compare
+    // (see longestWord), so this can only widen the candidate set, and the
+    // business-name trigram index from 20260729120000 answers it. The state is
+    // NOT narrowed on — "Florida" folds to "fl", which no SQL term here knows.
+    if (keys.location) {
+      const nameWord = longestWord(rec.businessName);
+      const cityWord = longestWord(rec.city);
+      if (nameWord && cityWord) {
+        or.push({
+          AND: [
+            { businessName: { contains: nameWord, mode: 'insensitive' } },
+            { city: { contains: cityWord, mode: 'insensitive' } },
+          ],
+        });
+      }
+    }
     if (or.length === 0) return [];
 
     const candidates = await this.prisma.lead.findMany({
@@ -951,7 +986,8 @@ export class LeadsService {
       },
       select: {
         id: true, leadId: true, businessName: true, phone: true, altPhone: true, email: true,
-        website: true, status: true, createdAt: true, assignedTo: { select: { name: true } },
+        website: true, city: true, state: true, status: true, createdAt: true,
+        assignedTo: { select: { name: true } },
       },
       // A wide net on a common domain still has to end somewhere; the narrowing
       // above is a superset, so this only bounds how much of it is examined.
@@ -969,6 +1005,7 @@ export class LeadsService {
       if ([...keys.phone].some((p) => ck.phone.has(p))) on.push('Phone');
       if (keys.email && ck.email === keys.email) on.push('Email');
       if ([...keys.domain].some((d) => ck.domain.has(d))) on.push('Company Domain');
+      if (keys.location && ck.location === keys.location) on.push('Location');
       if (on.length) {
         out.push({
           id: c.id, leadId: c.leadId, businessName: c.businessName, phone: c.phone,
@@ -1049,6 +1086,7 @@ export class LeadsService {
       for (const ph of k.phone) link(`p:${ph}`, i);
       if (k.email) link(`e:${k.email}`, i);
       for (const d of k.domain) link(`d:${d}`, i);
+      if (k.location) link(`l:${k.location}`, i);
     }
 
     const byRoot = new Map<number, number[]>();
@@ -1077,6 +1115,7 @@ export class LeadsService {
         if (count(members.flatMap((i) => [...keys[i].phone]))) signals.add('Phone');
         if (count(members.map((i) => keys[i].email).filter(Boolean))) signals.add('Email');
         if (count(members.flatMap((i) => [...keys[i].domain]))) signals.add('Company Domain');
+        if (count(members.map((i) => keys[i].location).filter(Boolean))) signals.add('Location');
 
         // Oldest first, then most complete: the record most likely worth keeping
         // leads the group, but the screen never decides on the user's behalf.

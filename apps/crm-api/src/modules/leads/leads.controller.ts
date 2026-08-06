@@ -42,6 +42,12 @@ export class LeadsController {
     return this.leads.checkImport(dto.rows, {
       checkFields: dto.checkFields,
       ignorePhoneFormatting: dto.ignorePhoneFormatting,
+      // Both of the opt-in rules travel with the check, not just the import.
+      // They were being dropped here, so a review run with "match the company
+      // domain" ticked reported on a rule the import then applied anyway — the
+      // one thing this pair of screens exists to keep in step.
+      matchCompanyDomain: dto.matchCompanyDomain,
+      matchLocation: dto.matchLocation,
     });
   }
 
@@ -91,8 +97,8 @@ export class LeadsController {
   @Post('check-duplicate')
   @HttpCode(200)
   checkDuplicate(@Body() dto: CheckDuplicateDto) {
-    const { matchCompanyDomain, ...rec } = dto;
-    return this.leads.findDuplicatesFor(rec, { matchCompanyDomain });
+    const { matchCompanyDomain, matchLocation, ...rec } = dto;
+    return this.leads.findDuplicatesFor(rec, { matchCompanyDomain, matchLocation });
   }
 
   @Get(':id')

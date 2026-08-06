@@ -7,11 +7,12 @@
  * needs the rule reads it from here rather than writing its own.
  *
  * The rule is exact, not similar. Nothing here scores partial or percentage
- * matches — records either share a contact point or they are two records.
+ * matches — records either share a contact point, or they are the same company
+ * name in the same city and state, or they are two records.
  */
 
 /** Signals a match can be reported on, in the order they are reported. */
-export type MatchSignal = 'Phone' | 'Email' | 'Company Domain';
+export type MatchSignal = 'Phone' | 'Email' | 'Company Domain' | 'Location';
 
 export interface LeadMatchOptions {
   /** Which of `phone` / `email` to compare. Absent or empty compares both. */
@@ -20,6 +21,8 @@ export interface LeadMatchOptions {
   ignorePhoneFormatting?: boolean;
   /** Also compare the company's own domain, taken from email and website. */
   matchCompanyDomain?: boolean;
+  /** Also compare business name AND city AND state, all three together. */
+  matchLocation?: boolean;
 }
 
 /** Anything with contact columns — an import row or a stored lead. */
@@ -28,6 +31,9 @@ export interface MatchableRecord {
   altPhone?: string | null;
   email?: string | null;
   website?: string | null;
+  businessName?: string | null;
+  city?: string | null;
+  state?: string | null;
 }
 
 export interface MatchKeys {
@@ -37,6 +43,8 @@ export interface MatchKeys {
   email: string;
   /** The company's own domains, from its email and its website. */
   domain: Set<string>;
+  /** Business name + city + state as one key, or '' when any is missing. */
+  location: string;
 }
 
 /**
@@ -143,6 +151,94 @@ export function phoneKeys(rec: MatchableRecord, ignoreFormatting = false): Set<s
 }
 
 /**
+ * Text folded to its words: lower-cased, every separator flattened to one space.
+ * "St. Louis" and "St Louis" are one city; "ACME  TAX" and "Acme Tax" one name.
+ *
+ * Nothing is REMOVED. "Inc", "LLC" and "& Sons" stay exactly where they are —
+ * dropping legal suffixes would fold Acme Holdings LLC into Acme Holdings Inc,
+ * and those are two companies with two sets of books. Letters and digits of any
+ * script survive, so an accented name keeps its shape instead of being minced.
+ */
+export function textKey(v?: string | null): string {
+  return (v ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+/**
+ * US states by their two-letter code, so a sheet writing "Florida" and a book
+ * holding "FL" are one state rather than two.
+ *
+ * A fixed lookup of one place under two spellings, not a similarity guess —
+ * which is the only kind of folding this file does anywhere.
+ */
+const STATE_CODES = new Map<string, string>(Object.entries({
+  alabama: 'al', alaska: 'ak', arizona: 'az', arkansas: 'ar', california: 'ca', colorado: 'co',
+  connecticut: 'ct', delaware: 'de', florida: 'fl', georgia: 'ga', hawaii: 'hi', idaho: 'id',
+  illinois: 'il', indiana: 'in', iowa: 'ia', kansas: 'ks', kentucky: 'ky', louisiana: 'la',
+  maine: 'me', maryland: 'md', massachusetts: 'ma', michigan: 'mi', minnesota: 'mn',
+  mississippi: 'ms', missouri: 'mo', montana: 'mt', nebraska: 'ne', nevada: 'nv',
+  'new hampshire': 'nh', 'new jersey': 'nj', 'new mexico': 'nm', 'new york': 'ny',
+  'north carolina': 'nc', 'north dakota': 'nd', ohio: 'oh', oklahoma: 'ok', oregon: 'or',
+  pennsylvania: 'pa', 'rhode island': 'ri', 'south carolina': 'sc', 'south dakota': 'sd',
+  tennessee: 'tn', texas: 'tx', utah: 'ut', vermont: 'vt', virginia: 'va', washington: 'wa',
+  'west virginia': 'wv', wisconsin: 'wi', wyoming: 'wy',
+  'district of columbia': 'dc', 'washington dc': 'dc', 'puerto rico': 'pr',
+}));
+
+/**
+ * A state folded to its code where one is known, else just folded text.
+ *
+ * The two-letter fallback catches a code written with punctuation — "N.Y."
+ * folds to "n y", which is the same state as "NY" and nothing else, since no
+ * state name survives folding as two letters.
+ */
+export function stateKey(v?: string | null): string {
+  const s = textKey(v);
+  const known = STATE_CODES.get(s);
+  if (known) return known;
+  const flat = s.replace(/ /g, '');
+  return flat.length === 2 ? flat : s;
+}
+
+/**
+ * The same company at the same place: business name AND city AND state, all
+ * three equal after folding.
+ *
+ * Name alone is deliberately NOT a signal and never will be — franchise
+ * branches and common trading names are exactly what a name-only rule gets
+ * wrong, and this is the answer to that rather than a retreat from it. "Acme
+ * Tax, Miami FL" twice is one firm listed twice; "Acme Tax, Miami FL" and "Acme
+ * Tax, Austin TX" stay two leads, which is the whole point of carrying the city
+ * and the state.
+ *
+ * Returns '' unless all three are filled in. A record missing its city has no
+ * location to compare, and letting blanks match blanks would quietly collapse
+ * every incomplete record in the book into one enormous group.
+ */
+export function locationKey(rec: MatchableRecord): string {
+  const name = textKey(rec.businessName);
+  const city = textKey(rec.city);
+  const state = stateKey(rec.state);
+  if (!name || !city || !state) return '';
+  return `n:${name}|c:${city}|s:${state}`;
+}
+
+/**
+ * The longest word of a value, for narrowing a SQL search down to the rows a
+ * location match could possibly accept.
+ *
+ * Safe to narrow by because folding only ever turns separators into spaces: any
+ * word it produces still appears verbatim — case aside — inside the stored
+ * text, so `contains` on it is a strict SUPERSET of a location match and never
+ * a filter that hides one. The longest word is picked because it is the most
+ * selective one available; the compare itself still happens in TypeScript.
+ */
+export function longestWord(v?: string | null): string {
+  let best = '';
+  for (const w of textKey(v).split(' ')) if (w.length > best.length) best = w;
+  return best;
+}
+
+/**
  * The identity a remembered duplicate decision is filed under.
  *
  * Built from the record's own contact points, NOT from the lead it matched or
@@ -158,6 +254,13 @@ export function phoneKeys(rec: MatchableRecord, ignoreFormatting = false): Set<s
  *
  * Returns '' for a record with no contact point at all, which cannot be
  * recognised again and therefore must not be remembered.
+ *
+ * Location is deliberately absent for the same reason the options are: adding
+ * it would rewrite the key every stored decision is filed under, and every
+ * ruling made before today would stop being found. A row flagged only on its
+ * location and holding no phone or email keys under '' and is simply not
+ * remembered, which is the existing rule for a record with nothing to be
+ * recognised by.
  */
 export function decisionKey(rec: MatchableRecord): string {
   const phones = [...phoneKeys(rec, false)].sort();
@@ -175,5 +278,6 @@ export function buildMatchKeys(rec: MatchableRecord, opts: LeadMatchOptions = {}
     phone: wantPhone ? phoneKeys(rec, opts.ignorePhoneFormatting) : new Set<string>(),
     email: wantEmail ? emailKey(rec.email) : '',
     domain: opts.matchCompanyDomain ? companyDomains(rec) : new Set<string>(),
+    location: opts.matchLocation ? locationKey(rec) : '',
   };
 }

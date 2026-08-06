@@ -1061,7 +1061,7 @@ export interface ImportMatchedLead {
 }
 export interface ImportDuplicateRow {
   index: number;
-  /** Which fields matched exactly — `Phone`, `Email`, or both. */
+  /** Which fields matched exactly — `Phone`, `Email`, `Company Domain`, `Location`. */
   matchedOn: string[];
   /** The import row's own key fields (left side of the review grid). */
   row: { businessName: string; phone: string; email: string };
@@ -1136,6 +1136,10 @@ export interface LeadRow {
 export interface ImportMatchOptions {
   checkFields?: string[];
   ignorePhoneFormatting?: boolean;
+  /** Compare the company's own domain, from the email and the website. */
+  matchCompanyDomain?: boolean;
+  /** Compare business name + city + state, all three together. */
+  matchLocation?: boolean;
 }
 export const importApi = {
   /** Import. `skipDuplicates` leaves out rows matching an existing lead (or an earlier file row). */

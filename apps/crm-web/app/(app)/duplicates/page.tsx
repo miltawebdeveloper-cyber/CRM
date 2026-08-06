@@ -28,6 +28,7 @@ export default function DuplicatesPage() {
     checkFields: ['phone', 'email'],
     ignorePhoneFormatting: false,
     matchCompanyDomain: false,
+    matchLocation: false,
   });
   const [ran, setRan] = useState(false);
   const [confirmPurge, setConfirmPurge] = useState(false);
@@ -172,6 +173,25 @@ export default function DuplicatesPage() {
                 From the email and the website. Noisier — it groups two{' '}
                 <b className="font-semibold">different people</b> at one firm, which is often two real leads. Gmail and
                 other mailbox providers are ignored.
+              </span>
+            </span>
+          </label>
+
+          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-dashed bg-muted/30 px-3 py-2.5 text-[12.5px] sm:col-span-2">
+            <input
+              type="checkbox"
+              checked={!!opts.matchLocation}
+              onChange={() => setOpts((p) => ({ ...p, matchLocation: !p.matchLocation }))}
+              className="mt-0.5 h-4 w-4 rounded border-muted-foreground/30 accent-primary"
+            />
+            <span>
+              <span className="font-medium">Also match company name with city and state</span>
+              <span className="block text-[11.5px] leading-relaxed text-muted-foreground">
+                All three together, so <span className="font-mono">Acme Tax · Miami · FL</span> listed twice is one
+                firm, while <span className="font-mono">Acme Tax · Austin · TX</span> stays its own lead. Catches the
+                same company saved again under a different number. Case, punctuation and{' '}
+                <span className="font-mono">Florida</span> vs <span className="font-mono">FL</span> are ignored; records
+                missing any of the three are not compared on location at all.
               </span>
             </span>
           </label>

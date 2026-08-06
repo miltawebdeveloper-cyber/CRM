@@ -241,7 +241,8 @@ export class ImportLeadsDto {
   skipRowIndexes?: number[];
 
   /** Which fields the duplicate check compares: `phone`, `email`, or both.
-   *  Absent or empty means both. Company name is not a duplicate signal. */
+   *  Absent or empty means both. Company name on its own is never a signal —
+   *  it counts only with the city and state, via `matchLocation`. */
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
@@ -266,6 +267,16 @@ export class ImportLeadsDto {
   @IsOptional()
   @IsBoolean()
   matchCompanyDomain?: boolean;
+
+  /**
+   * Also compare business name AND city AND state together, so the same firm
+   * re-listed with a different phone or a blank email is caught. All three must
+   * match; a branch in another city is still its own lead. Off by default.
+   */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  matchLocation?: boolean;
 }
 
 /** Body for the pre-import duplicate check — parsed rows and optional duplicate validation fields. */
@@ -276,7 +287,8 @@ export class CheckImportDto {
   rows: CreateLeadDto[];
 
   /** Which fields the duplicate check compares: `phone`, `email`, or both.
-   *  Absent or empty means both. Company name is not a duplicate signal. */
+   *  Absent or empty means both. Company name on its own is never a signal —
+   *  it counts only with the city and state, via `matchLocation`. */
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
@@ -301,6 +313,16 @@ export class CheckImportDto {
   @IsOptional()
   @IsBoolean()
   matchCompanyDomain?: boolean;
+
+  /**
+   * Also compare business name AND city AND state together, so the same firm
+   * re-listed with a different phone or a blank email is caught. All three must
+   * match; a branch in another city is still its own lead. Off by default.
+   */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  matchLocation?: boolean;
 }
 
 /** Body for the single-record duplicate check the New Lead form calls. */
@@ -325,6 +347,23 @@ export class CheckDuplicateDto {
   @IsString()
   website?: string;
 
+  /** The three location columns, compared only together and only when
+   *  `matchLocation` is set. Sent by the form so the check CAN compare them. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  businessName?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  state?: string;
+
   /** Ignore one lead when checking — the record being edited is not its own duplicate. */
   @ApiPropertyOptional()
   @IsOptional()
@@ -335,6 +374,11 @@ export class CheckDuplicateDto {
   @IsOptional()
   @IsBoolean()
   matchCompanyDomain?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  matchLocation?: boolean;
 }
 
 /**
@@ -360,6 +404,13 @@ export class DuplicateGroupsQueryDto {
   @Transform(({ value }) => value === true || value === 'true' || value === '1')
   @IsBoolean()
   matchCompanyDomain?: boolean;
+
+  /** Compare business name AND city AND state together. Off by default. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  matchLocation?: boolean;
 
   /** Groups to return, largest first. The totals cover the whole scan either way. */
   @ApiPropertyOptional({ minimum: 1, maximum: 500, default: 100 })

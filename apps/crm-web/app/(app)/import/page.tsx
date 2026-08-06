@@ -314,6 +314,13 @@ export default function ImportPage() {
    */
   const [matchCompanyDomain, setMatchCompanyDomain] = useState(false);
 
+  /**
+   * Also off by default. Company name counts only WITH the city and the state —
+   * all three or nothing — which is what keeps two branches of one franchise
+   * apart while catching the same office re-listed under a new number.
+   */
+  const [matchLocation, setMatchLocation] = useState(false);
+
   const activeCheckFields = useMemo(() => {
     const fields: string[] = [];
     if (dupCheckFields.phone) fields.push('phone');
@@ -322,8 +329,8 @@ export default function ImportPage() {
   }, [dupCheckFields]);
 
   const matchOptions = useMemo(
-    () => ({ checkFields: activeCheckFields, ignorePhoneFormatting, matchCompanyDomain }),
-    [activeCheckFields, ignorePhoneFormatting, matchCompanyDomain],
+    () => ({ checkFields: activeCheckFields, ignorePhoneFormatting, matchCompanyDomain, matchLocation }),
+    [activeCheckFields, ignorePhoneFormatting, matchCompanyDomain, matchLocation],
   );
 
   // Per-row decisions for duplicate rows: row index -> 'import' | 'skip'
@@ -567,7 +574,7 @@ export default function ImportPage() {
               <Filter className="h-4 w-4 text-primary" />
               <h3 className="font-display text-[15px] font-semibold">Duplicate Validation Settings</h3>
             </div>
-            <span className="text-[12px] text-muted-foreground">A row is a duplicate only on an exact Phone or Email match</span>
+            <span className="text-[12px] text-muted-foreground">A row is a duplicate on an exact match — never on a partial one</span>
           </div>
           <div className="flex flex-wrap items-center gap-6 pt-1 text-[13px]">
             {(
@@ -635,9 +642,28 @@ export default function ImportPage() {
             </span>
           </label>
 
+          <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-lg border border-dashed bg-muted/30 px-3 py-2.5 text-[12.5px]">
+            <input
+              type="checkbox"
+              checked={matchLocation}
+              onChange={() => { setMatchLocation((v) => !v); setDupResult(null); }}
+              className="mt-0.5 h-4 w-4 rounded border-muted-foreground/30 accent-primary"
+            />
+            <span>
+              <span className="font-medium">Also match company name with city and state</span>
+              <span className="block text-[11.5px] leading-relaxed text-muted-foreground">
+                All three together, so <span className="font-mono">Acme Tax · Miami · FL</span> already in the CRM
+                flags a row for the same firm even when its number is new, while{' '}
+                <span className="font-mono">Acme Tax · Austin · TX</span> stays a separate lead. Case, punctuation and{' '}
+                <span className="font-mono">Florida</span> vs <span className="font-mono">FL</span> are ignored. Rows
+                missing any of the three are not compared on location.
+              </span>
+            </span>
+          </label>
+
           <p className="mt-2.5 text-[11.5px] leading-relaxed text-muted-foreground">
-            Company name is not compared — two firms trading under the same word are two leads. Rows are checked
-            against both the leads already in the CRM and the earlier rows of this file.
+            Company name is never compared on its own — two firms trading under the same word are two leads. Rows are
+            checked against both the leads already in the CRM and the earlier rows of this file.
           </p>
         </div>
       )}

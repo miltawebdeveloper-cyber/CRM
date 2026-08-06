@@ -247,7 +247,7 @@ export interface DuplicateMatch {
   status: string;
   assignedTo: string | null;
   createdAt: string;
-  /** `Phone`, `Email`, `Company Domain`. */
+  /** `Phone`, `Email`, `Company Domain`, `Location`. */
   matchedOn: string[];
 }
 
@@ -258,6 +258,8 @@ export interface DuplicateScanOptions {
   checkFields?: string[];
   ignorePhoneFormatting?: boolean;
   matchCompanyDomain?: boolean;
+  /** Compare business name + city + state, all three together. */
+  matchLocation?: boolean;
   limit?: number;
 }
 export interface DuplicateGroupLead {
@@ -279,7 +281,7 @@ export interface DuplicateGroupLead {
 }
 export interface DuplicateGroup {
   size: number;
-  /** `Phone`, `Email`, `Company Domain` — whichever bind this group. */
+  /** `Phone`, `Email`, `Company Domain`, `Location` — whichever bind this group. */
   matchedOn: string[];
   /** Oldest first, then most complete. */
   leads: DuplicateGroupLead[];
@@ -343,6 +345,9 @@ export const leadsApi = {
   /** Leads matching one record, for warning before a create is attempted. */
   checkDuplicate: async (rec: {
     phone?: string; altPhone?: string; email?: string; website?: string; excludeId?: string;
+    // Compared only together, and only when `matchLocation` asks for them.
+    businessName?: string; city?: string; state?: string;
+    matchCompanyDomain?: boolean; matchLocation?: boolean;
   }): Promise<DuplicateMatch[]> => (await api.post('/leads/check-duplicate', rec)).data,
   // Managers-only edit. Any subset of fields; `status` and `caller` (reassign)
   // are accepted in addition to the create fields.
@@ -363,6 +368,7 @@ export const leadsApi = {
         ...(opts.checkFields?.length ? { checkFields: opts.checkFields.join(',') } : {}),
         ...(opts.ignorePhoneFormatting ? { ignorePhoneFormatting: 'true' } : {}),
         ...(opts.matchCompanyDomain ? { matchCompanyDomain: 'true' } : {}),
+        ...(opts.matchLocation ? { matchLocation: 'true' } : {}),
         ...(opts.limit ? { limit: opts.limit } : {}),
       },
     })).data,
