@@ -1,10 +1,11 @@
 'use client';
 
-import { Check, Clock, Globe, Languages, Loader2, Palette } from 'lucide-react';
+import { Check, Clock, Globe, Languages, Loader2, Palette, Rows3 } from 'lucide-react';
 import { useDisplaySettings } from '@/components/display-settings-provider';
 import { pushToast } from '@/lib/toast';
 import { coverage } from '@/lib/i18n';
 import { PALETTES } from '@/lib/palette';
+import { DENSITIES } from '@/lib/density';
 import {
   DISPLAY_TIMEZONES,
   LANGUAGES,
@@ -23,8 +24,13 @@ import {
  * panel is ungated and the preference is stored per user.
  */
 export function DisplayPreferences() {
-  const { timezone, language, palette, loading, setTimezone, setLanguage, setPalette } = useDisplaySettings();
+  const { timezone, language, palette, density, loading, setTimezone, setLanguage, setPalette, setDensity } = useDisplaySettings();
   const browserGuess = guessTimezone();
+
+  const chooseDensity = (id: string) => {
+    setDensity(id);
+    pushToast('success', `Rows set to ${DENSITIES.find((d) => d.id === id)?.label ?? id}.`);
+  };
 
   const choosePalette = (id: string) => {
     setPalette(id);
@@ -81,6 +87,52 @@ export function DisplayPreferences() {
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[12.5px] font-semibold">{p.label}</span>
                   <span className="block truncate text-[11px] text-muted-foreground">{p.hint}</span>
+                </span>
+                {active && <Check className="h-4 w-4 shrink-0 text-primary" />}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* ── Row density ── */}
+      <section className="rounded-2xl border bg-card p-[18px] shadow-sm">
+        <div className="mb-1 flex items-center gap-2">
+          <Rows3 className="h-4 w-4 text-muted-foreground" />
+          <h3 className="font-display text-[14px] font-semibold">Row Density</h3>
+        </div>
+        <p className="mb-3.5 text-[12px] leading-relaxed text-muted-foreground">
+          How much air every table gives a record. Only the space above and below a row changes —{' '}
+          <span className="text-foreground">the text stays the same size</span>, so nothing reflows or truncates
+          differently. Saved to your account.
+        </p>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          {DENSITIES.map((d) => {
+            const active = density === d.id;
+            return (
+              <button
+                key={d.id}
+                onClick={() => chooseDensity(d.id)}
+                aria-pressed={active}
+                className={`flex items-center gap-2.5 rounded-xl border-[1.5px] px-3 py-2.5 text-left transition-colors ${
+                  active ? 'border-primary bg-primary/5' : 'hover:bg-muted'
+                }`}
+              >
+                {/* Three stacked bars at this setting's real proportions — the
+                    choice is about row height, so the preview is row height. */}
+                <span className="flex h-7 w-8 shrink-0 flex-col justify-center gap-[2px] rounded-[8px] border px-1">
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      className="w-full rounded-[1px] bg-muted-foreground/45"
+                      style={{ height: d.id === 'compact' ? 3 : 5 }}
+                    />
+                  ))}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12.5px] font-semibold">{d.label}</span>
+                  <span className="block truncate text-[11px] text-muted-foreground">{d.hint}</span>
                 </span>
                 {active && <Check className="h-4 w-4 shrink-0 text-primary" />}
               </button>

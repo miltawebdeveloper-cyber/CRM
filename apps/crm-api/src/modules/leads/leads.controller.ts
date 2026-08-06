@@ -141,6 +141,28 @@ export class LeadsController {
     return this.leads.removeMany(dto.ids, user);
   }
 
+  /**
+   * Remove many leads REVERSIBLY — the Duplicate Leads purge.
+   *
+   * A separate route from `bulk-delete` rather than a flag on it, because the
+   * two are different promises: this one can be taken back and that one cannot,
+   * and a boolean in a body is a poor place to keep a distinction that matters
+   * this much. Returns the ids it archived so the caller can undo exactly the
+   * batch it just removed.
+   */
+  @Post('bulk-archive')
+  @HttpCode(200)
+  bulkArchive(@Body() dto: BulkDeleteLeadsDto, @CurrentUser() user: AuthUser) {
+    return this.leads.archiveMany(dto.ids, user);
+  }
+
+  /** Put an archived batch back — the Undo beside the purge. */
+  @Post('bulk-restore')
+  @HttpCode(200)
+  bulkRestore(@Body() dto: BulkDeleteLeadsDto, @CurrentUser() user: AuthUser) {
+    return this.leads.restoreMany(dto.ids, user);
+  }
+
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.leads.remove(id, user);

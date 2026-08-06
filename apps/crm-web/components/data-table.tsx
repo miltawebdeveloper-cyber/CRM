@@ -522,7 +522,7 @@ export function DataTable<T>({
           <thead className="sticky top-0 z-20">
             <tr className="border-b text-left text-[11.5px] font-semibold uppercase tracking-[.06em] text-muted-foreground">
               {showCheckbox && (
-                <th className={`w-10 px-4 py-[11px] ${stickyHeadCls}`}>
+                <th className={`w-10 px-4 py-[var(--row-py-head)] ${stickyHeadCls}`}>
                   <input
                     ref={selectAllRef}
                     type="checkbox"
@@ -539,7 +539,7 @@ export function DataTable<T>({
                   <th
                     key={c.key}
                     style={w ? { width: w, minWidth: w, maxWidth: w } : undefined}
-                    className={`group/th relative px-4 py-[11px] font-semibold ${headCaseCls} ${stickyHeadCls} ${c.headerClassName ?? ''}`}
+                    className={`group/th relative px-4 py-[var(--row-py-head)] font-semibold ${headCaseCls} ${stickyHeadCls} ${c.headerClassName ?? ''}`}
                   >
                     {sortOn && c.sortable ? (
                       // Click the header to order by that column; the active one
@@ -628,7 +628,7 @@ export function DataTable<T>({
                 className={`group border-b last:border-0 hover:bg-muted/50 ${isSel ? 'bg-primary/5' : ''} ${handleRowClick ? 'cursor-pointer' : ''} ${dragging ? 'select-none' : ''} ${rowClassName}`}
               >
                 {showCheckbox && (
-                  <td className="w-10 px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                  <td className="w-10 px-4 py-[var(--row-py)]" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={isSel}
@@ -643,7 +643,7 @@ export function DataTable<T>({
                 {cols.map((c) => {
                   const w = widthOf(c);
                   return (
-                    <td key={c.key} style={w ? { maxWidth: w } : undefined} className={`px-4 py-3 ${w ? 'overflow-hidden text-ellipsis' : ''} ${c.cellClassName ?? ''}`}>{c.render(row, i)}</td>
+                    <td key={c.key} style={w ? { maxWidth: w } : undefined} className={`px-4 py-[var(--row-py)] ${w ? 'overflow-hidden text-ellipsis' : ''} ${c.cellClassName ?? ''}`}>{c.render(row, i)}</td>
                   );
                 })}
               </tr>

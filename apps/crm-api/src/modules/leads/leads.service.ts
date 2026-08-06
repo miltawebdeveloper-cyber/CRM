@@ -1815,6 +1815,102 @@ export class LeadsService {
    * Employees may only delete their own leads; ids they don't own are silently
    * excluded rather than failing the batch, matching how `remove` hides them.
    */
+  /**
+   * Take leads out of the book WITHOUT destroying them — the Duplicate Leads
+   * purge, and the only delete in the CRM that can be taken back.
+   *
+   * `removeMany` below is a hard delete that cascades through calls, notes,
+   * activities and assignments; nothing survives it, so the "undo" the purge
+   * screen offers could not have been built on it. Here the row stays and only
+   * `deletedAt` is stamped. Every read in the API already filters
+   * `deletedAt: null`, so an archived lead disappears from the book, the
+   * queues, the counts and the exports exactly as a deleted one did — the
+   * difference is only that it can come back.
+   *
+   * Deliberately NOT what the single delete or the import rollback do. Rolling
+   * back a bad import should genuinely remove what it wrote, and one lead
+   * deleted by hand is a decision someone made about one record. This is the
+   * bulk, semi-automatic path, where the mistake is plausible and expensive.
+   */
+  async archiveMany(ids: string[], user?: { id: string; role: Role }) {
+    if (ids.length === 0) return { archived: 0, ids: [] as string[] };
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        id: { in: ids },
+        deletedAt: null,
+        ...(user?.role === Role.employee ? { assignedToId: user.id } : {}),
+      },
+      select: { id: true, leadId: true },
+    });
+    if (leads.length === 0) return { archived: 0, ids: [] as string[] };
+    const found = leads.map((l) => l.id);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.lead.updateMany({ where: { id: { in: found } }, data: { deletedAt: new Date() } });
+      if (user) {
+        await tx.activity.create({
+          data: {
+            // The leads survive, so this could reference one of them — but it
+            // describes a batch, and filing it under an arbitrary member is how
+            // an audit trail starts lying about scope.
+            leadId: null,
+            userId: user.id,
+            action: 'lead_archived',
+            oldValue: null,
+            newValue: null,
+            remarks: `Removed ${found.length} duplicate lead(s), reversible: ${leads
+              .slice(0, 20)
+              .map((l) => l.leadId)
+              .join(', ')}${found.length > 20 ? ` +${found.length - 20} more` : ''}`,
+          },
+        });
+      }
+    });
+
+    // The ids go back so the caller can offer an undo for exactly this batch,
+    // rather than for "whatever was archived recently".
+    return { archived: found.length, ids: found };
+  }
+
+  /**
+   * Put archived leads back. Only rows that are actually archived are touched,
+   * so replaying an undo cannot resurrect anything the user deleted since.
+   */
+  async restoreMany(ids: string[], user?: { id: string; role: Role }) {
+    if (ids.length === 0) return { restored: 0 };
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        id: { in: ids },
+        deletedAt: { not: null },
+        ...(user?.role === Role.employee ? { assignedToId: user.id } : {}),
+      },
+      select: { id: true, leadId: true },
+    });
+    if (leads.length === 0) return { restored: 0 };
+    const found = leads.map((l) => l.id);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.lead.updateMany({ where: { id: { in: found } }, data: { deletedAt: null } });
+      if (user) {
+        await tx.activity.create({
+          data: {
+            leadId: null,
+            userId: user.id,
+            action: 'lead_restored',
+            oldValue: null,
+            newValue: null,
+            remarks: `Restored ${found.length} removed lead(s): ${leads
+              .slice(0, 20)
+              .map((l) => l.leadId)
+              .join(', ')}${found.length > 20 ? ` +${found.length - 20} more` : ''}`,
+          },
+        });
+      }
+    });
+
+    return { restored: found.length };
+  }
+
   async removeMany(ids: string[], user?: { id: string; role: Role }) {
     if (ids.length === 0) return { deleted: 0 };
     const leads = await this.prisma.lead.findMany({

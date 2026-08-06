@@ -252,20 +252,27 @@ export function longestWord(v?: string | null): string {
  * counts as a match, not who is asking. So the key always uses the strict,
  * as-written phone and the folded email.
  *
- * Returns '' for a record with no contact point at all, which cannot be
- * recognised again and therefore must not be remembered.
+ * Location is a FALLBACK, never a component. A record with any contact point
+ * keys exactly as it always has — `p:…|e:…`, byte for byte — so every ruling
+ * made before location matching existed is still found under the key it was
+ * filed under. Only a record with NO phone and NO email, which used to key
+ * under '' and be forgotten the moment the review closed, now falls back to its
+ * location. That is the one case the location rule can flag and the memory
+ * could not hold: a company listed by name and address alone, ruled on every
+ * time the file is re-run.
  *
- * Location is deliberately absent for the same reason the options are: adding
- * it would rewrite the key every stored decision is filed under, and every
- * ruling made before today would stop being found. A row flagged only on its
- * location and holding no phone or email keys under '' and is simply not
- * remembered, which is the existing rule for a record with nothing to be
- * recognised by.
+ * The two shapes cannot collide — one begins `p:`, the other `l:` — so a lead
+ * that gains a phone number next month simply asks a fresh question rather than
+ * inheriting the answer given to its address, which is the honest outcome: it
+ * is a different record from the one that was ruled on.
+ *
+ * Returns '' for a record with neither a contact point nor a complete location,
+ * which cannot be recognised again and therefore must not be remembered.
  */
 export function decisionKey(rec: MatchableRecord): string {
   const phones = [...phoneKeys(rec, false)].sort();
   const email = emailKey(rec.email);
-  if (phones.length === 0 && !email) return '';
+  if (phones.length === 0 && !email) return locationKey(rec) ? `l:${locationKey(rec)}` : '';
   return `p:${phones.join('+')}|e:${email}`;
 }
 

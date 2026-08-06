@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Copy, Filter, Loader2, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { AlertTriangle, Copy, Filter, Loader2, RefreshCw, Search, Trash2, Undo2 } from 'lucide-react';
 import { leadsApi, type DuplicateGroup, type DuplicateScanOptions } from '@/lib/leads';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageHead } from '@/components/page-head';
@@ -45,14 +45,39 @@ export default function DuplicatesPage() {
     refetchOnWindowFocus: false,
   });
 
+  /**
+   * The last batch this screen removed, kept so it can be put back.
+   *
+   * Held here rather than fetched, because "what did I just do" is a fact about
+   * this sitting: it survives a re-scan (which is exactly when someone notices
+   * the mistake) and dies with the page, by which time the undo has stopped
+   * being an undo and become an edit.
+   */
+  const [undoable, setUndoable] = useState<{ ids: string[]; count: number } | null>(null);
+
+  const refreshAfterChange = () => {
+    qc.invalidateQueries({ queryKey: ['leads'] });
+    qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
+    qc.invalidateQueries({ queryKey: ['lead-duplicates'] });
+  };
+
+  // Reversible, unlike every other delete in the CRM: the rows are archived, not
+  // destroyed, so the bar below can put them back. See archiveMany in the API.
   const purge = useMutation({
-    mutationFn: (ids: string[]) => leadsApi.bulkDelete(ids),
-    meta: { successMessage: 'Duplicate leads removed' },
-    onSuccess: () => {
+    mutationFn: (ids: string[]) => leadsApi.bulkArchive(ids),
+    onSuccess: (res) => {
       setDoomed(new Set());
-      qc.invalidateQueries({ queryKey: ['leads'] });
-      qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
-      qc.invalidateQueries({ queryKey: ['lead-duplicates'] });
+      setUndoable(res.archived > 0 ? { ids: res.ids, count: res.archived } : null);
+      refreshAfterChange();
+    },
+  });
+
+  const undo = useMutation({
+    mutationFn: (ids: string[]) => leadsApi.bulkRestore(ids),
+    meta: { successMessage: 'Leads restored' },
+    onSuccess: () => {
+      setUndoable(null);
+      refreshAfterChange();
     },
   });
 
@@ -201,6 +226,35 @@ export default function DuplicatesPage() {
       {scan.isError && (
         <div className="mt-4 rounded-md bg-[var(--tone-red-bg)] px-4 py-3 text-sm text-[var(--tone-red-fg-2)]">
           Scan failed. {errorText(scan.error)}
+        </div>
+      )}
+
+      {/* Undo — a bar rather than a toast. This is the one screen in the CRM
+          that removes records in bulk on a rule, and the mistake it invites is
+          noticed a moment later, on the re-scan: a four-second toast is gone by
+          then. It stays until it is used or dismissed, and says what it would
+          bring back. */}
+      {undoable && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-[var(--brand-edge)] bg-[var(--brand-surface)] px-4 py-3">
+          <Undo2 className="h-4 w-4 shrink-0 text-[var(--brand-on-surface)]" />
+          <span className="flex-1 text-[12.5px] text-[var(--brand-on-surface)]">
+            <b className="font-semibold">{undoable.count}</b> {undoable.count === 1 ? 'lead' : 'leads'} removed. They are
+            out of the book but not destroyed — their calls, notes and history are intact.
+          </span>
+          <button
+            onClick={() => undo.mutate(undoable.ids)}
+            disabled={undo.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-[12.5px] font-semibold text-primary-foreground disabled:opacity-60"
+          >
+            {undo.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />}
+            {undo.isPending ? 'Restoring…' : 'Undo'}
+          </button>
+          <button
+            onClick={() => setUndoable(null)}
+            className="rounded-md border bg-card px-3 py-2 text-[12.5px] font-medium hover:bg-muted"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -354,15 +408,17 @@ export default function DuplicatesPage() {
 
       {confirmPurge && (
         <ConfirmDialog
-          title="Delete duplicate leads"
+          title="Remove duplicate leads"
           message={
-            `${doomedCount} lead${doomedCount === 1 ? '' : 's'} will be permanently deleted, along with their calls, ` +
-            `comments and history. This cannot be undone.` +
+            // Says what actually happens now. Promising permanence when the next
+            // screen offers an Undo would teach people to distrust both.
+            `${doomedCount} lead${doomedCount === 1 ? '' : 's'} will be taken out of the book, along with their calls, ` +
+            `comments and history. Nothing is destroyed — you can undo this straight afterwards.` +
             (wipedGroups.length > 0
-              ? ` ${wipedGroups.length} group${wipedGroups.length === 1 ? '' : 's'} would be removed entirely, leaving no record of that company.`
+              ? ` ${wipedGroups.length} group${wipedGroups.length === 1 ? '' : 's'} would be removed entirely, leaving no record of that company in the book.`
               : '')
           }
-          confirmLabel={`Delete ${doomedCount} lead${doomedCount === 1 ? '' : 's'}`}
+          confirmLabel={`Remove ${doomedCount} lead${doomedCount === 1 ? '' : 's'}`}
           onConfirm={async () => { await purge.mutateAsync([...doomed]); await scan.refetch(); }}
           onClose={() => setConfirmPurge(false)}
         />
@@ -370,7 +426,7 @@ export default function DuplicatesPage() {
 
       {purge.isError && (
         <div className="mt-4 rounded-md bg-[var(--tone-red-bg)] px-4 py-3 text-sm text-[var(--tone-red-fg-2)]">
-          Deletion failed — nothing was removed. {errorText(purge.error)}
+          Removal failed — nothing was taken out. {errorText(purge.error)}
         </div>
       )}
     </div>

@@ -170,6 +170,14 @@
   /* 4.36:1 was large-text-only; #696c62 clears AA for body copy at 4.76:1. */
   --tone-neutral-fg: #696c62;
 
+  /* ── Row density ──
+     Settings → Preferences writes `data-density` on <html>. Only the padding
+     above and below a table cell moves: the type scale is identical in both
+     settings, so a compact table is the same table with less air, not a
+     smaller one. See lib/density.ts. */
+  --row-py: 12px;
+  --row-py-head: 11px;
+
   /* ── Pipeline chart steps ──
      The chart steps of the pipeline hues in components/calls-shared.tsx (CAT).
      Same hue identity — cold indigo, warm amber, hot red, closed green — but
@@ -305,6 +313,13 @@
    declared there would beat the dark one purely by coming later in the file. With
    `:not(.dark)` a palette that forgets a token falls back to the shared neutral
    for that mode, which is plain rather than unreadable. */
+/* 7px against 12px is roughly ten pixels off every row — a 20-row table gains
+   four or five rows on the same screen, which is the whole point of asking. */
+[data-density='compact'] {
+  --row-py: 7px;
+  --row-py-head: 8px;
+}
+
 [data-palette='ocean'] {
   --brand-ink: #122b3d;
   --brand-ink-2: #0d2030;

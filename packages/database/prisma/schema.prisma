@@ -137,12 +137,12 @@ enum ReassignType {
 
 /// DB-001 — all system users
 model User {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name         String
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  role         Role     @default(employee)
-  isActive     Boolean  @default(true) @map("is_active")
+  email        String  @unique
+  passwordHash String  @map("password_hash")
+  role         Role    @default(employee)
+  isActive     Boolean @default(true) @map("is_active")
 
   // MFA (TOTP) — see auth module
   mfaEnabled Boolean @default(false) @map("mfa_enabled")
@@ -157,43 +157,45 @@ model User {
   // Admin-assigned and UNIQUE: it is the caller identity the customer sees, so no two
   // users may share one. Nullable (many users may be unassigned) — but an unassigned
   // user is blocked from placing outbound calls, never silently handed a shared line.
-  openphoneNumber String? @unique @map("openphone_number")
+  openphoneNumber  String?   @unique @map("openphone_number")
   /// "HH:mm" local shift start. Informational now — it used to drive a cron that
   /// marked late users unavailable and reassigned their leads; that logic was
   /// removed (see AvailabilityService) because it concentrated whole lead books
   /// onto one rep. Nothing reads this to make a decision.
-  shiftStart         String?      @map("shift_start")
+  shiftStart       String?   @map("shift_start")
   /// Dedupe stamp for the removed no-login cron. Retained so existing rows keep
   /// their value rather than being dropped; nothing writes or reads it.
-  noLoginHandledOn   DateTime?    @map("no_login_handled_on") @db.Date
+  noLoginHandledOn DateTime? @map("no_login_handled_on") @db.Date
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // relations
-  employee          Employee?
-  assignedLeads     Lead[]              @relation("LeadAssignedTo")
-  closedLeads       Lead[]              @relation("LeadClosedBy")
-  targetsSet        Target[]            @relation("TargetSetBy")
-  activities        Activity[]
-  loginOtps         LoginOtp[]
-  trustedDevices    TrustedDevice[]
-  activityAssignedTo Activity[]          @relation("ActivityAssignedTo")
-  assignmentsMade   Assignment[]        @relation("AssignmentAssignedBy")
-  assignmentsTaken  Assignment[]        @relation("AssignmentCaller")
-  /** History rows where this user is the one the lead moved AWAY from. */
-  assignmentsLost   Assignment[]        @relation("AssignmentPreviousCaller")
-  calls             Call[]
-  sentMessages      Message[]           @relation("MessageSender")
-  notes             Note[]
-  productivityLogs  ProductivityLog[]
-  notifications     Notification[]
-  aiSessions        AiTrainingSession[]
-  coachingReports   VoiceCoachingReport[]
-  tasks             Task[]
-  preferences       UserPreference[]
-  zoomMeetings      ZoomMeeting[]         @relation("ZoomOrganizer")
-  zoomActivities    ZoomMeetingActivity[] @relation("ZoomActivityUser")
+  employee           Employee?
+  assignedLeads      Lead[]                    @relation("LeadAssignedTo")
+  closedLeads        Lead[]                    @relation("LeadClosedBy")
+  targetsSet         Target[]                  @relation("TargetSetBy")
+  activities         Activity[]
+  loginOtps          LoginOtp[]
+  trustedDevices     TrustedDevice[]
+  activityAssignedTo Activity[]                @relation("ActivityAssignedTo")
+  assignmentsMade    Assignment[]              @relation("AssignmentAssignedBy")
+  assignmentsTaken   Assignment[]              @relation("AssignmentCaller")
+  /**
+   * History rows where this user is the one the lead moved AWAY from.
+   */
+  assignmentsLost    Assignment[]              @relation("AssignmentPreviousCaller")
+  calls              Call[]
+  sentMessages       Message[]                 @relation("MessageSender")
+  notes              Note[]
+  productivityLogs   ProductivityLog[]
+  notifications      Notification[]
+  aiSessions         AiTrainingSession[]
+  coachingReports    VoiceCoachingReport[]
+  tasks              Task[]
+  preferences        UserPreference[]
+  zoomMeetings       ZoomMeeting[]             @relation("ZoomOrganizer")
+  zoomActivities     ZoomMeetingActivity[]     @relation("ZoomActivityUser")
   duplicateDecisions ImportDuplicateDecision[]
 
   @@index([role])
@@ -206,7 +208,6 @@ model User {
 /// from the admin UI, applied to runtime config on boot and on save.
 /**
  * A pending login OTP challenge.
- *
  * The code itself is never stored — only a hash — so a leaked database row can't
  * be used to complete someone's login. Rows are short-lived (minutes) and are
  * consumed on first successful use; `attempts` caps brute-forcing a 6-digit code.
@@ -219,7 +220,9 @@ model LoginOtp {
   expiresAt  DateTime  @map("expires_at")
   attempts   Int       @default(0)
   consumedAt DateTime? @map("consumed_at")
-  /** Address the code was delivered to, for the audit trail. */
+  /**
+   * Address the code was delivered to, for the audit trail.
+   */
   sentTo     String    @map("sent_to")
   createdAt  DateTime  @default(now()) @map("created_at")
 
@@ -230,7 +233,6 @@ model LoginOtp {
 
 /**
  * A browser/device this user has already passed an OTP challenge on.
- *
  * While a row is live (not revoked, not past `expiresAt`) the login OTP step is
  * skipped for that device — that is the whole point: one code per device per
  * trust window, not one per login. The cookie the browser holds carries a random
@@ -242,9 +244,13 @@ model TrustedDevice {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId      String    @map("user_id") @db.Uuid
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  /** SHA-256 of the cookie's verifier half. Never the verifier itself. */
+  /**
+   * SHA-256 of the cookie's verifier half. Never the verifier itself.
+   */
   tokenHash   String    @unique @map("token_hash")
-  /** Human label for the admin list, e.g. "Chrome on Windows". */
+  /**
+   * Human label for the admin list, e.g. "Chrome on Windows".
+   */
   deviceName  String    @map("device_name")
   browser     String
   os          String
@@ -272,21 +278,21 @@ model AppSetting {
 /// Call.outcome; `schedulesCallback` flags outcomes that open the callback
 /// workflow (mandatory date/time, pinned queue, reminders).
 model Outcome {
-  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  slug              String      @unique
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug              String           @unique
   name              String
-  color             String      @default("#6b7359")
-  schedulesCallback Boolean     @default(false) @map("schedules_callback")
-  schedulesZoom     Boolean     @default(false) @map("schedules_zoom") // prompts a Zoom meeting on this outcome
-  leadStatus        LeadStatus? @map("lead_status") // status applied to the lead on this outcome
+  color             String           @default("#6b7359")
+  schedulesCallback Boolean          @default(false) @map("schedules_callback")
+  schedulesZoom     Boolean          @default(false) @map("schedules_zoom") // prompts a Zoom meeting on this outcome
+  leadStatus        LeadStatus?      @map("lead_status") // status applied to the lead on this outcome
   // Bucket this status falls into on the Calls Made funnel. Null = ungrouped:
   // the status still shows in the per-status breakdown but sits outside the
   // Cold → Warm → Hot → Closed pipeline.
   category          OutcomeCategory? @map("category")
-  sortOrder         Int         @default(0) @map("sort_order")
-  isActive          Boolean     @default(true) @map("is_active")
-  createdAt         DateTime    @default(now()) @map("created_at")
-  updatedAt         DateTime    @updatedAt @map("updated_at")
+  sortOrder         Int              @default(0) @map("sort_order")
+  isActive          Boolean          @default(true) @map("is_active")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
 
   @@map("outcomes")
 }
@@ -325,10 +331,23 @@ model Employee {
   @@map("employees")
 }
 
-/// DB-002 — central leads table. Deleting a lead is a permanent hard delete
-/// that cascades to every dependent record (assignments, calls + notes/coaching
-/// reports, notes, activities, messages, quo sync logs, zoom meetings). The
-/// `deletedAt` column is retained for historical rows / backward compat.
+/// DB-002 — central leads table.
+///
+/// A lead leaves the book one of two ways, and they are not the same promise:
+///
+///   HARD — `remove` / `removeMany`. A permanent delete that cascades to every
+///   dependent record (assignments, calls + notes/coaching reports, notes,
+///   activities, messages, quo sync logs, zoom meetings). Nothing survives it,
+///   so nothing can be recovered from it. This is what a single delete does and
+///   what an import rollback does, because rolling back a bad import should
+///   genuinely remove what it wrote.
+///
+///   SOFT — `archiveMany`, stamping `deletedAt`. The row and its whole history
+///   stay; every read in the API filters `deletedAt: null`, so the lead is gone
+///   from the book, the queues, the counts and the exports just the same. Used
+///   by the Duplicate Leads purge, which removes many records at once on a rule
+///   and is therefore the one deletion worth being able to take back —
+///   `restoreMany` clears the stamp.
 model Lead {
   id           String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   /// Position in the order this lead entered the CRM — the row it occupied in the
@@ -364,31 +383,31 @@ model Lead {
   qualityScore Int?       @map("quality_score") // AI lead score 0..100
 
   // ── Lead sheet fields (import column set) ──
-  contactName      String?   @map("contact_name") // NAME — contact person at the company
-  industry         String? // INDUSTRY
-  title            String? // TITLE — contact's job title
-  employeeCode     String?   @map("employee_code") // Employee Code
-  comments         String? // COMMENTS
-  leadCategory     String?   @map("lead_category") // LEAD CATEGORY
-  nextFollowUpDate DateTime? @map("next_follow_up_date") // NEXT FOLLOW UP DATE
-  callStatus       String?   @map("call_status") // CALL STATUS
-  firstContact     DateTime? @map("first_contact") // FIRST CONTACT
-  lastContact      DateTime? @map("last_contact") // LAST CONTACT
-  followupCount    Int?      @map("followup_count") // FOLLOW-UP COUNT
-  meetingDate      DateTime? @map("meeting_date") // MEETING DATE
-  lostReason       String?   @map("lost_reason") // LOST REASON
-  callbackAt       DateTime? @map("callback_at")
-  leadGenerationId String?   @map("lead_generation_id")
-  leadSource       String?   @map("lead_source")
-  contactName2     String?   @map("contact_name_2")
-  altPhone         String?   @map("alt_phone")
-  website          String?
-  socialMedia      String?   @map("social_media")
-  country          String?
-  companySize      String?   @map("company_size")
-  foundedYear      String?   @map("founded_year")
-  address          String?
-  callbackCompletedAt DateTime? @map("callback_completed_at")
+  contactName                 String?   @map("contact_name") // NAME — contact person at the company
+  industry                    String? // INDUSTRY
+  title                       String? // TITLE — contact's job title
+  employeeCode                String?   @map("employee_code") // Employee Code
+  comments                    String? // COMMENTS
+  leadCategory                String?   @map("lead_category") // LEAD CATEGORY
+  nextFollowUpDate            DateTime? @map("next_follow_up_date") // NEXT FOLLOW UP DATE
+  callStatus                  String?   @map("call_status") // CALL STATUS
+  firstContact                DateTime? @map("first_contact") // FIRST CONTACT
+  lastContact                 DateTime? @map("last_contact") // LAST CONTACT
+  followupCount               Int?      @map("followup_count") // FOLLOW-UP COUNT
+  meetingDate                 DateTime? @map("meeting_date") // MEETING DATE
+  lostReason                  String?   @map("lost_reason") // LOST REASON
+  callbackAt                  DateTime? @map("callback_at")
+  leadGenerationId            String?   @map("lead_generation_id")
+  leadSource                  String?   @map("lead_source")
+  contactName2                String?   @map("contact_name_2")
+  altPhone                    String?   @map("alt_phone")
+  website                     String?
+  socialMedia                 String?   @map("social_media")
+  country                     String?
+  companySize                 String?   @map("company_size")
+  foundedYear                 String?   @map("founded_year")
+  address                     String?
+  callbackCompletedAt         DateTime? @map("callback_completed_at")
   // Reminder dedupe stamps — set once each reminder fires so the cron never repeats.
   callbackReminderDayBeforeAt DateTime? @map("callback_reminder_day_before_at")
   callbackReminderDueAt       DateTime? @map("callback_reminder_due_at")
@@ -397,8 +416,8 @@ model Lead {
   // due, so the rep needs a way to quiet it that isn't "complete the call":
   // Snooze hides it until an instant, Dismiss hides it for this appointment.
   // Both are cleared by a reschedule — a new time is a new appointment.
-  callbackSnoozedUntil DateTime? @map("callback_snoozed_until")
-  callbackDismissedAt  DateTime? @map("callback_dismissed_at")
+  callbackSnoozedUntil        DateTime? @map("callback_snoozed_until")
+  callbackDismissedAt         DateTime? @map("callback_dismissed_at")
   // CALLER → assignedTo (User relation below)
 
   // ── Quo (OpenPhone) telephony ──
@@ -475,11 +494,11 @@ model QuoSyncLog {
 /// Zoom meeting scheduled with a client (lead). Behaves like a callback in the
 /// Call Panel (pinned when due) and maintains a full per-client meeting history.
 model ZoomMeeting {
-  id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  leadId      String            @map("lead_id") @db.Uuid
-  lead        Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  organizerId String?           @map("organizer_id") @db.Uuid
-  organizer   User?             @relation("ZoomOrganizer", fields: [organizerId], references: [id])
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leadId      String  @map("lead_id") @db.Uuid
+  lead        Lead    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  organizerId String? @map("organizer_id") @db.Uuid
+  organizer   User?   @relation("ZoomOrganizer", fields: [organizerId], references: [id])
 
   title        String?
   scheduledAt  DateTime          @map("scheduled_at")
@@ -590,7 +609,7 @@ model Activity {
   /// The queue times from opening the lead to pressing Save, and that elapsed
   /// time stands in for a call duration in the log and in reporting. Null on
   /// every other kind of activity, which has no duration to speak of.
-  durationSecs Int?    @map("duration_secs")
+  durationSecs Int? @map("duration_secs")
 
   @@index([leadId])
   @@index([userId])
@@ -620,9 +639,9 @@ model ImportDuplicateDecision {
 
   /// Nulled rather than cascaded when the reviewer's account goes: someone
   /// leaving must not erase the reasoning behind rows still being imported.
-  decidedById String?   @map("decided_by_id") @db.Uuid
-  decidedBy   User?     @relation(fields: [decidedById], references: [id], onDelete: SetNull)
-  decidedAt   DateTime  @default(now()) @map("decided_at")
+  decidedById String?  @map("decided_by_id") @db.Uuid
+  decidedBy   User?    @relation(fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt   DateTime @default(now()) @map("decided_at")
 
   @@map("import_duplicate_decisions")
 }
@@ -631,19 +650,19 @@ model ImportDuplicateDecision {
 /// log in). Denormalized (owner name + client name) so the new assignee's
 /// dashboard can render it without joins.
 model WorkReassignment {
-  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  type         ReassignType
-  reason       String // Offline / Leave / Holiday / No Login / Unavailable
-  fromUserId   String       @map("from_user") @db.Uuid
-  fromUserName String       @map("from_user_name")
-  toUserId     String       @map("to_user") @db.Uuid
-  leadId       String?      @map("lead_id") @db.Uuid
-  zoomMeetingId String?     @map("zoom_meeting_id") @db.Uuid
-  taskId       String?      @map("task_id") @db.Uuid
-  clientName   String?      @map("client_name")
-  scheduledAt  DateTime?    @map("scheduled_at")
-  acknowledged Boolean      @default(false)
-  createdAt    DateTime     @default(now()) @map("created_at")
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type          ReassignType
+  reason        String // Offline / Leave / Holiday / No Login / Unavailable
+  fromUserId    String       @map("from_user") @db.Uuid
+  fromUserName  String       @map("from_user_name")
+  toUserId      String       @map("to_user") @db.Uuid
+  leadId        String?      @map("lead_id") @db.Uuid
+  zoomMeetingId String?      @map("zoom_meeting_id") @db.Uuid
+  taskId        String?      @map("task_id") @db.Uuid
+  clientName    String?      @map("client_name")
+  scheduledAt   DateTime?    @map("scheduled_at")
+  acknowledged  Boolean      @default(false)
+  createdAt     DateTime     @default(now()) @map("created_at")
 
   @@index([toUserId, acknowledged])
   @@index([createdAt])
@@ -653,7 +672,9 @@ model WorkReassignment {
 // ─────────────────────────── Calling ─────────────────────────
 
 /// DB-005 — lead → caller assignment (history-trackable)
-/** New assignment vs. a lead changing hands — see Assignment.type. */
+/**
+ * New assignment vs. a lead changing hands — see Assignment.type.
+ */
 enum AssignmentType {
   new_assignment
   reassignment
@@ -661,35 +682,37 @@ enum AssignmentType {
 
 /**
  * One entry in a lead's ownership history.
- *
  * A row is written every time a lead changes hands, by whatever route, and is
  * never updated afterwards except to clear `isActive` when the next one opens.
  * That is what makes this an audit trail rather than a current-state table: the
  * lead's own row holds who owns it now, and this holds how it got there.
- *
  * `previousCallerId`, `type` and `remarks` exist so a history row can be read on
  * its own. Before them, "who held this before?" could only be answered by
  * finding the preceding row and hoping none had been pruned, and "was this a new
  * assignment or a transfer?" could only be inferred from whether one existed.
  */
 model Assignment {
-  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  leadId       String   @map("lead_id") @db.Uuid
-  lead         Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  callerId     String   @map("caller_id") @db.Uuid
-  caller       User     @relation("AssignmentCaller", fields: [callerId], references: [id])
-  /** Who held the lead immediately before this. Null on a first assignment. */
-  previousCallerId String? @map("previous_caller_id") @db.Uuid
-  previousCaller   User?   @relation("AssignmentPreviousCaller", fields: [previousCallerId], references: [id])
-  assignedById String   @map("assigned_by") @db.Uuid
-  assignedBy   User     @relation("AssignmentAssignedBy", fields: [assignedById], references: [id])
-  type         AssignmentType @default(new_assignment)
-  /** Why, when there is a why — the batch it came from, or that a manager
-   *  confirmed a same-day reassignment past the daily restriction. */
-  remarks      String?
-  batchName    String?  @map("batch_name")
-  isActive     Boolean  @default(true) @map("is_active")
-  assignedAt   DateTime @default(now()) @map("assigned_at")
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leadId           String         @map("lead_id") @db.Uuid
+  lead             Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  callerId         String         @map("caller_id") @db.Uuid
+  caller           User           @relation("AssignmentCaller", fields: [callerId], references: [id])
+  /**
+   * Who held the lead immediately before this. Null on a first assignment.
+   */
+  previousCallerId String?        @map("previous_caller_id") @db.Uuid
+  previousCaller   User?          @relation("AssignmentPreviousCaller", fields: [previousCallerId], references: [id])
+  assignedById     String         @map("assigned_by") @db.Uuid
+  assignedBy       User           @relation("AssignmentAssignedBy", fields: [assignedById], references: [id])
+  type             AssignmentType @default(new_assignment)
+  /**
+   * Why, when there is a why — the batch it came from, or that a manager
+   * confirmed a same-day reassignment past the daily restriction.
+   */
+  remarks          String?
+  batchName        String?        @map("batch_name")
+  isActive         Boolean        @default(true) @map("is_active")
+  assignedAt       DateTime       @default(now()) @map("assigned_at")
 
   @@index([leadId])
   @@index([callerId])
@@ -701,22 +724,22 @@ model Assignment {
 
 /// DB-006 — call records
 model Call {
-  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  leadId       String       @map("lead_id") @db.Uuid
-  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  callerId     String       @map("caller_id") @db.Uuid
-  caller       User         @relation(fields: [callerId], references: [id])
-  startTime    DateTime     @map("start_time")
-  endTime      DateTime?    @map("end_time")
-  durationSecs Int?         @map("duration_secs")
-  recordingUrl String?      @map("recording_url")
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leadId       String    @map("lead_id") @db.Uuid
+  lead         Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  callerId     String    @map("caller_id") @db.Uuid
+  caller       User      @relation(fields: [callerId], references: [id])
+  startTime    DateTime  @map("start_time")
+  endTime      DateTime? @map("end_time")
+  durationSecs Int?      @map("duration_secs")
+  recordingUrl String?   @map("recording_url")
   // Caller identity used for THIS call (the caller's assigned OpenPhone line at dial
   // time). Stamped on every outbound call so call logs, recordings and activity stay
   // tied to the employee who called, even if their assigned number changes later.
-  fromNumber   String?      @map("from_number")
+  fromNumber   String?   @map("from_number")
   outcome      String? // Outcome.slug — configurable list (see model Outcome)
-  providerSid  String?      @map("provider_sid") // Twilio call SID
-  createdAt    DateTime     @default(now()) @map("created_at")
+  providerSid  String?   @map("provider_sid") // Twilio call SID
+  createdAt    DateTime  @default(now()) @map("created_at")
 
   // ── Quo (OpenPhone) telephony ──
   direction      CommDirection? // inbound / outbound
@@ -731,10 +754,10 @@ model Call {
   quoCallId      String?        @unique @map("quo_call_id")
   conversationId String?        @map("conversation_id")
 
-  notes           Note[]
-  coachingReport  VoiceCoachingReport?
-  recordings      CallRecording[]
-  insight         CallInsight?
+  notes          Note[]
+  coachingReport VoiceCoachingReport?
+  recordings     CallRecording[]
+  insight        CallInsight?
 
   @@index([leadId])
   @@index([callerId])
@@ -779,17 +802,17 @@ model CallInsight {
 /// A single call can return several segments, so recordings live in their own
 /// table; Call.recordingUrl keeps the first segment for existing callers.
 model CallRecording {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  callId        String    @map("call_id") @db.Uuid
-  call          Call      @relation(fields: [callId], references: [id], onDelete: Cascade)
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  callId         String    @map("call_id") @db.Uuid
+  call           Call      @relation(fields: [callId], references: [id], onDelete: Cascade)
   /// Quo's recording id — unique so re-syncing a call is idempotent.
-  quoRecordingId String?  @unique @map("quo_recording_id")
-  url           String
-  durationSecs  Int?      @map("duration_secs")
-  startTime     DateTime? @map("start_time")
-  status        String? // completed, in-progress, failed
-  mimeType      String?   @map("mime_type") // e.g. audio/mpeg
-  createdAt     DateTime  @default(now()) @map("created_at")
+  quoRecordingId String?   @unique @map("quo_recording_id")
+  url            String
+  durationSecs   Int?      @map("duration_secs")
+  startTime      DateTime? @map("start_time")
+  status         String? // completed, in-progress, failed
+  mimeType       String?   @map("mime_type") // e.g. audio/mpeg
+  createdAt      DateTime  @default(now()) @map("created_at")
 
   @@index([callId])
   @@map("call_recordings")
@@ -817,8 +840,8 @@ model Message {
   // CRM user who sent this message (outbound sends only). Null for inbound and for
   // provider-synced messages that don't map to a user. `fromNumber` is the line it
   // went out on, so sender + line together flag "sent from the wrong caller ID".
-  senderId       String?       @map("sender_id") @db.Uuid
-  sender         User?         @relation("MessageSender", fields: [senderId], references: [id])
+  senderId String? @map("sender_id") @db.Uuid
+  sender   User?   @relation("MessageSender", fields: [senderId], references: [id])
 
   @@index([leadId])
   @@index([conversationId])
@@ -915,16 +938,16 @@ model Task {
 
 /// DB-012 — AI voice-coaching analysis per call
 model VoiceCoachingReport {
-  id                    String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  callId                String        @unique @map("call_id") @db.Uuid
-  call                  Call          @relation(fields: [callId], references: [id], onDelete: Cascade)
-  callerId              String        @map("caller_id") @db.Uuid
-  caller                User          @relation(fields: [callerId], references: [id])
-  confidenceScore       Int?          @map("confidence_score") // 1..10
-  speakingSpeedRating   SpeakingSpeed? @map("speaking_speed_rating")
-  objectionHandlingScore Int?         @map("objection_handling_score") // 1..10
-  missedOpportunities   Json?         @map("missed_opportunities")
-  createdAt             DateTime      @default(now()) @map("created_at")
+  id                     String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  callId                 String         @unique @map("call_id") @db.Uuid
+  call                   Call           @relation(fields: [callId], references: [id], onDelete: Cascade)
+  callerId               String         @map("caller_id") @db.Uuid
+  caller                 User           @relation(fields: [callerId], references: [id])
+  confidenceScore        Int?           @map("confidence_score") // 1..10
+  speakingSpeedRating    SpeakingSpeed? @map("speaking_speed_rating")
+  objectionHandlingScore Int?           @map("objection_handling_score") // 1..10
+  missedOpportunities    Json?          @map("missed_opportunities")
+  createdAt              DateTime       @default(now()) @map("created_at")
 
   @@index([callerId])
   @@map("voice_coaching_reports")

@@ -359,8 +359,16 @@ export const leadsApi = {
 
   /** Comment trail (manual edits + call notes), newest first. */
   commentHistory: async (id: string): Promise<LeadComment[]> => (await api.get(`/leads/${id}/comments`)).data,
-  /** Delete many leads in one transaction. Import rollback posts the import's createdIds here. */
+  /** Delete many leads in one transaction — PERMANENT, cascades to calls, notes
+   *  and activities. Import rollback posts the import's createdIds here. */
   bulkDelete: async (ids: string[]): Promise<{ deleted: number }> => (await api.post('/leads/bulk-delete', { ids })).data,
+  /** Remove many leads reversibly — the duplicate purge. Returns the ids it
+   *  actually archived, which is what `bulkRestore` undoes. */
+  bulkArchive: async (ids: string[]): Promise<{ archived: number; ids: string[] }> =>
+    (await api.post('/leads/bulk-archive', { ids })).data,
+  /** Put an archived batch back. */
+  bulkRestore: async (ids: string[]): Promise<{ restored: number }> =>
+    (await api.post('/leads/bulk-restore', { ids })).data,
   /** Duplicate groups among saved leads — read-only; removal goes via bulkDelete. */
   duplicates: async (opts: DuplicateScanOptions = {}): Promise<DuplicateScanResult> =>
     (await api.get('/leads/duplicates', {

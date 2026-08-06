@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { loadServerPreferences, saveServerPreference } from '@/lib/preferences';
 import { DEFAULT_PALETTE, PALETTE_KEY, applyPalette, storedPalette } from '@/lib/palette';
+import { DEFAULT_DENSITY, DENSITY_KEY, applyDensity, storedDensity } from '@/lib/density';
 import {
   DEFAULT_LANGUAGE,
   LANGUAGE_KEY,
@@ -21,11 +22,14 @@ interface DisplaySettings {
   language: Language;
   /** Which brand palette the CRM is painted in. See lib/palette.ts. */
   palette: string;
+  /** How much air the tables give each row. See lib/density.ts. */
+  density: string;
   /** True until the saved preferences have come back from the server. */
   loading: boolean;
   setTimezone: (tz: DisplayTimezone) => void;
   setLanguage: (lang: Language) => void;
   setPalette: (id: string) => void;
+  setDensity: (id: string) => void;
 }
 
 const Ctx = createContext<DisplaySettings | null>(null);
@@ -62,6 +66,7 @@ export function DisplaySettingsProvider({ children }: { children: ReactNode }) {
   // correctly by then — the boot script saw to that; this state only decides
   // which swatch the picker shows as chosen, and the effect below corrects it.
   const [palette, setPaletteState] = useState<string>(DEFAULT_PALETTE);
+  const [density, setDensityState] = useState<string>(DEFAULT_DENSITY);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,6 +85,7 @@ export function DisplaySettingsProvider({ children }: { children: ReactNode }) {
       // no-op on the one they did. Applied without saving: writing back what we
       // just read would PUT a preference on every page load.
       setPaletteState(applyPalette(prefs[PALETTE_KEY] ?? storedPalette()));
+      setDensityState(applyDensity(prefs[DENSITY_KEY] ?? storedDensity()));
       setLoading(false);
       if (zoneChanged || langChanged) setVersion((v) => v + 1);
     });
@@ -104,19 +110,27 @@ export function DisplaySettingsProvider({ children }: { children: ReactNode }) {
     saveServerPreference(PALETTE_KEY, applied);
   }, []);
 
+  const setDensity = useCallback((id: string) => {
+    const applied = applyDensity(id);
+    setDensityState(applied);
+    saveServerPreference(DENSITY_KEY, applied);
+  }, []);
+
   const value = useMemo<DisplaySettings>(
     () => ({
       timezone: getUserTimezone(),
       language: getUserLanguage(),
       palette,
+      density,
       loading,
       setTimezone,
       setLanguage,
       setPalette,
+      setDensity,
     }),
     // `version` is the dependency that matters: the getters read module state,
     // so the memo has to be rebuilt when that state moves.
-    [version, palette, loading, setTimezone, setLanguage, setPalette],
+    [version, palette, density, loading, setTimezone, setLanguage, setPalette, setDensity],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
