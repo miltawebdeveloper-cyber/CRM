@@ -2,14 +2,20 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, Check, AlertTriangle, Undo2, Filter, Loader2, RefreshCw } from 'lucide-react';
+import { Upload, Check, AlertTriangle, Undo2, Filter, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { importApi, type LeadRow, type ImportCheckResult } from '@/lib/crm';
 import { leadsApi } from '@/lib/leads';
 import { ConfirmDialog } from '@/components/confirm-dialog';
-import { ImportDuplicatesDialog, type CheckFieldsState } from '@/components/import-duplicates-dialog';
 import { PageHead } from '@/components/page-head';
 import { TIMEZONE_CODES } from '@/lib/timezone';
+
+/** Which fields the duplicate check compares on — mirrors the API's `checkFields`. */
+export interface CheckFieldsState {
+  businessName: boolean;
+  phone: boolean;
+  email: boolean;
+}
 
 /** Server message if there is one, else the transport error. */
 function errorText(err: unknown): string {
@@ -216,8 +222,8 @@ export default function ImportPage() {
   const check = useMutation({
     mutationFn: () => importApi.check(rows, activeCheckFields),
     onSuccess: (res) => {
-      setDupResult(res);
       if (res.duplicateRecords > 0) {
+        setDupResult(res);
         // Initialize all duplicate rows to 'skip' decision by default
         const initialDecisions: Record<number, 'import' | 'skip'> = {};
         for (const d of res.duplicateRows) {
@@ -225,7 +231,11 @@ export default function ImportPage() {
         }
         setDupDecisions(initialDecisions);
       } else {
-        // No duplicates found - proceed directly to import all
+        // A clean file has nothing to review, so it must not leave a result behind:
+        // holding one here put an empty "Detected 0 duplicate records" dialog over
+        // the page on every clean import, which the user then had to dismiss to see
+        // that the import had already succeeded underneath it.
+        setDupResult(null);
         importMut.mutate({ skipDuplicates: false });
       }
     },
@@ -643,21 +653,6 @@ export default function ImportPage() {
           confirmLabel="Remove Imported Leads"
           onConfirm={async () => { await rollback.mutateAsync(importMut.data!.createdIds); }}
           onClose={() => setConfirmRollback(false)}
-        />
-      )}
-
-      {dupResult && (
-        <ImportDuplicatesDialog
-          result={dupResult}
-          busy={importing}
-          decisions={dupDecisions}
-          onToggleDecision={toggleDupDecision}
-          onImportAll={handleImportAllDuplicates}
-          onSkipAll={handleSkipAllDuplicates}
-          onCustomImport={handleCustomImport}
-          onCancel={() => setDupResult(null)}
-          checkFields={dupCheckFields}
-          onToggleCheckField={toggleCheckField}
         />
       )}
 

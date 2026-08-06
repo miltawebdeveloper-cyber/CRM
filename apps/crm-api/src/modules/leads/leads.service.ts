@@ -357,9 +357,68 @@ export class LeadsService {
     const checkPhone = checkAll || checkFields.includes('phone');
     const checkEmail = checkAll || checkFields.includes('email');
 
-    const nameKey = (v?: string | null) => (v ?? '').trim().toLowerCase();
-    const phoneKey = (v?: string | null) => (v ?? '').replace(/\D/g, '').slice(-10);
-    const emailKey = (v?: string | null) => (v ?? '').trim().toLowerCase();
+    /**
+     * Company names are compared on their trading name, not their punctuation.
+     * A book built from several lead sources spells the same firm "Acme Tax LLC",
+     * "Acme Tax, L.L.C." and "The Acme Tax Co." — an exact lowercase compare calls
+     * those three different companies and lets the same firm in three times, which
+     * is precisely the duplicate this check exists to catch. Legal suffixes are
+     * only stripped from the END of the name, so "LLC Bookkeeping Partners" keeps
+     * the word it actually trades under.
+     */
+    const LEGAL_SUFFIXES = /\b(incorporated|inc|llc|llp|lllp|ltd|limited|corporation|corp|company|co|plc|pllc|pc|lp|pvt|private|gmbh|bv|nv|sa|srl|pty|ag|oy|ab|as)\b/;
+    const nameKey = (v?: string | null) => {
+      let s = (v ?? '')
+        .toLowerCase()
+        .replace(/&/g, ' and ')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim()
+        .replace(/^the /, '')
+        // Dotted acronyms survive punctuation-stripping as loose letters
+        // ("L.L.C." → "l l c"), which would hide the suffix from the rule below.
+        // Runs of single letters are glued back into one token first.
+        .replace(/\b(?:[a-z] )+[a-z]\b/g, (m) => m.replace(/ /g, ''));
+      // Repeated so "Acme Tax Co. Ltd." reduces the same way "Acme Tax Ltd." does.
+      let prev = '';
+      while (s !== prev) {
+        prev = s;
+        s = s.replace(new RegExp(`\\s${LEGAL_SUFFIXES.source}$`), '').trim();
+      }
+      // Never reduce a name to nothing: a firm literally called "Co" should still
+      // match itself rather than collapsing into every other suffix-only name.
+      return s || (v ?? '').trim().toLowerCase();
+    };
+    /**
+     * Every number a record can be reached on, normalised to its last 10 digits so
+     * "+1 (305) 555-1234" and "3055551234" are one key. Alt numbers are included on
+     * BOTH sides: a sheet listing a firm's direct line while the CRM holds its
+     * switchboard as the alt number is the same firm, and matching only phone
+     * against phone walks straight past it.
+     */
+    const phoneKeys = (...vals: (string | null | undefined)[]) => {
+      const out = new Set<string>();
+      for (const v of vals) {
+        const d = (v ?? '').replace(/\D/g, '').slice(-10);
+        if (d.length >= 7) out.add(d);
+      }
+      return out;
+    };
+    /**
+     * Gmail-style dots and +tags address one inbox, so john.carter+crm@gmail.com
+     * and johncarter@gmail.com are the same person. Applied only to the providers
+     * that actually work that way — elsewhere a dot is part of the address.
+     */
+    const DOT_INSENSITIVE = new Set(['gmail.com', 'googlemail.com']);
+    const emailKey = (v?: string | null) => {
+      const s = (v ?? '').trim().toLowerCase();
+      const at = s.lastIndexOf('@');
+      if (at < 1) return s;
+      let local = s.slice(0, at);
+      const domain = s.slice(at + 1);
+      local = local.split('+')[0];
+      if (DOT_INSENSITIVE.has(domain)) local = local.replace(/\./g, '');
+      return local ? `${local}@${domain}` : s;
+    };
 
     // Existing leads, loaded once and indexed by each match key → the lead itself,
     // so a flagged row can carry the record it clashed with (for the preview grid),
@@ -367,7 +426,7 @@ export class LeadsService {
     // unbounded scan; beyond the cap, matches past it just aren't flagged.
     const existing = await this.prisma.lead.findMany({
       where: { deletedAt: null },
-      select: { leadId: true, businessName: true, phone: true, email: true, createdAt: true, assignedTo: { select: { name: true } } },
+      select: { leadId: true, businessName: true, phone: true, altPhone: true, email: true, createdAt: true, assignedTo: { select: { name: true } } },
       take: 50_000,
     });
     type Match = { leadId: string; businessName: string; phone: string; email: string | null; assignedTo: string | null; createdAt: Date };
@@ -384,9 +443,9 @@ export class LeadsService {
     const exEmail = new Map<string, Match>();
     for (const l of existing) {
       const m = toMatch(l);
-      const nm = nameKey(l.businessName), ph = phoneKey(l.phone), em = emailKey(l.email);
+      const nm = nameKey(l.businessName), em = emailKey(l.email);
       if (nm && !exName.has(nm)) exName.set(nm, m);
-      if (ph && !exPhone.has(ph)) exPhone.set(ph, m);
+      for (const ph of phoneKeys(l.phone, l.altPhone)) if (!exPhone.has(ph)) exPhone.set(ph, m);
       if (em && !exEmail.has(em)) exEmail.set(em, m);
     }
 
@@ -396,15 +455,19 @@ export class LeadsService {
     const seenEmail = new Set<string>();
     const perRow = rows.map((r, index) => {
       const nm = nameKey(r.businessName);
-      const ph = phoneKey(r.phone);
+      const phs = phoneKeys(r.phone, r.altPhone);
       const em = emailKey(r.email);
       const on: string[] = [];
       let existingMatch: Match | null = null;
       if (checkName && nm && (exName.has(nm) || seenName.has(nm))) { on.push('Company Name'); existingMatch ??= exName.get(nm) ?? null; }
-      if (checkPhone && ph && (exPhone.has(ph) || seenPhone.has(ph))) { on.push('Phone'); existingMatch ??= exPhone.get(ph) ?? null; }
+      if (checkPhone) {
+        for (const ph of phs) {
+          if (exPhone.has(ph) || seenPhone.has(ph)) { on.push('Phone'); existingMatch ??= exPhone.get(ph) ?? null; break; }
+        }
+      }
       if (checkEmail && em && (exEmail.has(em) || seenEmail.has(em))) { on.push('Email'); existingMatch ??= exEmail.get(em) ?? null; }
       if (nm) seenName.add(nm);
-      if (ph) seenPhone.add(ph);
+      for (const ph of phs) seenPhone.add(ph);
       if (em) seenEmail.add(em);
       return {
         index,
