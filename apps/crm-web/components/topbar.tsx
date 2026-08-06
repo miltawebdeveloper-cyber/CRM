@@ -44,7 +44,12 @@ export function Topbar({ email, onMenu }: { email?: string; onMenu?: () => void 
     // Flip status to offline before the token is cleared (best-effort).
     try { await availabilityApi.signOut(); } catch { /* ignore */ }
     tokenStore.clear();
-    router.replace('/login');
+    // A full navigation, not `router.replace`. A client-side push keeps the
+    // React Query cache alive across the sign-out, so the next person to sign in
+    // on this browser rendered the PREVIOUS user's cached `me` — their email in
+    // this bar, their role deciding what the menu offered — until each query
+    // refetched. Leaving the page drops that cache with the session.
+    window.location.href = '/login';
   }
 
   return (
