@@ -593,8 +593,14 @@ export default function CallingPage() {
           narrow for the customer's name, contact, email and location. The shell
           now scales a sub-1500px viewport to a 1500px canvas, so the room is
           there at every laptop width and the gate can come down. Below `xl` the
-          columns still stack — that is the tablet layout, not a laptop one. */}
-      <div className="grid gap-[18px] xl:grid-cols-[300px_minmax(0,1fr)_360px]">
+          columns still stack — that is the tablet layout, not a laptop one.
+
+          The queue matches the dial pad at 360px. It was the narrowest column
+          while carrying the most: a zone filter and a search sharing one row,
+          four type tabs sharing another, and rows holding a name, a company, a
+          badge and a number. The 60px comes out of the lead card, which is the
+          column with room to spare. */}
+      <div className="grid gap-[18px] xl:grid-cols-[360px_minmax(0,1fr)_360px]">
         {/* Left: Your Queue section (New Calling Queue, Callback Queue, Zoom Scheduled Queue) */}
         <div className="space-y-[18px]">
           <div className="rounded-2xl border bg-card shadow-sm">
@@ -612,16 +618,15 @@ export default function CallingPage() {
               {/* Time Zone filter and Contact Search — one row above the queue,
                   because they are used together: narrow to a region, then find
                   the lead inside it.
-                  Sharing a 280–300px column is what decides the details here.
-                  The zone select carries the COMPACT labels (EST, CST, India)
-                  rather than the full "EST (Eastern Standard Time)" — a native
-                  select takes its width from its widest option, which at half a
-                  column would leave the search box unusable. The codes are the
-                  CRM's own vocabulary and are what each queue row already shows.
-                  Equal halves, because both sides need every pixel: "All Time
-                  Zones" only just fits beside its icon at ~128px, and a placeholder
-                  clipped at the tail is the cheapest thing to give up here. Below
-                  `xl` the queue is full-width and both grow with it. */}
+                  Sharing one 360px column is what decides the details here. The
+                  zone select carries the COMPACT labels (EST, CST, India) rather
+                  than the full "EST (Eastern Standard Time)" — a native select
+                  takes its width from its widest option, and that label is still
+                  half again wider than the ~150px this half-row gives it. The
+                  codes are the CRM's own vocabulary and are what each queue row
+                  already shows. Equal halves: neither side has anything to spare
+                  for the other. Below `xl` the queue is full-width and both grow
+                  with it. */}
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <div className="min-w-0">
                   <label
@@ -684,8 +689,8 @@ export default function CallingPage() {
 
               {/* Counts are of the zone-filtered, searched queue, since they
                   label that list — clicking a tab shows exactly this many.
-                  All four sit on ONE row: the queue column is 280px at `xl`, which
-                  the tabs overflow at their natural width — that overflow first
+                  All four sit on ONE row: the queue column is fixed at `xl`, and
+                  the tabs overflow it at their natural width — that overflow first
                   drew a scrollbar (`overflow-x-auto`, which also hid the last tab
                   off the edge) and then wrapped "New" onto a second line. Sharing
                   the row in equal quarters (`flex-1` + `min-w-0`) fits them at any
