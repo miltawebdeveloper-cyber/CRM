@@ -57,7 +57,7 @@ export function ConfirmDialog({
           <div className="flex items-start gap-3 px-5 pt-5">
             <div
               className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${
-                destructive ? 'bg-[#fde9e6] text-[#a8431f]' : 'bg-muted text-foreground'
+                destructive ? 'bg-[var(--tone-red-bg)] text-[var(--tone-red-fg-2)]' : 'bg-muted text-foreground'
               }`}
             >
               <AlertTriangle className="h-[18px] w-[18px]" />
@@ -79,7 +79,7 @@ export function ConfirmDialog({
               onClick={confirm}
               disabled={busy}
               className={`inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-[12.5px] font-semibold text-white disabled:opacity-60 ${
-                destructive ? 'bg-[#b5372a] hover:bg-[#9e2b21]' : 'bg-primary hover:opacity-90'
+                destructive ? 'bg-[#b5372a] hover:bg-[var(--tone-red-fg)]' : 'bg-primary hover:opacity-90'
               }`}
             >
               {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}

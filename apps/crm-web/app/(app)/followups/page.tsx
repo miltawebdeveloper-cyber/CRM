@@ -191,11 +191,11 @@ export default function FollowupsPage() {
             window between the scheduled time and the callback counting as
             missed. It had no card, so it was invisible until it was already
             overdue. */}
-        <KpiCard icon={Bell} iconBg="#fdf1de" iconColor="#c98a18" value={dueNow} label="Due Now" />
-        <KpiCard icon={Clock} iconBg="#fde9e6" iconColor="#a8431f" value={dueToday} label="Due Today" />
-        <KpiCard icon={RefreshCw} iconBg="#fdf1de" iconColor="#c98a18" value={thisWeek} label="This Week" />
-        <KpiCard icon={CheckCircle2} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value={fus.length} label="Total Scheduled" />
-        <KpiCard icon={AlertTriangle} iconBg="#fde9e6" iconColor="#a8431f" value={overdue} label="Overdue" />
+        <KpiCard icon={Bell} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={dueNow} label="Due Now" />
+        <KpiCard icon={Clock} iconBg="var(--tone-red-bg)" iconColor="var(--tone-red-fg-2)" value={dueToday} label="Due Today" />
+        <KpiCard icon={RefreshCw} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={thisWeek} label="This Week" />
+        <KpiCard icon={CheckCircle2} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={fus.length} label="Total Scheduled" />
+        <KpiCard icon={AlertTriangle} iconBg="var(--tone-red-bg)" iconColor="var(--tone-red-fg-2)" value={overdue} label="Overdue" />
       </div>
 
       <DataTable

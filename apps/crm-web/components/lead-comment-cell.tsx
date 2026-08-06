@@ -126,7 +126,7 @@ function CommentHistoryDialog({ lead, onClose }: { lead: Lead; onClose: () => vo
                 <div className="mb-1 flex items-center gap-2 text-[10.5px] text-muted-foreground">
                   <span
                     className={`rounded-full px-1.5 py-0.5 font-medium ${
-                      c.source === 'Call Notes' ? 'bg-[var(--brand-tint)] text-[var(--brand)]' : 'bg-muted text-foreground'
+                      c.source === 'Call Notes' ? 'bg-[var(--brand-surface)] text-[var(--brand-on-surface)]' : 'bg-muted text-foreground'
                     }`}
                   >
                     {c.source}

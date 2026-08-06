@@ -35,7 +35,7 @@ import { usePersistedState } from '@/lib/use-persisted-state';
  */
 export const CAT = {
   cold: { label: 'Cold', color: '#3e63dd', tint: '#e4e9fb', ink: '#2a44a8' },
-  warm: { label: 'Warm', color: '#dc9200', tint: '#fbf0dc', ink: '#8a5a00' },
+  warm: { label: 'Warm', color: '#dc9200', tint: '#fbf0dc', ink: 'var(--tone-amber-fg-strong)' },
   hot: { label: 'Hot', color: '#e5484d', tint: '#fdeae9', ink: '#a8322f' },
   connected: { label: 'Connected', color: '#0e7c86', tint: '#e0f1f3', ink: '#0a5c63' },
   closed_positive: { label: 'Closed — Won', color: '#0d8a55', tint: '#e0f2e9', ink: '#0a6640' },
@@ -92,7 +92,7 @@ export function DirectionPill({ direction }: { direction: 'inbound' | 'outbound'
   if (!direction) return <span className="text-muted-foreground">—</span>;
   const inbound = direction === 'inbound';
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-[3px] text-[10.5px] font-semibold ${inbound ? 'bg-[#e3f1ee] text-[#2f6f63]' : 'bg-[#e7eed8] text-[#42512f]'}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-[3px] text-[10.5px] font-semibold ${inbound ? 'bg-[var(--tone-teal-bg)] text-[var(--tone-teal-fg)]' : 'bg-[#e7eed8] text-[#42512f]'}`}>
       {inbound ? <PhoneIncoming className="h-3 w-3" /> : <PhoneOutgoing className="h-3 w-3" />}
       {inbound ? 'Incoming' : 'Outgoing'}
     </span>

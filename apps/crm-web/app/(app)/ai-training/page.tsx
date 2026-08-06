@@ -8,13 +8,13 @@ import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 
 const KB = [
-  { icon: Building2, t: 'Company Operations', d: 'Services, US markets covered, timezones handled, client industries served', n: 18, bg: 'var(--brand-tint)', color: 'var(--brand)' },
-  { icon: FileText, t: 'Tax Knowledge', d: 'Tax forms, filing processes, common client questions (1099, W-2, deadlines)', n: 42, bg: '#fdecdc', color: '#c98a18' },
-  { icon: BookOpen, t: 'Bookkeeping', d: 'QuickBooks, Xero, payroll basics, reconciliation workflows', n: 31, bg: '#dff0ec', color: '#2f6f63' },
-  { icon: MessageSquare, t: 'Sales Scripts', d: 'Opening conversations, objection handling, closing methods', n: 24, bg: '#f7e3da', color: '#a8431f' },
+  { icon: Building2, t: 'Company Operations', d: 'Services, US markets covered, timezones handled, client industries served', n: 18, bg: 'var(--brand-surface)', color: 'var(--brand-on-surface)' },
+  { icon: FileText, t: 'Tax Knowledge', d: 'Tax forms, filing processes, common client questions (1099, W-2, deadlines)', n: 42, bg: 'var(--tone-amber-bg-2)', color: 'var(--tone-amber-fg)' },
+  { icon: BookOpen, t: 'Bookkeeping', d: 'QuickBooks, Xero, payroll basics, reconciliation workflows', n: 31, bg: 'var(--tone-teal-bg-2)', color: 'var(--tone-teal-fg)' },
+  { icon: MessageSquare, t: 'Sales Scripts', d: 'Opening conversations, objection handling, closing methods', n: 24, bg: '#f7e3da', color: 'var(--tone-red-fg-2)' },
 ];
 const COACH: [string, number, string][] = [
-  ['Confidence', 78, 'var(--brand)'], ['Speaking Pace', 64, '#c98a18'], ['Objection Handling', 82, '#2f6f63'], ['Closing Strength', 58, '#a8431f'],
+  ['Confidence', 78, 'var(--brand)'], ['Speaking Pace', 64, 'var(--tone-amber-fg)'], ['Objection Handling', 82, 'var(--tone-teal-fg)'], ['Closing Strength', 58, 'var(--tone-red-fg-2)'],
 ];
 
 interface Msg { role: 'user' | 'ai'; text: string }
@@ -45,10 +45,10 @@ export default function AiTrainingPage() {
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={BookMarked} iconBg="var(--brand-tint)" iconColor="var(--brand)" value="115" label="KB Articles" />
-        <KpiCard icon={Sparkles} iconBg="#fdecdc" iconColor="#c98a18" value="1,240" label="AI Answers This Week" trend="18%" trendDir="up" />
-        <KpiCard icon={Mic} iconBg="#dff0ec" iconColor="#2f6f63" value="86" label="Calls Coached" />
-        <KpiCard icon={Target} iconBg="var(--brand-tint)" iconColor="var(--brand)" value="7.8/10" label="Avg Confidence" />
+        <KpiCard icon={BookMarked} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value="115" label="KB Articles" />
+        <KpiCard icon={Sparkles} iconBg="var(--tone-amber-bg-2)" iconColor="var(--tone-amber-fg)" value="1,240" label="AI Answers This Week" trend="18%" trendDir="up" />
+        <KpiCard icon={Mic} iconBg="var(--tone-teal-bg-2)" iconColor="var(--tone-teal-fg)" value="86" label="Calls Coached" />
+        <KpiCard icon={Target} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value="7.8/10" label="Avg Confidence" />
       </div>
 
       <div className="grid gap-[18px] xl:grid-cols-[7fr_5fr]">
@@ -71,7 +71,7 @@ export default function AiTrainingPage() {
         <div className="flex flex-col rounded-2xl border bg-card shadow-sm">
           <div className="flex items-center justify-between border-b px-[18px] py-4">
             <div><h3 className="font-display text-[14px] font-semibold">AI Assistant</h3><div className="text-xs text-muted-foreground">Instant answers for your team</div></div>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--brand-tint)] px-2.5 py-[3px] text-[11px] font-semibold text-[var(--brand)]"><span className="h-1.5 w-1.5 rounded-full bg-[var(--brand)]" /> Online</span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--brand-surface)] px-2.5 py-[3px] text-[11px] font-semibold text-[var(--brand-on-surface)]"><span className="h-1.5 w-1.5 rounded-full bg-[var(--brand)]" /> Online</span>
           </div>
           <div className="flex max-h-[360px] flex-1 flex-col gap-3.5 overflow-y-auto p-[18px]">
             {messages.map((m, i) => (
@@ -101,11 +101,11 @@ export default function AiTrainingPage() {
             {COACH.map(([lab, v, c]) => (
               <div key={lab}>
                 <div className="mb-[7px] flex justify-between text-[12.5px] font-semibold"><span>{lab}</span><b>{v}%</b></div>
-                <div className="h-2 overflow-hidden rounded-full bg-[var(--brand-tint)]"><i className="block h-full rounded-full" style={{ width: `${v}%`, background: c }} /></div>
+                <div className="h-2 overflow-hidden rounded-full bg-[var(--brand-surface)]"><i className="block h-full rounded-full" style={{ width: `${v}%`, background: c }} /></div>
               </div>
             ))}
           </div>
-          <div className="flex gap-3 rounded-md border border-[var(--brand-lime-soft)] bg-[#f3f5ef] p-[15px] text-[12.5px] leading-relaxed text-[var(--brand-ink)]">
+          <div className="flex gap-3 rounded-md border border-[var(--brand-lime-soft)] bg-[var(--tone-neutral-bg)] p-[15px] text-[12.5px] leading-relaxed text-[var(--brand-ink)]">
             <Sparkles className="h-5 w-5 shrink-0 text-[var(--brand)]" />
             <div><b>AI Suggestion:</b> Strong rapport on opening, but 3 missed closing opportunities detected in today&apos;s calls. Try asking for the next step earlier — right after confirming interest.</div>
           </div>

@@ -363,7 +363,7 @@ export default function LeadDetailPage() {
                   {edit.isPending ? 'Saving…' : 'Save changes'}
                 </button>
                 <button type="button" onClick={() => setEditing(false)} className="rounded-md border bg-card px-3 py-2 text-[12.5px] font-semibold hover:bg-muted">Cancel</button>
-                {edit.isError && <span className="text-[11.5px] text-[#9e2b21]">Failed to save</span>}
+                {edit.isError && <span className="text-[11.5px] text-[var(--tone-red-fg)]">Failed to save</span>}
               </div>
             </form>
           )}
@@ -456,7 +456,7 @@ export default function LeadDetailPage() {
         <div className="space-y-2.5">
           {timeline.map((t) => {
             const inbound = t.direction === 'inbound';
-            const tone = t.kind === 'call' ? '#2c5d8f' : t.kind === 'message' ? 'var(--brand)' : '#c98a18';
+            const tone = t.kind === 'call' ? 'var(--tone-blue-fg)' : t.kind === 'message' ? 'var(--brand)' : 'var(--tone-amber-fg)';
             const label = t.kind === 'call' ? `${inbound ? 'Inbound' : 'Outbound'} call` : t.kind === 'message' ? `${inbound ? 'Inbound' : 'Outbound'} SMS` : 'Note';
             return (
               <div key={`${t.kind}-${t.id}`} className="flex gap-3 rounded-md border px-3 py-2.5">

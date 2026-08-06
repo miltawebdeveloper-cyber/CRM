@@ -14,7 +14,7 @@ import { titleForPath, subForPath } from '@/lib/nav';
 
 function IconBtn({ children, label, href, onClick }: { children: React.ReactNode; label: string; href?: string; onClick?: () => void }) {
   const cls =
-    'relative grid h-[38px] w-[38px] place-items-center rounded-[10px] text-[var(--brand-deep)] transition-colors hover:bg-muted dark:text-foreground/80';
+    'relative grid h-8 w-8 place-items-center rounded-[8px] text-[var(--brand-deep)] transition-colors hover:bg-muted dark:text-foreground/80';
   if (href)
     return (
       <Link href={href} aria-label={label} title={label} className={cls}>
@@ -60,9 +60,9 @@ export function Topbar({ email, onMenu }: { email?: string; onMenu?: () => void 
         type="button"
         onClick={onMenu}
         aria-label="Open menu"
-        className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] text-[var(--brand-deep)] transition-colors hover:bg-muted dark:text-foreground/80 lg:hidden"
+        className="grid h-8 w-8 shrink-0 place-items-center rounded-[8px] text-[var(--brand-deep)] transition-colors hover:bg-muted dark:text-foreground/80 lg:hidden"
       >
-        <Menu className="h-[21px] w-[21px]" />
+        <Menu className="h-[18px] w-[18px]" />
       </button>
 
       {/* Page title + subtitle. A page with tabs names itself in its first tab,
@@ -106,9 +106,9 @@ export function Topbar({ email, onMenu }: { email?: string; onMenu?: () => void 
         type="button"
         onClick={openPalette}
         aria-label="Search"
-        className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] text-[var(--brand-deep)] transition-colors hover:bg-muted dark:text-foreground/80 md:hidden"
+        className="grid h-8 w-8 shrink-0 place-items-center rounded-[8px] text-[var(--brand-deep)] transition-colors hover:bg-muted dark:text-foreground/80 md:hidden"
       >
-        <Search className="h-[19px] w-[19px]" />
+        <Search className="h-4 w-4" />
       </button>
 
       <div className="flex-1" />
@@ -118,13 +118,13 @@ export function Topbar({ email, onMenu }: { email?: string; onMenu?: () => void 
           notification bell and the account menu, which are not. */}
       <div className="hidden sm:contents">
         <IconBtn label="Quick dial" href="/calling">
-          <Phone className="h-[19px] w-[19px]" />
+          <Phone className="h-4 w-4" />
         </IconBtn>
       </div>
       <NotificationBell />
       <div className="hidden sm:contents">
         <IconBtn label="Settings" href="/settings">
-          <Settings className="h-[19px] w-[19px]" />
+          <Settings className="h-4 w-4" />
         </IconBtn>
       </div>
       <ThemeToggle />
@@ -134,7 +134,7 @@ export function Topbar({ email, onMenu }: { email?: string; onMenu?: () => void 
         <button
           type="button"
           onClick={() => setMenuOpen((v) => !v)}
-          className="grid h-9 w-9 place-items-center rounded-full bg-primary font-display text-sm font-semibold text-primary-foreground"
+          className="grid h-8 w-8 place-items-center rounded-full bg-primary font-display text-sm font-semibold text-primary-foreground"
         >
           {initial}
         </button>

@@ -428,7 +428,7 @@ export function CallsAnalytics({ isManager }: { isManager: boolean }) {
                   <div><b className="font-display text-[15.5px]">{stats.target.completed.toLocaleString()}</b> <span className="text-muted-foreground">completed</span></div>
                   <div><b className="font-display text-[15.5px]">{stats.target.remaining.toLocaleString()}</b> <span className="text-muted-foreground">remaining</span></div>
                   {stats.target.reason && (
-                    <p className="mt-1.5 rounded-md bg-[#fde9e6] px-2.5 py-1 text-[11px] text-[#a8431f]">Not achieving — {stats.target.reason}</p>
+                    <p className="mt-1.5 rounded-md bg-[var(--tone-red-bg)] px-2.5 py-1 text-[11px] text-[var(--tone-red-fg-2)]">Not achieving — {stats.target.reason}</p>
                   )}
                 </div>
               </div>

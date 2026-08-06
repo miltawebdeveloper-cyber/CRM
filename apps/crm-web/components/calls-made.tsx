@@ -113,7 +113,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
       render: (c) =>
         c.kind === 'processed' ? (
           <span
-            className="inline-flex items-center gap-1 rounded-full bg-[#f2f2ec] px-2 py-[3px] text-[10.5px] font-semibold text-[#75766a]"
+            className="inline-flex items-center gap-1 rounded-full bg-[var(--tone-neutral-bg)] px-2 py-[3px] text-[10.5px] font-semibold text-[var(--tone-neutral-fg)]"
             title="Worked from the queue with no call placed — dialling was switched off"
           >
             <ClipboardCheck className="h-3 w-3" /> No call
@@ -225,29 +225,29 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
           the row reflows to the space actually available, on any laptop, and
           whether the sidebar is expanded or railed. */}
       <div className="mb-4 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
-        <KpiCard icon={Phone} iconBg="#e6effb" iconColor="#2c5d8f" value={(stats?.total ?? 0).toLocaleString()} label="Total Calls Made" />
+        <KpiCard icon={Phone} iconBg="var(--tone-blue-bg)" iconColor="var(--tone-blue-fg)" value={(stats?.total ?? 0).toLocaleString()} label="Total Calls Made" />
         <KpiCard icon={PhoneOutgoing} iconBg="#e7eed8" iconColor="#42512f" value={(stats?.outgoing ?? 0).toLocaleString()} label="Outgoing Calls" />
-        <KpiCard icon={PhoneIncoming} iconBg="#e3f1ee" iconColor="#2f6f63" value={(stats?.incoming ?? 0).toLocaleString()} label="Incoming Calls" />
+        <KpiCard icon={PhoneIncoming} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value={(stats?.incoming ?? 0).toLocaleString()} label="Incoming Calls" />
         <KpiCard icon={CheckCircle2} iconBg="#e8f2e4" iconColor="#3f7a32" value={(stats?.connected ?? 0).toLocaleString()} label={`Connected · ${stats?.connectedPct ?? 0}%`} />
         {/* "Unanswered", not "Missed Calls": this is a volume breakdown of the
             log and counts BOTH directions, so most of it is outbound calls the
             customer didn't pick up. The Missed Calls tab next door means
             something narrower — inbound calls the user missed — and two tiles a
             click apart must not use one label for two different numbers. */}
-        <KpiCard icon={PhoneMissed} iconBg="#fdecdc" iconColor="#c98a18" value={(stats?.missed ?? 0).toLocaleString()} label="Unanswered" />
-        <KpiCard icon={PhoneOff} iconBg="#fde9e6" iconColor="#a8431f" value={(stats?.failed ?? 0).toLocaleString()} label="Failed Calls" />
-        <KpiCard icon={Clock} iconBg="#fdf1de" iconColor="#c98a18" value={formatDuration(stats?.totalDurationSecs ?? 0)} label="Call Duration" />
-        <KpiCard icon={Timer} iconBg="#f2f2ec" iconColor="#75766a" value={formatDuration(stats?.avgDurationSecs ?? 0)} label="Avg Call" />
+        <KpiCard icon={PhoneMissed} iconBg="var(--tone-amber-bg-2)" iconColor="var(--tone-amber-fg)" value={(stats?.missed ?? 0).toLocaleString()} label="Unanswered" />
+        <KpiCard icon={PhoneOff} iconBg="var(--tone-red-bg)" iconColor="var(--tone-red-fg-2)" value={(stats?.failed ?? 0).toLocaleString()} label="Failed Calls" />
+        <KpiCard icon={Clock} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={formatDuration(stats?.totalDurationSecs ?? 0)} label="Call Duration" />
+        <KpiCard icon={Timer} iconBg="var(--tone-neutral-bg)" iconColor="var(--tone-neutral-fg)" value={formatDuration(stats?.avgDurationSecs ?? 0)} label="Avg Call" />
         {/* Leads worked with no call placed. Its own tile rather than part of
             Total Calls Made — the work is real and belongs in the log, but it
             wasn't dialled, and rolling it into call volume would overstate it. */}
         {(stats?.processed ?? 0) > 0 && (
           <>
-            <KpiCard icon={ClipboardCheck} iconBg="#f2f2ec" iconColor="#75766a" value={(stats?.processed ?? 0).toLocaleString()} label="Processed · no call" />
+            <KpiCard icon={ClipboardCheck} iconBg="var(--tone-neutral-bg)" iconColor="var(--tone-neutral-fg)" value={(stats?.processed ?? 0).toLocaleString()} label="Processed · no call" />
             {/* Handling time, kept apart from talk time for the same reason the
                 counts are: it is time spent working the lead, not on the phone. */}
-            <KpiCard icon={Hourglass} iconBg="#f2f2ec" iconColor="#75766a" value={formatDuration(stats?.processingSecs ?? 0)} label="Processing Time" />
-            <KpiCard icon={Timer} iconBg="#f2f2ec" iconColor="#75766a" value={formatDuration(stats?.avgProcessingSecs ?? 0)} label="Avg per Lead" />
+            <KpiCard icon={Hourglass} iconBg="var(--tone-neutral-bg)" iconColor="var(--tone-neutral-fg)" value={formatDuration(stats?.processingSecs ?? 0)} label="Processing Time" />
+            <KpiCard icon={Timer} iconBg="var(--tone-neutral-bg)" iconColor="var(--tone-neutral-fg)" value={formatDuration(stats?.avgProcessingSecs ?? 0)} label="Avg per Lead" />
           </>
         )}
       </div>

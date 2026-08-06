@@ -124,7 +124,7 @@ export function MissedCalls() {
         key: 'status',
         header: 'Status',
         render: (r) => (
-          <span className="inline-flex items-center gap-1 rounded-full bg-[#fde9e6] px-2 py-[3px] text-[10.5px] font-semibold capitalize text-[#a8431f]">
+          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--tone-red-bg)] px-2 py-[3px] text-[10.5px] font-semibold capitalize text-[var(--tone-red-fg-2)]">
             <PhoneMissed className="h-3 w-3" />
             {r.status.replace(/[-_]/g, ' ')}
           </span>
@@ -145,12 +145,12 @@ export function MissedCalls() {
   return (
     <div>
       <div className="mb-[18px] grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={PhoneMissed} iconBg="#fde9e6" iconColor="#a8431f" value={rows.length.toLocaleString()} label="Missed Calls" />
-        <KpiCard icon={Clock} iconBg="#fdf1de" iconColor="#c98a18" value={todayCount.toLocaleString()} label="Missed Today" />
+        <KpiCard icon={PhoneMissed} iconBg="var(--tone-red-bg)" iconColor="var(--tone-red-fg-2)" value={rows.length.toLocaleString()} label="Missed Calls" />
+        <KpiCard icon={Clock} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={todayCount.toLocaleString()} label="Missed Today" />
         <KpiCard
           icon={PhoneIncoming}
-          iconBg="#e3f1ee"
-          iconColor="#2f6f63"
+          iconBg="var(--tone-teal-bg)"
+          iconColor="var(--tone-teal-fg)"
           value={rows[0] ? formatInLeadZone(rows[0].at, undefined) : '—'}
           label="Most Recent"
         />

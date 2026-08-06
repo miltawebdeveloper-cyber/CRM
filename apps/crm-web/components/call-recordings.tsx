@@ -262,9 +262,9 @@ export function CallRecordings({ leadId }: { leadId?: string }) {
 function InsightDot({ status }: { status: string }) {
   const map: Record<string, string> = {
     ready: 'bg-[var(--brand-mid)]',
-    processing: 'bg-[#c98a18] animate-pulse',
-    pending: 'bg-[#c98a18] animate-pulse',
-    failed: 'bg-[#9e2b21]',
+    processing: 'bg-[var(--tone-amber-fg)] animate-pulse',
+    pending: 'bg-[var(--tone-amber-fg)] animate-pulse',
+    failed: 'bg-[var(--tone-red-fg)]',
     unavailable: 'bg-muted-foreground/40',
   };
   return <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${map[status] ?? 'bg-muted-foreground/40'}`} />;
@@ -289,7 +289,7 @@ function RecordingRow({
   return (
     <div className="mb-[9px] rounded-[11px] border p-3 hover:bg-muted/40">
       <div className="flex flex-wrap items-center gap-3">
-        <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] ${call.direction === 'inbound' ? 'bg-[#e6effb] text-[#2c5d8f]' : 'bg-[var(--brand-tint)] text-[var(--brand)]'}`}>
+        <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] ${call.direction === 'inbound' ? 'bg-[var(--tone-blue-bg)] text-[var(--tone-blue-fg)]' : 'bg-[var(--brand-surface)] text-[var(--brand-on-surface)]'}`}>
           <Icon className="h-[18px] w-[18px]" />
         </div>
 
@@ -304,7 +304,7 @@ function RecordingRow({
             call.from ? (
               <div className="mt-0.5 truncate text-[10.5px] text-muted-foreground">Caller ID <span className="font-mono text-foreground">{call.from}</span></div>
             ) : (
-              <div className="mt-0.5 inline-flex items-center gap-1 text-[10.5px] font-medium text-[#a8431f]">
+              <div className="mt-0.5 inline-flex items-center gap-1 text-[10.5px] font-medium text-[var(--tone-red-fg-2)]">
                 <AlertTriangle className="h-3 w-3" /> Caller ID not recorded
               </div>
             )
@@ -626,9 +626,9 @@ function TranscriptView({ insight, term }: { insight: CallInsight | null; term: 
         const isEmp = t.speaker === 'employee';
         return (
           <div key={i} className={`flex ${isEmp ? 'justify-start' : 'justify-end'}`}>
-            <div className={`max-w-[85%] rounded-[12px] px-3 py-2 ${isEmp ? 'bg-[#e6effb]' : 'bg-[var(--brand-tint)]'}`}>
+            <div className={`max-w-[85%] rounded-[12px] px-3 py-2 ${isEmp ? 'bg-[var(--tone-blue-bg)]' : 'bg-[var(--brand-surface)]'}`}>
               <div className="mb-0.5 flex items-center gap-2">
-                <span className={`text-[10.5px] font-bold ${isEmp ? 'text-[#2c5d8f]' : 'text-[var(--brand)]'}`}>
+                <span className={`text-[10.5px] font-bold ${isEmp ? 'text-[var(--tone-blue-fg)]' : 'text-[var(--brand)]'}`}>
                   {isEmp ? 'Employee' : 'Customer'}{t.speakerName ? ` · ${t.speakerName}` : ''}
                 </span>
                 {t.startSecs != null && <span className="font-mono text-[10px] text-muted-foreground">{stamp(t.startSecs)}</span>}

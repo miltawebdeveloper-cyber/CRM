@@ -43,7 +43,7 @@ export function ReassignConfirm({
           className="w-full max-w-[440px] overflow-hidden rounded-2xl border bg-card shadow-2xl"
         >
           <div className="flex items-start gap-3 px-5 pb-3 pt-5">
-            <span className="mt-[2px] grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#fdf1de] text-[#8a5a00]">
+            <span className="mt-[2px] grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--tone-amber-bg)] text-[var(--tone-amber-fg-strong)]">
               <AlertTriangle className="h-4 w-4" />
             </span>
             <div className="min-w-0">

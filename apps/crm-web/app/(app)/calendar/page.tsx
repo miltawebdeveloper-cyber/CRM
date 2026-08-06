@@ -19,9 +19,9 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 
 /** One visual identity per activity type, reused by the chips and the legend. */
 const TYPE_META: Record<ActivityType, { label: string; chip: string; dot: string; icon: typeof Phone }> = {
-  call: { label: 'Scheduled Call', chip: 'bg-[var(--brand-tint)] text-[var(--brand)]', dot: 'bg-[var(--brand-lime)]', icon: Phone },
-  callback: { label: 'Callback', chip: 'bg-[#fdf1de] text-[#8a5d0a]', dot: 'bg-[#f0d589]', icon: PhoneCall },
-  zoom: { label: 'Zoom Meeting', chip: 'bg-[#e7f0fb] text-[#1f5fae]', dot: 'bg-[#a9c8e6]', icon: Video },
+  call: { label: 'Scheduled Call', chip: 'bg-[var(--brand-surface)] text-[var(--brand-on-surface)]', dot: 'bg-[var(--brand-lime)]', icon: Phone },
+  callback: { label: 'Callback', chip: 'bg-[var(--tone-amber-bg)] text-[var(--tone-amber-fg-strong)]', dot: 'bg-[#f0d589]', icon: PhoneCall },
+  zoom: { label: 'Zoom Meeting', chip: 'bg-[#e7f0fb] text-[var(--tone-blue-fg-2)]', dot: 'bg-[#a9c8e6]', icon: Video },
 };
 
 /**
@@ -30,7 +30,7 @@ const TYPE_META: Record<ActivityType, { label: string; chip: string; dot: string
  * amber as a comfortably-upcoming one is how it stays unnoticed in a full month.
  */
 const overdueChip = (e: CalendarEvent): string | null =>
-  e.callbackStatus === 'overdue' ? 'bg-[#fde9e6] text-[#8f2b1c]' : e.callbackStatus === 'due' ? 'bg-[#f7e2c0] text-[#8a5d0a]' : null;
+  e.callbackStatus === 'overdue' ? 'bg-[var(--tone-red-bg)] text-[#8f2b1c]' : e.callbackStatus === 'due' ? 'bg-[#f7e2c0] text-[var(--tone-amber-fg-strong)]' : null;
 
 type CalView = 'month' | 'week' | 'day';
 const VIEWS = [{ label: 'Month', value: 'month' as CalView }, { label: 'Week', value: 'week' as CalView }, { label: 'Day', value: 'day' as CalView }];
@@ -162,10 +162,10 @@ export default function CalendarPage() {
 
       {/* Summary — counts for the selected window and employee scope. */}
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
-        <KpiCard index={0} icon={Phone} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={s?.calls ?? 0} label="Scheduled Calls" />
-        <KpiCard index={1} icon={PhoneCall} iconBg="#fdf1de" iconColor="#c98a18" value={s?.callbacks ?? 0} label="Callback Calls" />
-        <KpiCard index={2} icon={Video} iconBg="#e7f0fb" iconColor="#1f5fae" value={s?.zooms ?? 0} label="Zoom Meetings" />
-        <KpiCard index={3} icon={CalendarDays} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value={s?.total ?? 0} label="Total Scheduled" />
+        <KpiCard index={0} icon={Phone} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={s?.calls ?? 0} label="Scheduled Calls" />
+        <KpiCard index={1} icon={PhoneCall} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={s?.callbacks ?? 0} label="Callback Calls" />
+        <KpiCard index={2} icon={Video} iconBg="#e7f0fb" iconColor="var(--tone-blue-fg-2)" value={s?.zooms ?? 0} label="Zoom Meetings" />
+        <KpiCard index={3} icon={CalendarDays} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={s?.total ?? 0} label="Total Scheduled" />
       </div>
 
       <div className="rounded-2xl border bg-card shadow-sm">

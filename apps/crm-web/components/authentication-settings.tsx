@@ -63,7 +63,7 @@ export function AuthenticationSettings() {
         {/* Without SMTP the code is only written to the server log, so enabling the
             gate would lock everyone out. Say so before they flip the switch. */}
         {data && !data.mailReady && (
-          <div className="flex items-start gap-2 rounded-lg bg-[#fde9e6] px-3 py-2.5 text-[12px] text-[#a8431f]">
+          <div className="flex items-start gap-2 rounded-lg bg-[var(--tone-red-bg)] px-3 py-2.5 text-[12px] text-[var(--tone-red-fg-2)]">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
               <b>SMTP is not configured</b>, so OTP emails cannot be delivered. Enabling this now would prevent everyone from
@@ -94,7 +94,7 @@ export function AuthenticationSettings() {
             value={form.recipientEmail}
             onChange={(e) => set('recipientEmail', e.target.value)}
             placeholder="mfsaccounting@gmail.com"
-            className={`w-full rounded-md border bg-background px-3 py-2 outline-none focus:border-primary ${noRecipient ? 'border-[#f2cbc5]' : ''}`}
+            className={`w-full rounded-md border bg-background px-3 py-2 outline-none focus:border-primary ${noRecipient ? 'border-[var(--tone-red-line)]' : ''}`}
           />
           <span className="block text-[11px] text-muted-foreground">
             Every user&apos;s login code is sent here — not to the user&apos;s own address.
@@ -159,7 +159,7 @@ export function AuthenticationSettings() {
         </div>
 
         {noRecipient && (
-          <p className="text-[12px] font-medium text-[#a8431f]">Set a recipient email before enabling OTP authentication.</p>
+          <p className="text-[12px] font-medium text-[var(--tone-red-fg-2)]">Set a recipient email before enabling OTP authentication.</p>
         )}
 
         <div className="flex justify-end">

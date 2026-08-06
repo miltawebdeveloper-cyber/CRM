@@ -393,7 +393,7 @@ export default function LeadsPage() {
       header: 'Assigned To',
       render: (l) =>
         l.assignedTo ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--brand-tint)] px-2 py-0.5 text-[10.5px] font-medium text-[var(--brand)]">
+          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--brand-surface)] px-2 py-0.5 text-[10.5px] font-medium text-[var(--brand-on-surface)]">
             <Lock className="h-3 w-3" /> {l.assignedTo.name}
           </span>
         ) : (
@@ -451,7 +451,7 @@ export default function LeadsPage() {
               onClick={() => setActivityLead(l)}
               title="Lead history"
               aria-label="Lead history"
-              className="grid h-[30px] w-[30px] place-items-center rounded-lg border border-[#bcd9ff] bg-[#f2f8ff] text-[#1f5fae] hover:bg-[#2D8CFF] hover:text-white"
+              className="grid h-[30px] w-[30px] place-items-center rounded-lg border border-[var(--tone-blue-line)] bg-[var(--tone-blue-bg-2)] text-[var(--tone-blue-fg-2)] hover:bg-[#2D8CFF] hover:text-white"
             >
               <Info className="h-[15px] w-[15px]" />
             </button>
@@ -545,11 +545,11 @@ export default function LeadsPage() {
           TARGET, not the number of leads anyone had been given — which made
           Balance and Progress answer a different question than their labels. */}
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={Target} iconBg="#e6effb" iconColor="#2c5d8f" value={(s?.totalLeads ?? 0).toLocaleString()} label="Total Leads" />
-        <KpiCard icon={Zap} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={(s?.assignedLeads ?? 0).toLocaleString()} label="Assigned Leads" />
-        <KpiCard icon={PhoneCall} iconBg="#e3f1ee" iconColor="#2f6f63" value={(s?.contactedLeads ?? 0).toLocaleString()} label="Contacted" />
-        <KpiCard icon={Hourglass} iconBg="#fdf1de" iconColor="#c98a18" value={(s?.balanceLeads ?? 0).toLocaleString()} label="Balance Leads" />
-        <KpiCard icon={Percent} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value={`${s?.progressPct ?? 0}%`} label="Progress" />
+        <KpiCard icon={Target} iconBg="var(--tone-blue-bg)" iconColor="var(--tone-blue-fg)" value={(s?.totalLeads ?? 0).toLocaleString()} label="Total Leads" />
+        <KpiCard icon={Zap} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={(s?.assignedLeads ?? 0).toLocaleString()} label="Assigned Leads" />
+        <KpiCard icon={PhoneCall} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value={(s?.contactedLeads ?? 0).toLocaleString()} label="Contacted" />
+        <KpiCard icon={Hourglass} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={(s?.balanceLeads ?? 0).toLocaleString()} label="Balance Leads" />
+        <KpiCard icon={Percent} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={`${s?.progressPct ?? 0}%`} label="Progress" />
       </div>
 
       {/* Filter bar — one row on a laptop and up.
@@ -654,9 +654,9 @@ export default function LeadsPage() {
           </label>
           {/* Refused as a duplicate — the matches, then the choice. */}
           {dupBlock && (
-            <div className="col-span-full rounded-lg border border-[#e8c68a] bg-[#fdf1de]/60 p-3.5">
+            <div className="col-span-full rounded-lg border border-[var(--tone-amber-line)] bg-[var(--tone-amber-bg)]/60 p-3.5">
               <div className="flex items-start gap-2">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#8a5d0a]" />
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--tone-amber-fg-strong)]" />
                 <div className="min-w-0 flex-1">
                   <div className="text-[12.5px] font-semibold text-[#664304]">{dupBlock.message}</div>
                   <ul className="mt-2 space-y-1.5">
@@ -665,7 +665,7 @@ export default function LeadsPage() {
                         <span className="flex flex-wrap items-center gap-1.5">
                           <span className="font-mono text-[11px] text-primary">{m.leadId}</span>
                           <b>{m.businessName || 'Unnamed lead'}</b>
-                          <span className="rounded-full bg-[#f4e4c1] px-2 py-0.5 text-[10px] font-semibold text-[#8a5d0a]">
+                          <span className="rounded-full bg-[var(--tone-amber-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--tone-amber-fg-strong)]">
                             {m.matchedOn.join(', ')}
                           </span>
                         </span>
@@ -687,7 +687,7 @@ export default function LeadsPage() {
                       type="button"
                       onClick={() => create.mutate({ allowDuplicate: true })}
                       disabled={create.isPending}
-                      className="rounded-md border border-[#f2cbc5] bg-card px-3 py-1.5 text-[12px] font-semibold text-[#9e2b21] hover:bg-[#fef0ed] disabled:opacity-60"
+                      className="rounded-md border border-[var(--tone-red-line)] bg-card px-3 py-1.5 text-[12px] font-semibold text-[var(--tone-red-fg)] hover:bg-[var(--tone-red-bg-2)] disabled:opacity-60"
                     >
                       Create it anyway
                     </button>
@@ -704,7 +704,7 @@ export default function LeadsPage() {
             <button type="button" onClick={closeForm} disabled={create.isPending} className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-60">
               Cancel
             </button>
-            {create.isError && !dupBlock && <span className="text-sm text-[#9e2b21]">Failed to create lead</span>}
+            {create.isError && !dupBlock && <span className="text-sm text-[var(--tone-red-fg)]">Failed to create lead</span>}
           </div>
         </form>
       )}

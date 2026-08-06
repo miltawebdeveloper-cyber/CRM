@@ -432,7 +432,7 @@ export function DataTable<T>({
                     disabled={deleting}
                     title={deleteLabel}
                     aria-label={deleteLabel}
-                    className="grid h-8 w-8 place-items-center rounded-md border border-[#f2cbc5] bg-[#fef0ed] text-[#9e2b21] hover:bg-[#f9e7e3] disabled:opacity-50"
+                    className="grid h-8 w-8 place-items-center rounded-md border border-[var(--tone-red-line)] bg-[var(--tone-red-bg-2)] text-[var(--tone-red-fg)] hover:bg-[#f9e7e3] disabled:opacity-50"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>

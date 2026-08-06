@@ -13,9 +13,9 @@ import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/dat
 import { formatDate } from '@/lib/display-settings';
 
 const ROLE_META: Record<string, { label: string; cls: string; desc: string; perms: string[] }> = {
-  admin: { label: 'Admin', cls: 'bg-[#f7e3da] text-[#a8431f]', desc: 'Full access to all modules, data, settings, and user management.', perms: ['All modules & settings', 'User management', 'Recordings & exports', 'System configuration'] },
-  team_leader: { label: 'Team Leader', cls: 'bg-[#dff0ec] text-[#2f6f63]', desc: 'Assign leads, monitor team performance, and view team reports.', perms: ['Assign & distribute leads', 'Monitor live team', 'Team reports & recordings', 'No system settings'] },
-  employee: { label: 'Sales Caller', cls: 'bg-[var(--brand-tint)] text-[var(--brand)]', desc: 'Work assigned leads — update status, add notes, and log calls.', perms: ['Assigned leads only', 'Make & log calls', 'Add notes & follow-ups', 'No team data access'] },
+  admin: { label: 'Admin', cls: 'bg-[#f7e3da] text-[var(--tone-red-fg-2)]', desc: 'Full access to all modules, data, settings, and user management.', perms: ['All modules & settings', 'User management', 'Recordings & exports', 'System configuration'] },
+  team_leader: { label: 'Team Leader', cls: 'bg-[var(--tone-teal-bg-2)] text-[var(--tone-teal-fg)]', desc: 'Assign leads, monitor team performance, and view team reports.', perms: ['Assign & distribute leads', 'Monitor live team', 'Team reports & recordings', 'No system settings'] },
+  employee: { label: 'Sales Caller', cls: 'bg-[var(--brand-surface)] text-[var(--brand-on-surface)]', desc: 'Work assigned leads — update status, add notes, and log calls.', perms: ['Assigned leads only', 'Make & log calls', 'Add notes & follow-ups', 'No team data access'] },
 };
 
 const ROLE_OPTS = [
@@ -77,12 +77,12 @@ export default function UsersPage() {
       render: (u) => <div className="flex items-center gap-[10px]"><Avatar name={u.name} /><div><div className="font-semibold">{u.name}</div><div className="text-[11px] text-muted-foreground">{u.email}</div></div></div>,
     },
     { key: 'role', header: 'Role', trackable: true, render: (u) => <span className={`rounded-full px-2.5 py-[3px] text-[11px] font-bold ${ROLE_META[u.role].cls}`}>{ROLE_META[u.role].label}</span> },
-    { key: 'status', header: 'Status', trackable: true, render: (u) => <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-semibold ${u.isActive ? 'bg-[var(--brand-tint)] text-[var(--brand)]' : 'bg-[#e6effb] text-[#2c5d8f]'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{u.isActive ? 'Active' : 'Inactive'}</span> },
+    { key: 'status', header: 'Status', trackable: true, render: (u) => <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-semibold ${u.isActive ? 'bg-[var(--brand-surface)] text-[var(--brand-on-surface)]' : 'bg-[var(--tone-blue-bg)] text-[var(--tone-blue-fg)]'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{u.isActive ? 'Active' : 'Inactive'}</span> },
     {
       key: 'availability', header: 'Availability', trackable: true,
       render: (u) => {
         const online = (u.availability ?? 'online') === 'online';
-        return <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-semibold ${online ? 'bg-[var(--brand-tint)] text-[var(--brand)]' : 'bg-[#fde9e6] text-[#9e2b21]'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{online ? 'Online' : 'Offline'}</span>;
+        return <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-semibold ${online ? 'bg-[var(--brand-surface)] text-[var(--brand-on-surface)]' : 'bg-[var(--tone-red-bg)] text-[var(--tone-red-fg)]'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{online ? 'Online' : 'Offline'}</span>;
       },
     },
     { key: 'shift', header: 'Shift', trackable: true, render: (u) => u.shiftStart ? <span className="font-mono text-[11.5px]">{u.shiftStart}</span> : <span className="text-muted-foreground">—</span> },
@@ -96,12 +96,12 @@ export default function UsersPage() {
           {(() => {
             const online = (u.availability ?? 'online') === 'online';
             return (
-              <button onClick={() => availRef.current(u)} title={online ? 'Set offline (reassigns their work)' : 'Set online'} className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-muted ${online ? 'text-muted-foreground hover:text-[#9e2b21]' : 'text-[var(--brand-strong)]'}`}>
+              <button onClick={() => availRef.current(u)} title={online ? 'Set offline (reassigns their work)' : 'Set online'} className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-muted ${online ? 'text-muted-foreground hover:text-[var(--tone-red-fg)]' : 'text-[var(--brand-strong)]'}`}>
                 {online ? <WifiOff className="h-4 w-4" /> : <Wifi className="h-4 w-4" />}
               </button>
             );
           })()}
-          <button onClick={() => toggleRef.current(u)} title={u.isActive ? 'Deactivate' : 'Activate'} className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-muted ${u.isActive ? 'text-muted-foreground hover:text-[#9e2b21]' : 'text-[var(--brand-strong)]'}`}>
+          <button onClick={() => toggleRef.current(u)} title={u.isActive ? 'Deactivate' : 'Activate'} className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-muted ${u.isActive ? 'text-muted-foreground hover:text-[var(--tone-red-fg)]' : 'text-[var(--brand-strong)]'}`}>
             {u.isActive ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
           </button>
         </div>
@@ -130,10 +130,10 @@ export default function UsersPage() {
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={Users} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={users.length} label="Total Users" />
-        <KpiCard icon={Shield} iconBg="#fdecdc" iconColor="#c98a18" value={count('admin')} label="Admins" />
-        <KpiCard icon={UserCheck} iconBg="#dff0ec" iconColor="#2f6f63" value={count('team_leader')} label="Team Leaders" />
-        <KpiCard icon={Phone} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={count('employee')} label="Sales Callers" />
+        <KpiCard icon={Users} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={users.length} label="Total Users" />
+        <KpiCard icon={Shield} iconBg="var(--tone-amber-bg-2)" iconColor="var(--tone-amber-fg)" value={count('admin')} label="Admins" />
+        <KpiCard icon={UserCheck} iconBg="var(--tone-teal-bg-2)" iconColor="var(--tone-teal-fg)" value={count('team_leader')} label="Team Leaders" />
+        <KpiCard icon={Phone} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={count('employee')} label="Sales Callers" />
       </div>
 
       <div className="mb-5 grid gap-[18px] md:grid-cols-3">
@@ -247,7 +247,7 @@ function UserModal({ user, onClose, onSaved }: { user: User | null; onClose: () 
             </label>
           )}
 
-          {errMsg && <p className="text-[12.5px] text-[#9e2b21]">{errMsg}</p>}
+          {errMsg && <p className="text-[12.5px] text-[var(--tone-red-fg)]">{errMsg}</p>}
 
           <div className="flex items-center justify-end gap-2 pt-1">
             <button type="button" onClick={onClose} className="rounded-md border bg-card px-4 py-2 text-[12.5px] font-semibold hover:bg-muted">Cancel</button>

@@ -50,7 +50,7 @@ function OwnedLeadsChoice({
 }) {
   const one = owned.length === 1;
   return (
-    <div className="mb-3 rounded-xl bg-[#fdf1de] px-3 py-2.5 text-[11.5px] text-[#8a5d0a]">
+    <div className="mb-3 rounded-xl bg-[var(--tone-amber-bg)] px-3 py-2.5 text-[11.5px] text-[var(--tone-amber-fg-strong)]">
       <p className="font-medium">
         <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
         {one
@@ -77,7 +77,7 @@ function OwnedLeadsChoice({
             type="radio"
             checked={!transfer}
             onChange={() => onTransfer(false)}
-            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[#8a5d0a]"
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--tone-amber-fg-strong)]"
           />
           <span>
             Leave {one ? 'it' : 'them'} with {one ? 'its' : 'their'} current owner
@@ -89,7 +89,7 @@ function OwnedLeadsChoice({
             type="radio"
             checked={transfer}
             onChange={() => onTransfer(true)}
-            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[#8a5d0a]"
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--tone-amber-fg-strong)]"
           />
           <span>Reassign {one ? 'it' : 'them'} to {employee ?? 'the employees selected below'}.</span>
         </label>
@@ -484,7 +484,7 @@ export function LeadAssignDialog({
                         ones are being left alone; once they're being transferred
                         the block below says it, about the same leads. */}
                     {rangeWillAsk.length > 0 && !transferOwned && (
-                      <p className="mt-1.5 rounded-lg bg-[#fdf1de] px-2.5 py-2 text-[11.5px] text-[#8a5d0a]">
+                      <p className="mt-1.5 rounded-lg bg-[var(--tone-amber-bg)] px-2.5 py-2 text-[11.5px] text-[var(--tone-amber-fg-strong)]">
                         <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
                         {rangeWillAsk.length === 1 ? 'One lead in this range was' : `${rangeWillAsk.length} leads in this range were`}{' '}
                         already assigned today. You&apos;ll be asked to confirm before {rangeWillAsk.length === 1 ? 'it moves' : 'they move'} again.
@@ -504,12 +504,12 @@ export function LeadAssignDialog({
                             a range that quietly assigns fewer leads than it names
                             is how a manager ends up thinking leads went missing. */}
                         {!transferOwned && (
-                          <label className="flex cursor-pointer items-start gap-2 rounded-lg bg-[#fde9e6] px-2.5 py-2 text-[11.5px] font-medium text-[#a8431f]">
+                          <label className="flex cursor-pointer items-start gap-2 rounded-lg bg-[var(--tone-red-bg)] px-2.5 py-2 text-[11.5px] font-medium text-[var(--tone-red-fg-2)]">
                             <input
                               type="checkbox"
                               checked={ackReassign}
                               onChange={(e) => setAckReassign(e.target.checked)}
-                              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[#a8431f]"
+                              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--tone-red-fg-2)]"
                             />
                             <span>
                               Skip {rangeOwned.length} already-assigned lead{rangeOwned.length === 1 ? '' : 's'} and assign the remaining{' '}
@@ -520,7 +520,7 @@ export function LeadAssignDialog({
                       </div>
                     )}
                     {rangeFree === 0 && (
-                      <p className="mt-2 text-[11.5px] font-medium text-[#a8431f]">
+                      <p className="mt-2 text-[11.5px] font-medium text-[var(--tone-red-fg-2)]">
                         Every lead in this range is already assigned — nothing left to assign.
                       </p>
                     )}
@@ -577,7 +577,7 @@ export function LeadAssignDialog({
                 being left alone — once they're being transferred the block above
                 is already saying this, about the same leads. */}
             {!transferOwned && poolWillAsk.length > 0 && (
-              <p className="mb-3 rounded-xl bg-[#fdf1de] px-3 py-2.5 text-[11.5px] text-[#8a5d0a]">
+              <p className="mb-3 rounded-xl bg-[var(--tone-amber-bg)] px-3 py-2.5 text-[11.5px] text-[var(--tone-amber-fg-strong)]">
                 <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
                 {poolWillAsk.length === 1 ? 'One lead in the pool was' : `${poolWillAsk.length} leads in the pool were`} already assigned
                 today. You&apos;ll be asked to confirm before {poolWillAsk.length === 1 ? 'it moves' : 'they move'} again.

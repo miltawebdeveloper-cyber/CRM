@@ -73,7 +73,7 @@ function OutcomeRow({ o }: { o: Outcome }) {
       >
         <Check className="h-3.5 w-3.5" /> Save
       </button>
-      <button type="button" onClick={() => remove.mutate()} className="grid h-8 w-8 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-[#9e2b21]" aria-label={`Delete ${o.name}`}>
+      <button type="button" onClick={() => remove.mutate()} className="grid h-8 w-8 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-[var(--tone-red-fg)]" aria-label={`Delete ${o.name}`}>
         <Trash2 className="h-3.5 w-3.5" />
       </button>
     </div>

@@ -24,9 +24,9 @@ function daysLeft(iso: string): number {
 }
 
 const STATUS_STYLE: Record<TrustedDevice['status'], string> = {
-  active: 'bg-[var(--brand-tint)] text-[var(--brand)]',
+  active: 'bg-[var(--brand-surface)] text-[var(--brand-on-surface)]',
   expired: 'bg-muted text-muted-foreground',
-  revoked: 'bg-[#fde9e6] text-[#a8431f]',
+  revoked: 'bg-[var(--tone-red-bg)] text-[var(--tone-red-fg-2)]',
 };
 
 /**
@@ -85,7 +85,7 @@ export function TrustedDevices({ scope = 'mine' }: { scope?: 'mine' | 'all' }) {
         {scope === 'mine' && activeCount > 0 && (
           <button
             onClick={() => setConfirming('all')}
-            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12px] font-semibold text-[#a8431f] hover:bg-muted"
+            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12px] font-semibold text-[var(--tone-red-fg-2)] hover:bg-muted"
           >
             <ShieldOff className="h-3.5 w-3.5" /> Revoke all
           </button>
@@ -127,7 +127,7 @@ export function TrustedDevices({ scope = 'mine' }: { scope?: 'mine' | 'all' }) {
                       <Laptop className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <span className="font-semibold">{d.deviceName}</span>
                       {d.current && (
-                        <span className="rounded-full bg-[var(--brand-tint)] px-2 py-[1px] text-[10.5px] font-semibold text-[var(--brand)]">This device</span>
+                        <span className="rounded-full bg-[var(--brand-surface)] px-2 py-[1px] text-[10.5px] font-semibold text-[var(--brand-on-surface)]">This device</span>
                       )}
                     </div>
                     {d.ipAddress && <div className="mt-0.5 pl-6 text-[11.5px] text-muted-foreground">{d.ipAddress}</div>}
@@ -151,7 +151,7 @@ export function TrustedDevices({ scope = 'mine' }: { scope?: 'mine' | 'all' }) {
                       <button
                         onClick={() => setConfirming(d)}
                         disabled={revoke.isPending}
-                        className="inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1.5 text-[12px] font-semibold text-[#a8431f] hover:bg-muted disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1.5 text-[12px] font-semibold text-[var(--tone-red-fg-2)] hover:bg-muted disabled:opacity-50"
                       >
                         {revoke.isPending && revoke.variables?.id === d.id ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />

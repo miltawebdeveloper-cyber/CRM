@@ -15,7 +15,7 @@ import { formatTime } from '@/lib/display-settings';
 function Toggle({ on: initial }: { on: boolean }) {
   const [on, setOn] = useState(initial);
   return (
-    <button onClick={() => setOn((v) => !v)} className={`relative h-6 w-[42px] shrink-0 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-[var(--brand-line)]'}`}>
+    <button onClick={() => setOn((v) => !v)} className={`relative h-6 w-[42px] shrink-0 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-[var(--brand-edge)]'}`}>
       <span className={`absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all ${on ? 'left-[21px]' : 'left-[3px]'}`} />
     </button>
   );
@@ -50,10 +50,10 @@ export default function AdminPage() {
     <div>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={Users} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={activeUsers || '—'} label="Active Users" />
-        <KpiCard icon={Activity} iconBg="#dff0ec" iconColor="#2f6f63" value="99.98%" label="Uptime (30d)" />
-        <KpiCard icon={Database} iconBg="#fdecdc" iconColor="#c98a18" value={(summary?.totalLeads ?? 0).toLocaleString()} label="Lead Records" />
-        <KpiCard icon={ShieldCheck} iconBg="var(--brand-tint)" iconColor="var(--brand)" value="Healthy" label="Security Status" />
+        <KpiCard icon={Users} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={activeUsers || '—'} label="Active Users" />
+        <KpiCard icon={Activity} iconBg="var(--tone-teal-bg-2)" iconColor="var(--tone-teal-fg)" value="99.98%" label="Uptime (30d)" />
+        <KpiCard icon={Database} iconBg="var(--tone-amber-bg-2)" iconColor="var(--tone-amber-fg)" value={(summary?.totalLeads ?? 0).toLocaleString()} label="Lead Records" />
+        <KpiCard icon={ShieldCheck} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value="Healthy" label="Security Status" />
       </div>
 
       <div className="grid gap-[18px] lg:grid-cols-2">
@@ -74,7 +74,7 @@ export default function AdminPage() {
           <div className="px-[18px]">
             {activities.slice(0, 6).map((a) => (
               <div key={a.id} className="flex items-center gap-3 border-b py-[11px] last:border-0">
-                <div className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[9px] bg-[var(--brand-tint)] text-[var(--brand)]"><Activity className="h-4 w-4" /></div>
+                <div className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[9px] bg-[var(--brand-surface)] text-[var(--brand-on-surface)]"><Activity className="h-4 w-4" /></div>
                 <div className="flex-1"><div className="text-[13px]"><b>{a.user?.name ?? 'System'}</b> {a.action.replace('_', ' ')} {a.lead?.businessName ?? ''} {a.newValue ? `→ ${a.newValue}` : ''}</div><div className="text-[11.5px] text-muted-foreground">{formatTime(a.createdAt)}</div></div>
               </div>
             ))}
@@ -93,7 +93,7 @@ export default function AdminPage() {
         <div className="grid gap-3.5 p-[18px] sm:grid-cols-2 lg:grid-cols-4">
           {DM.map((d) => (
             <button key={d.t} onClick={() => d.href && router.push(d.href)} className="rounded-2xl border bg-card p-5 text-center transition-all hover:-translate-y-0.5 hover:shadow-md">
-              <div className="mx-auto mb-3 grid h-[46px] w-[46px] place-items-center rounded-[12px] bg-[var(--brand-tint)] text-[var(--brand)]"><d.icon className="h-[22px] w-[22px]" /></div>
+              <div className="mx-auto mb-3 grid h-[46px] w-[46px] place-items-center rounded-[12px] bg-[var(--brand-surface)] text-[var(--brand-on-surface)]"><d.icon className="h-[22px] w-[22px]" /></div>
               <div className="font-display text-[13px] font-bold">{d.t}</div>
               <div className="mt-0.5 text-[11.5px] text-muted-foreground">{d.d}</div>
             </button>

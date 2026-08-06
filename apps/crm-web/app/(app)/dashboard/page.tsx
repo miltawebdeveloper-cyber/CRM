@@ -27,7 +27,7 @@ const LIVE_MS = 15_000;
  *  only these keeps the live refresh cheap enough to run every 15 seconds. */
 const WIDGET_ROWS = 10;
 
-const PRI_STYLE: Record<string, string> = { high: 'text-[#a8431f]', medium: 'text-[#c98a18]', low: 'text-muted-foreground' };
+const PRI_STYLE: Record<string, string> = { high: 'text-[var(--tone-red-fg-2)]', medium: 'text-[var(--tone-amber-fg)]', low: 'text-muted-foreground' };
 const TASK_LABEL: Record<string, string> = { todo: 'To Do', in_progress: 'In Progress', review: 'Review', done: 'Done' };
 
 const taskColumns: Column<Task>[] = [
@@ -229,32 +229,32 @@ export default function DashboardPage() {
           {mine ? 'My Leads' : 'Leads — all employees'}
         </h2>
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-          <KpiCard index={0} icon={Target} iconBg="#e6effb" iconColor="#2c5d8f" value={<AnimatedNumber value={s?.totalLeads ?? 0} />} label={card('Total Leads')} />
+          <KpiCard index={0} icon={Target} iconBg="var(--tone-blue-bg)" iconColor="var(--tone-blue-fg)" value={<AnimatedNumber value={s?.totalLeads ?? 0} />} label={card('Total Leads')} />
           {/* The rest of the book. Without it Total 471 sat beside Assigned 181
               with no account of the other 290 — which reads as a number the
               dashboard has lost rather than work not yet handed out. An employee
               holds only assigned leads, so the card would always be 0 for them. */}
           {!mine && (
-            <KpiCard index={1} icon={UserPlus} iconBg="#fdf1de" iconColor="#c98a18" value={<AnimatedNumber value={s?.unassignedLeads ?? 0} />} label="Unassigned Leads" />
+            <KpiCard index={1} icon={UserPlus} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={<AnimatedNumber value={s?.unassignedLeads ?? 0} />} label="Unassigned Leads" />
           )}
-          <KpiCard index={2} icon={Users} iconBg="#e6effb" iconColor="#2c5d8f" value={<AnimatedNumber value={s?.assignedLeads ?? 0} />} label={card('Assigned Leads')} />
+          <KpiCard index={2} icon={Users} iconBg="var(--tone-blue-bg)" iconColor="var(--tone-blue-fg)" value={<AnimatedNumber value={s?.assignedLeads ?? 0} />} label={card('Assigned Leads')} />
           {/* Everything from here down is a cut of ASSIGNED, so no card can
               exceed the row above it. They used to be counted across the whole
               book while Contacted was counted inside Assigned, which let an
               admin see more Converted leads than Contacted ones. */}
-          <KpiCard index={3} icon={PhoneCall} iconBg="#e3f1ee" iconColor="#2f6f63" value={<AnimatedNumber value={s?.contactedLeads ?? 0} />} label={card('Contacted Leads')} />
+          <KpiCard index={3} icon={PhoneCall} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value={<AnimatedNumber value={s?.contactedLeads ?? 0} />} label={card('Contacted Leads')} />
           {/* Assigned minus contacted — the leads still owed a first conversation.
               This replaced a "Pending Leads" card that measured total minus
               contacted: for an admin that swept in every UNASSIGNED lead, so the
               card counted work nobody had been given as work someone was late on. */}
-          <KpiCard index={4} icon={Hourglass} iconBg="#fdf1de" iconColor="#c98a18" value={<AnimatedNumber value={s?.balanceLeads ?? 0} />} label={card('Balance Leads')} />
-          <KpiCard index={5} icon={RefreshCw} iconBg="#fdf1de" iconColor="#c98a18" value={<AnimatedNumber value={s?.followUpLeads ?? 0} />} label={card('Follow-up Leads')} />
-          <KpiCard index={6} icon={TrendingUp} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value={<AnimatedNumber value={s?.convertedLeads ?? 0} />} label={card('Converted Leads')} />
-          <KpiCard index={7} icon={CheckCircle2} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value={<AnimatedNumber value={s?.closedLeads ?? 0} />} label={card('Onboarding Leads')} />
+          <KpiCard index={4} icon={Hourglass} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={<AnimatedNumber value={s?.balanceLeads ?? 0} />} label={card('Balance Leads')} />
+          <KpiCard index={5} icon={RefreshCw} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={<AnimatedNumber value={s?.followUpLeads ?? 0} />} label={card('Follow-up Leads')} />
+          <KpiCard index={6} icon={TrendingUp} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={<AnimatedNumber value={s?.convertedLeads ?? 0} />} label={card('Converted Leads')} />
+          <KpiCard index={7} icon={CheckCircle2} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={<AnimatedNumber value={s?.closedLeads ?? 0} />} label={card('Onboarding Leads')} />
           {/* Only meaningful across a team, so it is absent from an employee's
               dashboard rather than shown as a hollow "1 per employee". */}
           {!mine && s?.avgLeadsPerEmployee !== null && (
-            <KpiCard index={8} icon={Users} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={<AnimatedNumber value={s?.avgLeadsPerEmployee ?? 0} decimals={1} />} label="Avg Leads / Employee" />
+            <KpiCard index={8} icon={Users} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={<AnimatedNumber value={s?.avgLeadsPerEmployee ?? 0} decimals={1} />} label="Avg Leads / Employee" />
           )}
         </div>
       </section>
@@ -265,12 +265,12 @@ export default function DashboardPage() {
           {mine ? 'My Calls' : 'Calls — all employees'}
         </h2>
         <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-          <KpiCard index={0} icon={Phone} iconBg="#e6effb" iconColor="#2c5d8f" value={<AnimatedNumber value={s?.totalCalls ?? 0} />} label={mine ? 'My Total Calls' : 'Total Calls Made'} />
-          <KpiCard index={1} icon={PhoneCall} iconBg="#e3f1ee" iconColor="#2f6f63" value={<AnimatedNumber value={s?.connectedCalls ?? 0} />} label={card('Connected Calls')} />
-          <KpiCard index={2} icon={PhoneMissed} iconBg="#fde9e6" iconColor="#a8431f" value={<AnimatedNumber value={s?.missedCalls ?? 0} />} label={card('Missed Calls')} />
-          <KpiCard index={3} icon={Video} iconBg="#e6effb" iconColor="#2c5d8f" value={<AnimatedNumber value={s?.scheduledCalls ?? 0} />} label={card('Scheduled Calls')} />
-          <KpiCard index={4} icon={RefreshCw} iconBg="#fdf1de" iconColor="#c98a18" value={<AnimatedNumber value={s?.callbackCalls ?? 0} />} label={card('Callback Calls')} />
-          <KpiCard index={5} icon={Percent} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={<AnimatedNumber value={s?.conversionPct ?? 0} decimals={1} suffix="%" />} label="Conversion Rate" />
+          <KpiCard index={0} icon={Phone} iconBg="var(--tone-blue-bg)" iconColor="var(--tone-blue-fg)" value={<AnimatedNumber value={s?.totalCalls ?? 0} />} label={mine ? 'My Total Calls' : 'Total Calls Made'} />
+          <KpiCard index={1} icon={PhoneCall} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value={<AnimatedNumber value={s?.connectedCalls ?? 0} />} label={card('Connected Calls')} />
+          <KpiCard index={2} icon={PhoneMissed} iconBg="var(--tone-red-bg)" iconColor="var(--tone-red-fg-2)" value={<AnimatedNumber value={s?.missedCalls ?? 0} />} label={card('Missed Calls')} />
+          <KpiCard index={3} icon={Video} iconBg="var(--tone-blue-bg)" iconColor="var(--tone-blue-fg)" value={<AnimatedNumber value={s?.scheduledCalls ?? 0} />} label={card('Scheduled Calls')} />
+          <KpiCard index={4} icon={RefreshCw} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={<AnimatedNumber value={s?.callbackCalls ?? 0} />} label={card('Callback Calls')} />
+          <KpiCard index={5} icon={Percent} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={<AnimatedNumber value={s?.conversionPct ?? 0} decimals={1} suffix="%" />} label="Conversion Rate" />
         </div>
       </section>
 

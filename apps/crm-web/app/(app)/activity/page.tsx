@@ -40,10 +40,10 @@ export default function ActivityPage() {
   // call duration to compute it from, so it's been replaced with a count this
   // page can actually stand behind.
   const KPIS = [
-    { icon: Phone, bg: 'var(--brand-tint)', color: 'var(--brand)', val: calls.length, lab: 'Calls Logged' },
-    { icon: Users, bg: '#e3f1ee', color: '#2f6f63', val: leadsTouched, lab: 'Leads Touched' },
-    { icon: NotebookPen, bg: '#fdf1de', color: '#c98a18', val: activities.length, lab: 'Activities' },
-    { icon: CheckCircle2, bg: 'var(--brand-tint-2)', color: 'var(--brand-strong)', val: positive, lab: 'Positive Outcomes' },
+    { icon: Phone, bg: 'var(--brand-surface)', color: 'var(--brand-on-surface)', val: calls.length, lab: 'Calls Logged' },
+    { icon: Users, bg: 'var(--tone-teal-bg)', color: 'var(--tone-teal-fg)', val: leadsTouched, lab: 'Leads Touched' },
+    { icon: NotebookPen, bg: 'var(--tone-amber-bg)', color: 'var(--tone-amber-fg)', val: activities.length, lab: 'Activities' },
+    { icon: CheckCircle2, bg: 'var(--brand-surface-2)', color: 'var(--brand-on-surface)', val: positive, lab: 'Positive Outcomes' },
   ];
 
   const columns = useMemo<ColumnDef<Activity>[]>(() => [

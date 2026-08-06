@@ -46,11 +46,11 @@ export function LeadAssignmentHistory({ leadId }: { leadId: string }) {
               <div className="flex items-center gap-2">
                 <span
                   className="grid h-6 w-6 shrink-0 place-items-center rounded-full"
-                  style={reassigned ? { background: '#fbf0dc', color: '#8a5a00' } : { background: '#e0f2e9', color: '#0a6640' }}
+                  style={reassigned ? { background: '#fbf0dc', color: 'var(--tone-amber-fg-strong)' } : { background: '#e0f2e9', color: '#0a6640' }}
                 >
                   <Icon className="h-3.5 w-3.5" />
                 </span>
-                <span className="text-[10.5px] font-bold uppercase tracking-wider" style={{ color: reassigned ? '#8a5a00' : '#0a6640' }}>
+                <span className="text-[10.5px] font-bold uppercase tracking-wider" style={{ color: reassigned ? 'var(--tone-amber-fg-strong)' : '#0a6640' }}>
                   {reassigned ? 'Reassignment' : 'New assignment'}
                 </span>
                 {/* Which row names the owner right now — the rest are history. */}

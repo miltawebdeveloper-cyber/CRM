@@ -27,7 +27,7 @@ const FILTERS: { value: '' | ZoomMeetingStatus; label: string }[] = [
 function StatusPill({ status }: { status: ZoomMeetingStatus }) {
   const m = STATUS_META[status];
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-semibold" style={{ color: m.color, background: `${m.color}1f` }}>
+    <span className="pill-tinted inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-semibold" style={{ '--pill': m.color } as React.CSSProperties}>
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: m.color }} />
       {m.label}
     </span>
@@ -84,10 +84,10 @@ export default function ZoomPage() {
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
-        <KpiCard icon={CalendarClock} iconBg="#e6effb" iconColor="#2c5d8f" value={kpis.today} label="Today" />
-        <KpiCard icon={Video} iconBg="#f1f2ee" iconColor="#6f7268" value={kpis.scheduled} label="Upcoming" />
-        <KpiCard icon={PlayCircle} iconBg="#fdf1de" iconColor="#c98a18" value={kpis.inProgress} label="In Progress" />
-        <KpiCard icon={CheckCircle2} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value={kpis.completed} label="Completed" />
+        <KpiCard icon={CalendarClock} iconBg="var(--tone-blue-bg)" iconColor="var(--tone-blue-fg)" value={kpis.today} label="Today" />
+        <KpiCard icon={Video} iconBg="var(--tone-neutral-bg)" iconColor="var(--tone-neutral-fg)" value={kpis.scheduled} label="Upcoming" />
+        <KpiCard icon={PlayCircle} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={kpis.inProgress} label="In Progress" />
+        <KpiCard icon={CheckCircle2} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={kpis.completed} label="Completed" />
       </div>
 
       {/* Toolbar */}

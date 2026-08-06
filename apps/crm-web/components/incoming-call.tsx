@@ -145,7 +145,7 @@ export function IncomingCallPopup() {
                 </div>
               )}
               {active.pendingCallback && (
-                <div className="flex items-center gap-1.5 font-semibold text-[#9e2b21]">
+                <div className="flex items-center gap-1.5 font-semibold text-[var(--tone-red-fg)]">
                   <CalendarClock className="h-3 w-3 shrink-0" />
                   <span>Had a callback pending</span>
                 </div>
@@ -167,7 +167,7 @@ export function IncomingCallPopup() {
               type="button"
               onClick={decline}
               title="Logs the decline and closes this popup. OpenPhone provides no reject API, so the call must also be declined there."
-              className="flex items-center justify-center gap-1.5 rounded-md border border-[#e8c9bf] bg-card px-4 py-2.5 text-[12.5px] font-semibold text-[#9e2b21] hover:bg-[#fde9e6]"
+              className="flex items-center justify-center gap-1.5 rounded-md border border-[#e8c9bf] bg-card px-4 py-2.5 text-[12.5px] font-semibold text-[var(--tone-red-fg)] hover:bg-[var(--tone-red-bg)]"
             >
               <PhoneOff className="h-3.5 w-3.5" /> Decline
             </button>

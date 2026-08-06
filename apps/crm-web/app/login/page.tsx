@@ -117,8 +117,11 @@ export default function LoginPage() {
         <div className="relative z-[2] flex items-center gap-[11px]">
           <div className="grid h-9 w-9 place-items-center rounded-[9px]" style={{ background: 'linear-gradient(150deg,var(--brand-lime-deep),var(--brand-deep))' }}>
             <svg viewBox="0 0 24 24" fill="none" className="h-[21px] w-[21px]">
-              <path d="M12 2L3 6v6c0 5 3.8 8.6 9 10 5.2-1.4 9-5 9-10V6l-9-4z" fill="var(--brand-tint)" />
-              <path d="M9.5 12l1.8 1.8 3.5-3.6" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              {/* Classes, not fill=/stroke= attributes: a var() inside a
+                  presentation attribute is not reliably resolved, and the mark
+                  would fall back to black. Same fix as the sidebar's. */}
+              <path d="M12 2L3 6v6c0 5 3.8 8.6 9 10 5.2-1.4 9-5 9-10V6l-9-4z" className="fill-[var(--brand-tint)]" />
+              <path d="M9.5 12l1.8 1.8 3.5-3.6" className="stroke-[var(--brand)]" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
           <div className="font-display text-[16px] font-semibold leading-none text-white">
@@ -151,7 +154,7 @@ export default function LoginPage() {
              issued until the mailed code is exchanged. */
           <form onSubmit={onVerify} className="w-full max-w-[392px]">
             <h2 className="mb-1.5 font-display text-[23px] font-semibold tracking-tight text-[#14140f]">Verification required</h2>
-            <p className="mb-[26px] text-sm text-[#6f7268]">
+            <p className="mb-[26px] text-sm text-[var(--tone-neutral-fg)]">
               A 6-digit code was sent to <b className="text-[var(--brand-deep)]">{challenge.sentTo}</b>. Enter it below to finish signing in.
               {challenge.trustDays > 0 && (
                 <>
@@ -170,10 +173,10 @@ export default function LoginPage() {
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
               placeholder="000000"
-              className="w-full rounded-[11px] border-[1.5px] border-[var(--brand-line)] bg-[#f7f7f4] px-[14px] py-3 text-center font-mono text-[20px] tracking-[.4em] text-[#14140f] outline-none focus:border-[var(--brand-mid)] focus:bg-white focus:ring-4 focus:ring-[var(--brand-tint)]"
+              className="w-full rounded-[11px] border-[1.5px] border-[var(--brand-edge)] bg-[var(--tone-neutral-bg)] px-[14px] py-3 text-center font-mono text-[20px] tracking-[.4em] text-[#14140f] outline-none focus:border-[var(--brand-mid)] focus:bg-white focus:ring-4 focus:ring-[var(--brand-surface)]"
             />
 
-            {error && <p className="mt-3 text-sm text-[#9e2b21]">{error}</p>}
+            {error && <p className="mt-3 text-sm text-[var(--tone-red-fg)]">{error}</p>}
 
             <button
               type="submit"
@@ -195,7 +198,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => { setChallenge(null); setCode(''); setError(''); }}
-                className="text-[#6f7268] hover:underline"
+                className="text-[var(--tone-neutral-fg)] hover:underline"
               >
                 Back to sign in
               </button>
@@ -204,7 +207,7 @@ export default function LoginPage() {
         ) : (
         <form onSubmit={onSubmit} className="w-full max-w-[392px]">
           <h2 className="mb-1.5 font-display text-[23px] font-semibold tracking-tight text-[#14140f]">Welcome back</h2>
-          <p className="mb-[30px] text-sm text-[#6f7268]">Sign in to your operations dashboard.</p>
+          <p className="mb-[30px] text-sm text-[var(--tone-neutral-fg)]">Sign in to your operations dashboard.</p>
 
           <div className="mb-[17px]">
             <label className="mb-[7px] block text-xs font-semibold text-[var(--brand-deep)]">Work email</label>
@@ -214,7 +217,7 @@ export default function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
               required
               autoComplete="email"
-              className="w-full rounded-[11px] border-[1.5px] border-[var(--brand-line)] bg-[#f7f7f4] px-[14px] py-3 text-[#14140f] outline-none focus:border-[var(--brand-mid)] focus:bg-white focus:ring-4 focus:ring-[var(--brand-tint)]"
+              className="w-full rounded-[11px] border-[1.5px] border-[var(--brand-edge)] bg-[var(--tone-neutral-bg)] px-[14px] py-3 text-[#14140f] outline-none focus:border-[var(--brand-mid)] focus:bg-white focus:ring-4 focus:ring-[var(--brand-surface)]"
             />
           </div>
 
@@ -227,9 +230,9 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 autoComplete="current-password"
-                className="w-full rounded-[11px] border-[1.5px] border-[var(--brand-line)] bg-[#f7f7f4] px-[14px] py-3 pr-16 text-[#14140f] outline-none focus:border-[var(--brand-mid)] focus:bg-white focus:ring-4 focus:ring-[var(--brand-tint)]"
+                className="w-full rounded-[11px] border-[1.5px] border-[var(--brand-edge)] bg-[var(--tone-neutral-bg)] px-[14px] py-3 pr-16 text-[#14140f] outline-none focus:border-[var(--brand-mid)] focus:bg-white focus:ring-4 focus:ring-[var(--brand-surface)]"
               />
-              <button type="button" onClick={() => setShowPw((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-[12.5px] text-[#6f7268]">
+              <button type="button" onClick={() => setShowPw((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-[12.5px] text-[var(--tone-neutral-fg)]">
                 {showPw ? 'Hide' : 'Show'}
               </button>
             </div>
@@ -244,19 +247,19 @@ export default function LoginPage() {
                 value={mfaToken}
                 onChange={(e) => setMfaToken(e.target.value)}
                 placeholder="6-digit code"
-                className="w-full rounded-[11px] border-[1.5px] border-[var(--brand-line)] bg-[#f7f7f4] px-[14px] py-3 tracking-widest outline-none focus:border-[var(--brand-mid)] focus:bg-white"
+                className="w-full rounded-[11px] border-[1.5px] border-[var(--brand-edge)] bg-[var(--tone-neutral-bg)] px-[14px] py-3 tracking-widest outline-none focus:border-[var(--brand-mid)] focus:bg-white"
               />
             </div>
           )}
 
           <div className="my-[18px] flex items-center justify-between text-[12.5px]">
-            <label className="flex cursor-pointer items-center gap-2 text-[#6f7268]">
+            <label className="flex cursor-pointer items-center gap-2 text-[var(--tone-neutral-fg)]">
               <input type="checkbox" defaultChecked className="h-4 w-4 accent-[var(--brand)]" /> Keep me signed in
             </label>
             <span className="font-semibold text-[var(--brand)]">Forgot password?</span>
           </div>
 
-          {error && <p className="mb-3 text-sm text-[#9e2b21]">{error}</p>}
+          {error && <p className="mb-3 text-sm text-[var(--tone-red-fg)]">{error}</p>}
 
           <button
             type="submit"
@@ -267,9 +270,9 @@ export default function LoginPage() {
           </button>
 
           <div className="my-[22px] flex items-center gap-[14px] text-xs text-[#739175]">
-            <span className="h-px flex-1 bg-[#e4e2db]" /> or continue with <span className="h-px flex-1 bg-[#e4e2db]" />
+            <span className="h-px flex-1 bg-border" /> or continue with <span className="h-px flex-1 bg-border" />
           </div>
-          <button type="button" className="w-full rounded-[11px] border-[1.5px] border-[var(--brand-line)] bg-white py-3 font-semibold text-[var(--brand-ink)] hover:bg-[#f3f5ef]">
+          <button type="button" className="w-full rounded-[11px] border-[1.5px] border-[var(--brand-edge)] bg-white py-3 font-semibold text-[var(--brand-ink)] hover:bg-[var(--tone-neutral-bg)]">
             Single Sign-On (SSO)
           </button>
         </form>

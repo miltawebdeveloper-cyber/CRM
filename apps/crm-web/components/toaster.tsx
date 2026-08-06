@@ -7,8 +7,8 @@ import { subscribeToasts, dismissToast, type ToastItem, type ToastKind } from '@
 
 const STYLE: Record<ToastKind, { icon: typeof Info; bar: string; fg: string }> = {
   success: { icon: CheckCircle2, bar: '#3f7a32', fg: '#2b5423' },
-  error: { icon: AlertCircle, bar: '#9e2b21', fg: '#8a2018' },
-  info: { icon: Info, bar: '#2c5d8f', fg: '#234a72' },
+  error: { icon: AlertCircle, bar: 'var(--tone-red-fg)', fg: '#8a2018' },
+  info: { icon: Info, bar: 'var(--tone-blue-fg)', fg: '#234a72' },
 };
 
 /**

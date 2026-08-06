@@ -197,7 +197,7 @@ export function CallsAspects({ filters }: { filters: CallFilters }) {
             {unlogged > 0 && (
               <>
                 {' '}
-                <span className="text-[#a8431f]">
+                <span className="text-[var(--tone-red-fg-2)]">
                   {unlogged.toLocaleString()} call{unlogged === 1 ? '' : 's'} with no outcome logged {unlogged === 1 ? 'is' : 'are'} not counted.
                 </span>
               </>

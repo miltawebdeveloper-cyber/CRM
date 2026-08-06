@@ -13,7 +13,7 @@ import { formatDateTime } from '@/lib/display-settings';
 function StatusPill({ status }: { status: ZoomMeetingStatus }) {
   const m = STATUS_META[status];
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-semibold" style={{ color: m.color, background: `${m.color}1f` }}>
+    <span className="pill-tinted inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-semibold" style={{ '--pill': m.color } as React.CSSProperties}>
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: m.color }} />
       {m.label}
     </span>
@@ -83,7 +83,7 @@ export function MeetingDetail({ id, onClose }: { id: string; onClose?: () => voi
             )}
             {pending && <button onClick={() => act(() => zoomApi.start(m.id))} className="rounded-md border px-3 py-2 text-[12.5px] font-semibold hover:bg-muted">Start</button>}
             {m.status !== 'completed' && m.status !== 'cancelled' && (
-              <button onClick={() => act(() => zoomApi.cancel(m.id))} className="rounded-md border border-[#f2cbc5] px-3 py-2 text-[12.5px] font-semibold text-[#9e2b21] hover:bg-[#fde9e6]">Cancel</button>
+              <button onClick={() => act(() => zoomApi.cancel(m.id))} className="rounded-md border border-[var(--tone-red-line)] px-3 py-2 text-[12.5px] font-semibold text-[var(--tone-red-fg)] hover:bg-[var(--tone-red-bg)]">Cancel</button>
             )}
           </div>
         </div>

@@ -35,7 +35,7 @@ export default function ProductivityPage() {
       key: 'output', header: 'Output', cellClassName: 'min-w-[160px]',
       render: (r) => (
         <div className="flex items-center gap-[9px]">
-          <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--brand-tint)]">
+          <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--brand-surface)]">
             <span className="block h-full rounded-full" style={{ width: `${(r.conversionPct / maxConv) * 100}%`, background: 'linear-gradient(90deg,var(--brand-mid),var(--brand-lime-deep))' }} />
           </div>
         </div>
@@ -50,10 +50,10 @@ export default function ProductivityPage() {
       </PageHead>
 
       <div className={`mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))] transition-opacity ${isFetching ? 'opacity-60' : ''}`}>
-        <KpiCard icon={Phone} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={totalCalls} label={`Total Calls (${PERIOD_LABEL[period]})`} />
-        <KpiCard icon={Clock} iconBg="#e3f1ee" iconColor="#2f6f63" value={formatDuration(totalTalk)} label="Total Talk Time" />
-        <KpiCard icon={Percent} iconBg="#fdf1de" iconColor="#c98a18" value={totalCalls ? formatDuration(Math.round(totalTalk / totalCalls)) : '0s'} label="Avg Call Time" />
-        <KpiCard icon={Star} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value={best?.name?.split(' ')[0] ?? '—'} label="Best Performer" />
+        <KpiCard icon={Phone} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={totalCalls} label={`Total Calls (${PERIOD_LABEL[period]})`} />
+        <KpiCard icon={Clock} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value={formatDuration(totalTalk)} label="Total Talk Time" />
+        <KpiCard icon={Percent} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={totalCalls ? formatDuration(Math.round(totalTalk / totalCalls)) : '0s'} label="Avg Call Time" />
+        <KpiCard icon={Star} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={best?.name?.split(' ')[0] ?? '—'} label="Best Performer" />
       </div>
 
       <DataTable

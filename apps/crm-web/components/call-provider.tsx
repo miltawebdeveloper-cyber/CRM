@@ -52,7 +52,7 @@ const PHASES: Record<CallPhase, { label: string; bg: string; fg: string; pulse: 
   initiated: { label: 'Calling…', bg: '#8a6d1f', fg: '#fff', pulse: true },
   ringing: { label: 'Ringing…', bg: '#8a6d1f', fg: '#fff', pulse: true },
   connected: { label: 'Connected', bg: 'var(--brand)', fg: '#fff', pulse: false },
-  on_hold: { label: 'On Hold', bg: '#2c5d8f', fg: '#fff', pulse: false },
+  on_hold: { label: 'On Hold', bg: 'var(--tone-blue-fg)', fg: '#fff', pulse: false },
   ended: { label: 'Call ended', bg: '#5b5b5b', fg: '#fff', pulse: false },
 };
 
@@ -241,7 +241,7 @@ function CallWidget(props: {
               </button>
               <button
                 onClick={props.onEndCall}
-                className="ml-auto inline-flex items-center gap-2 rounded-full bg-[#9e2b21] px-5 py-2.5 text-[12.5px] font-semibold text-white hover:opacity-90"
+                className="ml-auto inline-flex items-center gap-2 rounded-full bg-[var(--tone-red-fg)] px-5 py-2.5 text-[12.5px] font-semibold text-white hover:opacity-90"
               >
                 <PhoneOff className="h-4 w-4" /> End Call
               </button>

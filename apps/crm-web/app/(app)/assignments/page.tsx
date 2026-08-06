@@ -60,13 +60,13 @@ export default function AssignmentsPage() {
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={Users} iconBg="#fdf1de" iconColor="#c98a18" value={data?.unassigned ?? 0} label="Unassigned Leads" />
-        <KpiCard icon={Shuffle} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={totalAssigned.toLocaleString()} label="Assigned Leads" />
-        <KpiCard icon={Users} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value={data?.callers.length ?? 0} label="Active Callers" />
+        <KpiCard icon={Users} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={data?.unassigned ?? 0} label="Unassigned Leads" />
+        <KpiCard icon={Shuffle} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={totalAssigned.toLocaleString()} label="Assigned Leads" />
+        <KpiCard icon={Users} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={data?.callers.length ?? 0} label="Active Callers" />
       </div>
 
       {auto.isSuccess && (
-        <div className="mb-4 rounded-md bg-[var(--brand-tint-2)] px-4 py-2.5 text-sm text-[var(--brand-strong)]">
+        <div className="mb-4 rounded-md bg-[var(--brand-surface-2)] px-4 py-2.5 text-sm text-[var(--brand-on-surface)]">
           Assigned {auto.data.assigned} leads across {Object.keys(auto.data.perCaller).length} caller(s).
         </div>
       )}

@@ -88,10 +88,10 @@ export function CallbackScheduler({
   if (!zoned) {
     return (
       <div className={`rounded-lg border border-[#e8d19a] bg-[#fdf8ec] p-3 ${className}`}>
-        <div className="mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold text-[#8a5d0a]">
+        <div className="mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold text-[var(--tone-amber-fg-strong)]">
           <AlertTriangle className="h-4 w-4" /> This lead has no time zone
         </div>
-        <p className="mb-2.5 text-[11px] leading-relaxed text-[#8a5d0a]">
+        <p className="mb-2.5 text-[11px] leading-relaxed text-[var(--tone-amber-fg-strong)]">
           A callback is agreed on the customer&apos;s clock, so we need to know which one that is. Pick their time
           zone and the date and time fields will appear.
         </p>
@@ -102,7 +102,7 @@ export function CallbackScheduler({
               type="button"
               disabled={setZone.isPending}
               onClick={() => setZone.mutate(z.value)}
-              className="inline-flex items-center gap-1.5 rounded-full border-[1.5px] border-[#d9b978] bg-card px-3 py-[5px] text-[11.5px] font-semibold text-[#8a5d0a] hover:bg-[#f6ead0] disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-full border-[1.5px] border-[#d9b978] bg-card px-3 py-[5px] text-[11.5px] font-semibold text-[var(--tone-amber-fg-strong)] hover:bg-[#f6ead0] disabled:opacity-50"
             >
               {setZone.isPending && setZone.variables === z.value ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -137,7 +137,7 @@ export function CallbackScheduler({
             // customer is.
             min={leadToday}
             onChange={(e) => onChange(`${e.target.value}T${time || '09:00'}`)}
-            className={`w-full rounded-md border bg-background px-3 py-2 ${past ? 'border-[#a8431f]' : ''}`}
+            className={`w-full rounded-md border bg-background px-3 py-2 ${past ? 'border-[var(--tone-red-fg-2)]' : ''}`}
             required
           />
         </label>
@@ -147,7 +147,7 @@ export function CallbackScheduler({
             type="time"
             value={time}
             onChange={(e) => onChange(`${date || leadToday}T${e.target.value}`)}
-            className={`w-full rounded-md border bg-background px-3 py-2 ${past ? 'border-[#a8431f]' : ''}`}
+            className={`w-full rounded-md border bg-background px-3 py-2 ${past ? 'border-[var(--tone-red-fg-2)]' : ''}`}
             required
           />
         </label>
@@ -177,7 +177,7 @@ export function CallbackScheduler({
       )}
 
       {past && (
-        <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-[#a8431f]">
+        <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-[var(--tone-red-fg-2)]">
           <AlertTriangle className="h-3.5 w-3.5" />
           That time has already passed for the lead ({describeWallClock(value, timezone)}). Pick a later one.
         </p>

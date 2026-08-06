@@ -547,8 +547,8 @@ export default function ImportPage() {
       </PageHead>
 
       <div className="grid gap-[18px] lg:grid-cols-2">
-        <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[var(--brand-line)] bg-background p-[34px] text-center transition-colors hover:border-[var(--brand-lime)]">
-          <div className="mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-[var(--brand-tint)] text-[var(--brand)]"><Upload className="h-6 w-6" /></div>
+        <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[var(--brand-edge)] bg-background p-[34px] text-center transition-colors hover:border-[var(--brand-lime)]">
+          <div className="mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-[var(--brand-surface)] text-[var(--brand-on-surface)]"><Upload className="h-6 w-6" /></div>
           <div className="font-semibold">Drop your file here or <span className="text-primary">browse</span></div>
           <div className="mt-1 text-[12px] text-muted-foreground">CSV or Excel (.xlsx/.xls) up to 25MB</div>
           <div className="mt-1 text-[11.5px] text-muted-foreground">Don&apos;t have a file yet? Download the template above.</div>
@@ -712,7 +712,7 @@ export default function ImportPage() {
           </div>
 
           {unmapped.length > 0 && (
-            <div className="mt-3 flex items-start gap-2 rounded-md bg-[#fdf1de] px-3 py-2 text-[12px] text-[#8a6a12]">
+            <div className="mt-3 flex items-start gap-2 rounded-md bg-[var(--tone-amber-bg)] px-3 py-2 text-[12px] text-[#8a6a12]">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
                 Not imported — no CRM field is pointed at {unmapped.length > 1 ? 'these columns' : 'this column'}:{' '}
@@ -740,7 +740,7 @@ export default function ImportPage() {
                 {rows.slice(0, 10).map((r, i) => {
                   const dup = dupResult?.duplicateRows.some((d) => d.index === i);
                   return (
-                  <tr key={i} className={`border-b last:border-0 ${dup ? 'bg-[#fdf1de]/50' : ''}`}>
+                  <tr key={i} className={`border-b last:border-0 ${dup ? 'bg-[var(--tone-amber-bg)]/50' : ''}`}>
                     {COLUMNS.map((c) => <td key={c.key} className="px-4 py-2 text-muted-foreground">{(r as unknown as Record<string, string | undefined>)[c.key] ?? '—'}</td>)}
                   </tr>
                   );
@@ -753,21 +753,21 @@ export default function ImportPage() {
 
       {/* DEDICATED DUPLICATE RECORDS REVIEW SECTION AT THE BOTTOM OF THE SCREEN */}
       {dupResult && dupResult.duplicateRows.length > 0 && (
-        <div className="mt-[24px] overflow-hidden rounded-2xl border border-[#e8c68a] bg-card shadow-md">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e8c68a] bg-[#fdf1de]/60 px-6 py-4">
+        <div className="mt-[24px] overflow-hidden rounded-2xl border border-[var(--tone-amber-line)] bg-card shadow-md">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--tone-amber-line)] bg-[var(--tone-amber-bg)]/60 px-6 py-4">
             <div className="flex items-center gap-3">
-              <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#f5dfb8] text-[#8a5d0a]">
+              <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#f5dfb8] text-[var(--tone-amber-fg-strong)]">
                 <AlertTriangle className="h-5 w-5" />
               </div>
               <div>
                 <h3 className="font-display text-[15px] font-semibold text-[#664304]">Duplicate Records Review & Comparison</h3>
-                <p className="text-[12px] text-[#8a5d0a]">
+                <p className="text-[12px] text-[var(--tone-amber-fg-strong)]">
                   Review detected duplicates below. Compare imported file records with existing CRM leads, and choose bulk or individual actions before completing import.
                 </p>
                 {/* What the file would do to the book, counting every row and not
                     just the flagged ones — a row nobody flagged can still land on
                     an existing lead, and that was nowhere on this screen. */}
-                <p className="mt-1.5 text-[11.5px] text-[#8a5d0a]">
+                <p className="mt-1.5 text-[11.5px] text-[var(--tone-amber-fg-strong)]">
                   Importing all {dupResult.total} rows would update{' '}
                   <b className="tabular-nums">{dupResult.willUpdateRecords}</b> existing{' '}
                   {dupResult.willUpdateRecords === 1 ? 'lead' : 'leads'} and create{' '}
@@ -775,7 +775,7 @@ export default function ImportPage() {
                   {dupResult.willCreateRecords === 1 ? 'one' : 'ones'}.
                 </p>
                 {dupResult.decidedBefore > 0 && (
-                  <p className="mt-1 inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[#8a5d0a]">
+                  <p className="mt-1 inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--tone-amber-fg-strong)]">
                     <History className="h-3.5 w-3.5" />
                     <b className="tabular-nums">{dupResult.decidedBefore}</b> of these were ruled on before — those rows
                     open on that answer.
@@ -790,7 +790,7 @@ export default function ImportPage() {
                 type="button"
                 onClick={handleImportAllDuplicates}
                 disabled={importing}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--brand-lime)] bg-[#f4f9e8] px-3.5 py-2 text-[12px] font-semibold text-[var(--brand)] shadow-2xs hover:bg-[#e6f2d2] disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--brand-lime)] bg-[var(--brand-surface-2)] px-3.5 py-2 text-[12px] font-semibold text-[var(--brand-on-surface)] shadow-2xs hover:bg-[#e6f2d2] disabled:opacity-50"
               >
                 <Check className="h-4 w-4" /> Import All Duplicates
               </button>
@@ -798,7 +798,7 @@ export default function ImportPage() {
                 type="button"
                 onClick={handleSkipAllDuplicates}
                 disabled={importing}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#f2cbc5] bg-[#fef0ed] px-3.5 py-2 text-[12px] font-semibold text-[#9e2b21] shadow-2xs hover:bg-[#fae4e1] disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--tone-red-line)] bg-[var(--tone-red-bg-2)] px-3.5 py-2 text-[12px] font-semibold text-[var(--tone-red-fg)] shadow-2xs hover:bg-[#fae4e1] disabled:opacity-50"
               >
                 Skip All Duplicates
               </button>
@@ -823,7 +823,7 @@ export default function ImportPage() {
                   const kept = mergeKeep[d.index]?.size ?? 0;
                   return (
                   <Fragment key={d.index}>
-                    <tr className={`transition-colors ${decision === 'import' ? 'bg-[#f4f9e8]/60' : 'bg-[#fdf1de]/30'}`}>
+                    <tr className={`transition-colors ${decision === 'import' ? 'bg-[var(--brand-surface-2)]/60' : 'bg-[var(--tone-amber-bg)]/30'}`}>
                       <td className="py-3 pr-4">
                         <div className="font-semibold text-foreground">{d.row.businessName || '—'}</div>
                         <div className="font-mono text-[11px] text-muted-foreground">
@@ -840,7 +840,7 @@ export default function ImportPage() {
                         )}
                       </td>
                       <td className="py-3 pr-4">
-                        <span className="inline-flex rounded-full bg-[#f4e4c1] px-2.5 py-0.5 text-[10.5px] font-semibold text-[#8a5d0a]">
+                        <span className="inline-flex rounded-full bg-[var(--tone-amber-bg)] px-2.5 py-0.5 text-[10.5px] font-semibold text-[var(--tone-amber-fg-strong)]">
                           {d.matchedOn.join(', ')}
                         </span>
                       </td>
@@ -876,7 +876,7 @@ export default function ImportPage() {
                           {d.willUpdate ? (
                             <>Import updates <span className="font-mono text-primary">{d.willUpdate.leadId}</span></>
                           ) : (
-                            <>Import creates a <b className="font-semibold text-[#8a5d0a]">new lead</b></>
+                            <>Import creates a <b className="font-semibold text-[var(--tone-amber-fg-strong)]">new lead</b></>
                           )}
                         </div>
                         <div className="inline-flex rounded-lg border bg-background p-0.5 shadow-2xs">
@@ -896,7 +896,7 @@ export default function ImportPage() {
                             onClick={() => toggleDupDecision(d.index, 'skip')}
                             className={`rounded-md px-3 py-1.5 text-[11.5px] font-semibold transition-all ${
                               decision === 'skip'
-                                ? 'bg-[#9e2b21] text-white shadow-2xs'
+                                ? 'bg-[var(--tone-red-fg)] text-white shadow-2xs'
                                 : 'text-muted-foreground hover:text-foreground'
                             }`}
                           >
@@ -1007,7 +1007,7 @@ export default function ImportPage() {
       )}
 
       {importMut.isSuccess && (
-        <div className="mt-4 rounded-md bg-[var(--brand-tint-2)] px-4 py-3 text-sm text-[var(--brand-strong)]">
+        <div className="mt-4 rounded-md bg-[var(--brand-surface-2)] px-4 py-3 text-sm text-[var(--brand-on-surface)]">
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-medium">
             <span>Total: <b className="tabular-nums">{importMut.data.totalRows}</b></span>
             <span>New: <b className="tabular-nums">{importMut.data.newRecords}</b></span>
@@ -1018,7 +1018,7 @@ export default function ImportPage() {
           <div className="mt-1 text-xs">
             Assigned successfully: <b>{importMut.data.assignedSuccessfully}</b>
             {importMut.data.assignmentFailed > 0 && (
-              <> · <span className="font-semibold text-[#a8431f]">Assignment failed: {importMut.data.assignmentFailed}</span></>
+              <> · <span className="font-semibold text-[var(--tone-red-fg-2)]">Assignment failed: {importMut.data.assignmentFailed}</span></>
             )}
           </div>
           {importMut.data.errors.length > 0 && <ul className="mt-1 list-inside list-disc text-xs">{importMut.data.errors.slice(0, 5).map((e) => <li key={e.row}>Row {e.row}: {e.reason}</li>)}</ul>}
@@ -1028,14 +1028,14 @@ export default function ImportPage() {
               <button
                 onClick={() => setConfirmRollback(true)}
                 disabled={rollback.isPending}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[#f2cbc5] bg-card px-3 py-1.5 text-[12px] font-semibold text-[#9e2b21] hover:bg-[#fef0ed] disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 rounded-md border border-[var(--tone-red-line)] bg-card px-3 py-1.5 text-[12px] font-semibold text-[var(--tone-red-fg)] hover:bg-[var(--tone-red-bg-2)] disabled:opacity-60"
               >
                 <Undo2 className="h-3.5 w-3.5" /> Undo import ({importMut.data.createdIds.length} added)
               </button>
             </div>
           )}
           {rollback.isSuccess && (
-            <div className="mt-2 border-t border-[#bfe0c0] pt-2 text-xs text-[#a8431f]">
+            <div className="mt-2 border-t border-[#bfe0c0] pt-2 text-xs text-[var(--tone-red-fg-2)]">
               Removed {rollback.data.deleted} imported lead(s). Existing leads were left unchanged.
             </div>
           )}
@@ -1053,7 +1053,7 @@ export default function ImportPage() {
       )}
 
       {importMut.isError && (
-        <div className="mt-4 rounded-md bg-[#fde9e6] px-4 py-3 text-sm text-[#a8431f]">
+        <div className="mt-4 rounded-md bg-[var(--tone-red-bg)] px-4 py-3 text-sm text-[var(--tone-red-fg-2)]">
           Import failed — nothing was saved. {errorText(importMut.error)}
         </div>
       )}

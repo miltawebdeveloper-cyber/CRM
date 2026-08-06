@@ -18,7 +18,7 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
     <button
       type="button"
       onClick={() => onChange(!on)}
-      className={`relative h-6 w-[42px] shrink-0 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-[var(--brand-line)]'}`}
+      className={`relative h-6 w-[42px] shrink-0 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-[var(--brand-edge)]'}`}
       aria-pressed={on}
     >
       <span className={`absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all ${on ? 'left-[21px]' : 'left-[3px]'}`} />
@@ -90,7 +90,7 @@ export function EmailNotificationSettings() {
               <div key={e} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-[12.5px]">
                 <Mail className="h-3.5 w-3.5 text-muted-foreground" />
                 <span className="flex-1 font-medium">{e}</span>
-                <button type="button" onClick={() => removeEmail(e)} className="text-muted-foreground hover:text-[#9e2b21]" aria-label={`Remove ${e}`}>
+                <button type="button" onClick={() => removeEmail(e)} className="text-muted-foreground hover:text-[var(--tone-red-fg)]" aria-label={`Remove ${e}`}>
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
@@ -113,7 +113,7 @@ export function EmailNotificationSettings() {
               <Plus className="h-3.5 w-3.5" /> Add
             </button>
           </div>
-          {error && <p className="mt-1.5 text-[11.5px] font-medium text-[#9e2b21]">{error}</p>}
+          {error && <p className="mt-1.5 text-[11.5px] font-medium text-[var(--tone-red-fg)]">{error}</p>}
         </div>
 
         {/* Type toggles */}
@@ -140,7 +140,7 @@ export function EmailNotificationSettings() {
             <Check className="h-4 w-4" /> {save.isPending ? 'Saving…' : 'Save settings'}
           </button>
           {save.isSuccess && !dirty && <span className="text-[12px] font-medium text-[var(--brand-strong)]">Saved.</span>}
-          {save.isError && <span className="text-[12px] font-medium text-[#9e2b21]">Failed to save.</span>}
+          {save.isError && <span className="text-[12px] font-medium text-[var(--tone-red-fg)]">Failed to save.</span>}
         </div>
       </div>
     </div>

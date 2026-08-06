@@ -199,14 +199,14 @@ export default function DuplicatesPage() {
       </div>
 
       {scan.isError && (
-        <div className="mt-4 rounded-md bg-[#fde9e6] px-4 py-3 text-sm text-[#a8431f]">
+        <div className="mt-4 rounded-md bg-[var(--tone-red-bg)] px-4 py-3 text-sm text-[var(--tone-red-fg-2)]">
           Scan failed. {errorText(scan.error)}
         </div>
       )}
 
       {!ran && (
         <div className="mt-[18px] rounded-2xl border border-dashed bg-card p-10 text-center">
-          <div className="mx-auto mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-[var(--brand-tint)] text-[var(--brand)]">
+          <div className="mx-auto mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-[var(--brand-surface)] text-[var(--brand-on-surface)]">
             <Copy className="h-6 w-6" />
           </div>
           <div className="font-semibold">Nothing scanned yet</div>
@@ -224,7 +224,7 @@ export default function DuplicatesPage() {
             <span>Duplicate groups: <b className="tabular-nums">{scan.data.totalGroups.toLocaleString()}</b></span>
             <span>
               Redundant records:{' '}
-              <b className="tabular-nums text-[#9e2b21]">{scan.data.redundantLeads.toLocaleString()}</b>
+              <b className="tabular-nums text-[var(--tone-red-fg)]">{scan.data.redundantLeads.toLocaleString()}</b>
             </span>
             {scan.data.totalGroups > scan.data.returned && (
               <span className="text-muted-foreground">
@@ -242,7 +242,7 @@ export default function DuplicatesPage() {
           </div>
 
           {scan.data.totalGroups === 0 && (
-            <div className="mt-[18px] rounded-2xl border bg-[var(--brand-tint-2)] p-8 text-center text-sm text-[var(--brand-strong)]">
+            <div className="mt-[18px] rounded-2xl border bg-[var(--brand-surface-2)] p-8 text-center text-sm text-[var(--brand-on-surface)]">
               No duplicates found under these settings.
             </div>
           )}
@@ -253,7 +253,7 @@ export default function DuplicatesPage() {
                 <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-[18px] py-3">
                   <span className="font-display text-[13px] font-semibold">{g.size} matching records</span>
                   {g.matchedOn.map((m) => (
-                    <span key={m} className="rounded-full bg-[#f4e4c1] px-2.5 py-0.5 text-[10.5px] font-semibold text-[#8a5d0a]">
+                    <span key={m} className="rounded-full bg-[var(--tone-amber-bg)] px-2.5 py-0.5 text-[10.5px] font-semibold text-[var(--tone-amber-fg-strong)]">
                       {m}
                     </span>
                   ))}
@@ -278,14 +278,14 @@ export default function DuplicatesPage() {
                       {g.leads.map((l, i) => {
                         const marked = doomed.has(l.id);
                         return (
-                          <tr key={l.id} className={marked ? 'bg-[#fef0ed]' : i === 0 ? 'bg-[#f4f9e8]/50' : ''}>
+                          <tr key={l.id} className={marked ? 'bg-[var(--tone-red-bg-2)]' : i === 0 ? 'bg-[var(--brand-surface-2)]/50' : ''}>
                             <td className="px-[18px] py-2.5">
                               <input
                                 type="checkbox"
                                 checked={marked}
                                 onChange={() => toggle(l.id)}
                                 aria-label={`Delete ${l.leadId}`}
-                                className="h-4 w-4 rounded border-muted-foreground/30 accent-[#9e2b21]"
+                                className="h-4 w-4 rounded border-muted-foreground/30 accent-[var(--tone-red-fg)]"
                               />
                             </td>
                             <td className="px-3 py-2.5">
@@ -293,7 +293,7 @@ export default function DuplicatesPage() {
                                 <span className="font-mono text-[11px] text-primary">{l.leadId}</span>
                                 <span>{l.businessName || <span className="italic text-muted-foreground">Unnamed</span>}</span>
                                 {i === 0 && (
-                                  <span className="rounded-full bg-[var(--brand-tint)] px-2 py-0.5 text-[10px] font-semibold text-[var(--brand)]">
+                                  <span className="rounded-full bg-[var(--brand-surface)] px-2 py-0.5 text-[10px] font-semibold text-[var(--brand-on-surface)]">
                                     suggested keeper
                                   </span>
                                 )}
@@ -324,12 +324,12 @@ export default function DuplicatesPage() {
 
       {/* Action bar — only once something is actually marked. */}
       {doomedCount > 0 && (
-        <div className="sticky bottom-4 mt-[18px] flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#f2cbc5] bg-card px-[18px] py-3.5 shadow-md">
+        <div className="sticky bottom-4 mt-[18px] flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--tone-red-line)] bg-card px-[18px] py-3.5 shadow-md">
           <div className="text-[12.5px]">
-            <b className="tabular-nums text-[#9e2b21]">{doomedCount}</b> record{doomedCount === 1 ? '' : 's'} marked for
+            <b className="tabular-nums text-[var(--tone-red-fg)]">{doomedCount}</b> record{doomedCount === 1 ? '' : 's'} marked for
             deletion.
             {wipedGroups.length > 0 && (
-              <span className="ml-2 inline-flex items-center gap-1.5 rounded-md bg-[#fdf1de] px-2 py-1 text-[11.5px] font-semibold text-[#8a5d0a]">
+              <span className="ml-2 inline-flex items-center gap-1.5 rounded-md bg-[var(--tone-amber-bg)] px-2 py-1 text-[11.5px] font-semibold text-[var(--tone-amber-fg-strong)]">
                 <AlertTriangle className="h-3.5 w-3.5" />
                 {wipedGroups.length} group{wipedGroups.length === 1 ? ' has' : 's have'} every record marked — leave one
                 to keep the company.
@@ -343,7 +343,7 @@ export default function DuplicatesPage() {
             <button
               onClick={() => setConfirmPurge(true)}
               disabled={purge.isPending}
-              className="inline-flex items-center gap-2 rounded-lg bg-[#9e2b21] px-4 py-2.5 text-[12.5px] font-semibold text-white hover:opacity-90 disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-lg bg-[var(--tone-red-fg)] px-4 py-2.5 text-[12.5px] font-semibold text-white hover:opacity-90 disabled:opacity-60"
             >
               {purge.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               Delete {doomedCount} record{doomedCount === 1 ? '' : 's'}
@@ -369,7 +369,7 @@ export default function DuplicatesPage() {
       )}
 
       {purge.isError && (
-        <div className="mt-4 rounded-md bg-[#fde9e6] px-4 py-3 text-sm text-[#a8431f]">
+        <div className="mt-4 rounded-md bg-[var(--tone-red-bg)] px-4 py-3 text-sm text-[var(--tone-red-fg-2)]">
           Deletion failed — nothing was removed. {errorText(purge.error)}
         </div>
       )}

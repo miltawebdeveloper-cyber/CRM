@@ -17,12 +17,12 @@ type View = 'board' | 'list';
 const VIEWS = [{ label: 'Board', value: 'board' as View }, { label: 'List', value: 'list' as View }];
 
 const STAGES: { key: Lead['status']; name: string; color: string }[] = [
-  { key: 'new', name: 'New', color: '#2c5d8f' },
-  { key: 'in_progress', name: 'In Progress', color: '#c98a18' },
-  { key: 'contacted', name: 'Contacted', color: '#2f6f63' },
+  { key: 'new', name: 'New', color: 'var(--tone-blue-fg)' },
+  { key: 'in_progress', name: 'In Progress', color: 'var(--tone-amber-fg)' },
+  { key: 'contacted', name: 'Contacted', color: 'var(--tone-teal-fg)' },
   { key: 'interested', name: 'Interested', color: 'var(--brand-lime-deep)' },
   { key: 'closed', name: 'Closed Won', color: 'var(--brand-strong)' },
-  { key: 'rejected', name: 'Rejected', color: '#a8431f' },
+  { key: 'rejected', name: 'Rejected', color: 'var(--tone-red-fg-2)' },
 ];
 
 export default function PipelinePage() {
@@ -91,10 +91,10 @@ export default function PipelinePage() {
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={GitBranch} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={openDeals} label="Open Deals" />
-        <KpiCard icon={DollarSign} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value="$284K" label="Weighted Value" />
-        <KpiCard icon={Percent} iconBg="#fdf1de" iconColor="#c98a18" value="22%" label="Win Rate" />
-        <KpiCard icon={Clock} iconBg="#e3f1ee" iconColor="#2f6f63" value="14 days" label="Avg Cycle" />
+        <KpiCard icon={GitBranch} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={openDeals} label="Open Deals" />
+        <KpiCard icon={DollarSign} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value="$284K" label="Weighted Value" />
+        <KpiCard icon={Percent} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value="22%" label="Win Rate" />
+        <KpiCard icon={Clock} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value="14 days" label="Avg Cycle" />
       </div>
 
       {view === 'board' ? (

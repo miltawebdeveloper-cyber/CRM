@@ -12,11 +12,11 @@ const LIVE_MS = 15_000;
 /** Quo statuses: queued | sent | delivered | undelivered | received (+ our 'failed'). */
 function statusStyle(status: string | null) {
   const s = (status ?? '').toLowerCase();
-  if (s === 'delivered') return { label: 'Delivered', cls: 'bg-[var(--brand-tint)] text-[var(--brand)]', Icon: CheckCheck };
-  if (s === 'sent') return { label: 'Sent', cls: 'bg-[#e6effb] text-[#2c5d8f]', Icon: Check };
-  if (s === 'queued') return { label: 'Queued', cls: 'bg-[#fdf1de] text-[#c98a18]', Icon: Clock };
+  if (s === 'delivered') return { label: 'Delivered', cls: 'bg-[var(--brand-surface)] text-[var(--brand-on-surface)]', Icon: CheckCheck };
+  if (s === 'sent') return { label: 'Sent', cls: 'bg-[var(--tone-blue-bg)] text-[var(--tone-blue-fg)]', Icon: Check };
+  if (s === 'queued') return { label: 'Queued', cls: 'bg-[var(--tone-amber-bg)] text-[var(--tone-amber-fg)]', Icon: Clock };
   if (s === 'received') return { label: 'Received', cls: 'bg-muted text-muted-foreground', Icon: Check };
-  if (s === 'undelivered' || s === 'failed') return { label: s === 'failed' ? 'Failed' : 'Undelivered', cls: 'bg-[#fbe4e1] text-[#9e2b21]', Icon: AlertTriangle };
+  if (s === 'undelivered' || s === 'failed') return { label: s === 'failed' ? 'Failed' : 'Undelivered', cls: 'bg-[var(--tone-red-bg)] text-[var(--tone-red-fg)]', Icon: AlertTriangle };
   return { label: status ?? 'Unknown', cls: 'bg-muted text-muted-foreground', Icon: Clock };
 }
 
@@ -219,7 +219,7 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
                   return froms.length > 1 ? (
                     <span
                       title={`Sent from: ${froms.join(', ')}`}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#fbe4e1] px-2 py-[3px] text-[10px] font-semibold text-[#9e2b21]"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--tone-red-bg)] px-2 py-[3px] text-[10px] font-semibold text-[var(--tone-red-fg)]"
                     >
                       <AlertTriangle className="h-3 w-3" /> Sent from {froms.length} numbers
                     </span>
@@ -253,7 +253,7 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
                         {m.senderMismatch && (
                           <span
                             title={`Sent from ${m.from}, which is not ${m.by ?? 'the sender'}'s assigned caller ID`}
-                            className="inline-flex items-center gap-1 rounded-full bg-[#fbe4e1] px-1.5 py-px font-semibold text-[#9e2b21]"
+                            className="inline-flex items-center gap-1 rounded-full bg-[var(--tone-red-bg)] px-1.5 py-px font-semibold text-[var(--tone-red-fg)]"
                           >
                             <AlertTriangle className="h-2.5 w-2.5" /> Wrong line
                           </span>

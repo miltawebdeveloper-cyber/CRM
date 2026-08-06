@@ -19,7 +19,7 @@ export default function AssignedPage() {
     { key: 'pending', header: 'Pending', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (c) => c.assigned - c.leadsCompleted },
     {
       key: 'distribution', header: 'Distribution', cellClassName: 'min-w-[130px]',
-      render: (c) => { const pct = c.assigned ? Math.round((c.leadsCompleted / c.assigned) * 100) : 0; return <div className="h-2 overflow-hidden rounded-full bg-[var(--brand-tint)]"><span className="block h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg,var(--brand-mid),var(--brand-lime-deep))' }} /></div>; },
+      render: (c) => { const pct = c.assigned ? Math.round((c.leadsCompleted / c.assigned) * 100) : 0; return <div className="h-2 overflow-hidden rounded-full bg-[var(--brand-surface)]"><span className="block h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg,var(--brand-mid),var(--brand-lime-deep))' }} /></div>; },
     },
     { key: 'actions', header: '', required: true, render: () => <button onClick={() => router.push('/assignments')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border hover:bg-primary hover:text-primary-foreground"><Pencil className="h-[15px] w-[15px]" /></button> },
   ], [router]);
@@ -39,10 +39,10 @@ export default function AssignedPage() {
               <div className="mb-[14px] flex items-center gap-3">
                 <Avatar name={c.name} size="md" />
                 <div className="min-w-0 flex-1"><div className="truncate font-bold">{c.name}</div><div className="text-[11.5px] text-muted-foreground">Caller</div></div>
-                <span className="rounded-full bg-[var(--brand-tint)] px-2.5 py-[3px] text-[11px] font-semibold text-[var(--brand)]">{c.assigned} leads</span>
+                <span className="rounded-full bg-[var(--brand-surface)] px-2.5 py-[3px] text-[11px] font-semibold text-[var(--brand-on-surface)]">{c.assigned} leads</span>
               </div>
               <div className="mb-1.5 flex justify-between text-[11.5px]"><span className="text-muted-foreground">Progress</span><b>{pct}%</b></div>
-              <div className="h-2 overflow-hidden rounded-full bg-[var(--brand-tint)]"><span className="block h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg,var(--brand-mid),var(--brand-lime-deep))' }} /></div>
+              <div className="h-2 overflow-hidden rounded-full bg-[var(--brand-surface)]"><span className="block h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg,var(--brand-mid),var(--brand-lime-deep))' }} /></div>
               <div className="mt-3 flex justify-between text-[12px] text-muted-foreground"><span>{c.leadsCompleted} done</span><span>{c.assigned - c.leadsCompleted} left</span></div>
             </div>
           );

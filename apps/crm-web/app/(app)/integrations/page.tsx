@@ -78,7 +78,7 @@ export default function IntegrationsPage() {
     { key: 'lead', header: 'Lead', render: (r) => r[2] },
     { key: 'source', header: 'Source', render: (r) => <span className="rounded bg-muted px-2 py-0.5 text-[11px] font-semibold">{r[3]}</span> },
     { key: 'duration', header: 'Duration', cellClassName: 'font-mono', render: (r) => r[4] },
-    { key: 'status', header: 'Status', render: (r) => r[5] ? <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--brand-tint)] px-2.5 py-[3px] text-[11px] font-semibold text-[var(--brand)]"><span className="h-1.5 w-1.5 rounded-full bg-[var(--brand)]" /> Synced</span> : <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e6effb] px-2.5 py-[3px] text-[11px] font-semibold text-[#2c5d8f]"><span className="h-1.5 w-1.5 rounded-full bg-[#2c5d8f]" /> Syncing…</span> },
+    { key: 'status', header: 'Status', render: (r) => r[5] ? <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--brand-surface)] px-2.5 py-[3px] text-[11px] font-semibold text-[var(--brand-on-surface)]"><span className="h-1.5 w-1.5 rounded-full bg-[var(--brand)]" /> Synced</span> : <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--tone-blue-bg)] px-2.5 py-[3px] text-[11px] font-semibold text-[var(--tone-blue-fg)]"><span className="h-1.5 w-1.5 rounded-full bg-[var(--tone-blue-fg)]" /> Syncing…</span> },
   ], []);
   const syncRows = (SYNC as unknown as SyncRow[]).filter((r) => !syncStatus || (syncStatus === 'synced' ? !!r[5] : !r[5]));
 
@@ -89,10 +89,10 @@ export default function IntegrationsPage() {
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={Phone} iconBg="var(--brand-tint)" iconColor="var(--brand)" value="1,284" label="Calls Synced (30d)" trend="9%" trendDir="up" />
-        <KpiCard icon={Mic} iconBg="#fdecdc" iconColor="#c98a18" value="1,201" label="Recordings Stored" />
-        <KpiCard icon={Users} iconBg="#dff0ec" iconColor="#2f6f63" value="2,940" label="Contacts Synced" />
-        <KpiCard icon={CheckCircle2} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={activeConnections} label="Active Connections" />
+        <KpiCard icon={Phone} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value="1,284" label="Calls Synced (30d)" trend="9%" trendDir="up" />
+        <KpiCard icon={Mic} iconBg="var(--tone-amber-bg-2)" iconColor="var(--tone-amber-fg)" value="1,201" label="Recordings Stored" />
+        <KpiCard icon={Users} iconBg="var(--tone-teal-bg-2)" iconColor="var(--tone-teal-fg)" value="2,940" label="Contacts Synced" />
+        <KpiCard icon={CheckCircle2} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={activeConnections} label="Active Connections" />
       </div>
 
       <div className="mb-[18px] flex gap-1 overflow-x-auto border-b">
@@ -107,7 +107,7 @@ export default function IntegrationsPage() {
             <div key={i.nm} className="flex items-start gap-3.5 rounded-2xl border bg-card p-[18px] shadow-sm">
               <div className="grid h-[46px] w-[46px] shrink-0 place-items-center rounded-[12px] font-display font-bold text-white" style={{ background: i.bg }}>{i.logo}</div>
               <div className="flex-1">
-                <div className="flex items-center gap-2 font-bold">{i.nm} {i.connected && <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--brand-tint)] px-2 py-px text-[10.5px] font-semibold text-[var(--brand)]"><span className="h-1.5 w-1.5 rounded-full bg-[var(--brand)]" /> Connected</span>}</div>
+                <div className="flex items-center gap-2 font-bold">{i.nm} {i.connected && <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--brand-surface)] px-2 py-px text-[10.5px] font-semibold text-[var(--brand-on-surface)]"><span className="h-1.5 w-1.5 rounded-full bg-[var(--brand)]" /> Connected</span>}</div>
                 <div className="mt-0.5 max-w-[46ch] text-[12px] text-muted-foreground">{i.ds}</div>
                 <div className="mt-[7px] text-[11.5px] text-muted-foreground">{i.meta}</div>
               </div>
@@ -123,7 +123,7 @@ export default function IntegrationsPage() {
                     <button
                       onClick={() => disconnect.mutate()}
                       disabled={disconnect.isPending}
-                      className="text-[11px] font-semibold text-[#9e2b21] hover:underline disabled:opacity-50"
+                      className="text-[11px] font-semibold text-[var(--tone-red-fg)] hover:underline disabled:opacity-50"
                     >
                       Disconnect
                     </button>
@@ -167,7 +167,7 @@ export default function IntegrationsPage() {
                   { label: 'Syncing', value: 'syncing' },
                 ]}
               />
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--brand-tint)] px-2.5 py-[3px] text-[11px] font-semibold text-[var(--brand)]"><span className="h-1.5 w-1.5 rounded-full bg-[var(--brand)]" /> Auto-sync on</span>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--brand-surface)] px-2.5 py-[3px] text-[11px] font-semibold text-[var(--brand-on-surface)]"><span className="h-1.5 w-1.5 rounded-full bg-[var(--brand)]" /> Auto-sync on</span>
             </>
           }
         />
@@ -261,9 +261,9 @@ function ConnectModal({
             <input type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} placeholder="For verifying inbound webhooks" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
           </label>
 
-          {save.isError && <p className="text-[12.5px] text-[#9e2b21]">Could not save. Check the credentials and try again.</p>}
+          {save.isError && <p className="text-[12.5px] text-[var(--tone-red-fg)]">Could not save. Check the credentials and try again.</p>}
           {save.isSuccess && (save.data as { connected?: boolean })?.connected === false && (
-            <p className="text-[12.5px] text-[#9e2b21]">Saved, but OpenPhone rejected the key: {(save.data as { error?: string }).error ?? 'verification failed'}.</p>
+            <p className="text-[12.5px] text-[var(--tone-red-fg)]">Saved, but OpenPhone rejected the key: {(save.data as { error?: string }).error ?? 'verification failed'}.</p>
           )}
 
           <div className="flex items-center justify-end gap-2 pt-1">

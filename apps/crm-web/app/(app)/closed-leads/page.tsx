@@ -172,7 +172,7 @@ export default function ClosedLeadsPage() {
               onClick={() => setActivityLead(l)}
               title="Lead history"
               aria-label="Lead history"
-              className="grid h-[30px] w-[30px] place-items-center rounded-lg border border-[#bcd9ff] bg-[#f2f8ff] text-[#1f5fae] hover:bg-[#2D8CFF] hover:text-white"
+              className="grid h-[30px] w-[30px] place-items-center rounded-lg border border-[var(--tone-blue-line)] bg-[var(--tone-blue-bg-2)] text-[var(--tone-blue-fg-2)] hover:bg-[#2D8CFF] hover:text-white"
             >
               <Info className="h-[15px] w-[15px]" />
             </button>

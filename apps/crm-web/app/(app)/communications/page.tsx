@@ -35,20 +35,20 @@ export default function CommunicationsPage() {
       </PageHead>
 
       {isError && (
-        <div className="mb-5 rounded-md bg-[#fde9e6] px-4 py-3 text-sm text-[#a8431f]">
+        <div className="mb-5 rounded-md bg-[var(--tone-red-bg)] px-4 py-3 text-sm text-[var(--tone-red-fg-2)]">
           Communication analytics are available to admins and team leaders.
         </div>
       )}
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
-        <KpiCard icon={Phone} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={c?.total ?? 0} label="Total Calls" />
-        <KpiCard icon={PhoneIncoming} iconBg="#e6effb" iconColor="#2c5d8f" value={c?.inbound ?? 0} label="Inbound" />
-        <KpiCard icon={PhoneOutgoing} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value={c?.outbound ?? 0} label="Outbound" />
-        <KpiCard icon={PhoneMissed} iconBg="#fde9e6" iconColor="#a8431f" value={c?.missed ?? 0} label="Missed" />
-        <KpiCard icon={Clock} iconBg="#e3f1ee" iconColor="#2f6f63" value={formatDuration(c?.avgDurationSecs ?? 0)} label="Avg Call Time" />
-        <KpiCard icon={Clock} iconBg="#fdf1de" iconColor="#c98a18" value={formatDuration(c?.totalTalkSecs ?? 0)} label="Total Talk Time" />
-        <KpiCard icon={MessageSquare} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={m?.total ?? 0} label="SMS Total" />
-        <KpiCard icon={MessageSquare} iconBg="#dff0ec" iconColor="#2f6f63" value={`${m?.inbound ?? 0} / ${m?.outbound ?? 0}`} label="SMS In / Out" />
+        <KpiCard icon={Phone} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={c?.total ?? 0} label="Total Calls" />
+        <KpiCard icon={PhoneIncoming} iconBg="var(--tone-blue-bg)" iconColor="var(--tone-blue-fg)" value={c?.inbound ?? 0} label="Inbound" />
+        <KpiCard icon={PhoneOutgoing} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={c?.outbound ?? 0} label="Outbound" />
+        <KpiCard icon={PhoneMissed} iconBg="var(--tone-red-bg)" iconColor="var(--tone-red-fg-2)" value={c?.missed ?? 0} label="Missed" />
+        <KpiCard icon={Clock} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value={formatDuration(c?.avgDurationSecs ?? 0)} label="Avg Call Time" />
+        <KpiCard icon={Clock} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={formatDuration(c?.totalTalkSecs ?? 0)} label="Total Talk Time" />
+        <KpiCard icon={MessageSquare} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={m?.total ?? 0} label="SMS Total" />
+        <KpiCard icon={MessageSquare} iconBg="var(--tone-teal-bg-2)" iconColor="var(--tone-teal-fg)" value={`${m?.inbound ?? 0} / ${m?.outbound ?? 0}`} label="SMS In / Out" />
       </div>
 
       <div className="rounded-2xl border bg-card p-[18px] shadow-sm">
@@ -56,13 +56,13 @@ export default function CommunicationsPage() {
         <div className="h-[320px]">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data?.series ?? []} margin={{ top: 5, right: 12, bottom: 5, left: -10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#d8e8d9" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--brand-edge)" />
               <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(d: string) => d.slice(5)} />
               <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
               <Tooltip />
               <Legend />
               <Line type="monotone" dataKey="calls" name="Calls" stroke="var(--brand-mid)" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="messages" name="SMS" stroke="#2c5d8f" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="messages" name="SMS" stroke="var(--tone-blue-fg)" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>

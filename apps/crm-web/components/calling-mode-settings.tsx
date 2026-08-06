@@ -52,7 +52,7 @@ export function CallingModeSettings() {
   return (
     <div className="rounded-2xl border bg-card shadow-sm">
       <div className="flex items-center gap-2 border-b px-[18px] py-4">
-        {disabled ? <PhoneOff className="h-4 w-4 text-[#a8431f]" /> : <ListChecks className="h-4 w-4 text-primary" />}
+        {disabled ? <PhoneOff className="h-4 w-4 text-[var(--tone-red-fg-2)]" /> : <ListChecks className="h-4 w-4 text-primary" />}
         <div>
           <h3 className="font-display text-[14px] font-semibold">Calling Mode</h3>
           <div className="text-xs text-muted-foreground">Temporarily process the queue without placing calls</div>
@@ -92,7 +92,7 @@ export function CallingModeSettings() {
         </label>
 
         {disabled && (
-          <p className="rounded-lg bg-[#fdf1de] px-3 py-2.5 text-[12px] text-[#8a6d1f]">
+          <p className="rounded-lg bg-[var(--tone-amber-bg)] px-3 py-2.5 text-[12px] text-[#8a6d1f]">
             No calls are being placed anywhere in the CRM. Calls made figures will stay flat for as long as this is on —
             leads worked in this mode are recorded against the lead, not as calls.
           </p>

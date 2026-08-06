@@ -113,10 +113,10 @@ export interface CompleteZoomMeeting {
 }
 
 export const STATUS_META: Record<ZoomMeetingStatus, { label: string; color: string }> = {
-  scheduled: { label: 'Scheduled', color: '#2c5d8f' },
-  in_progress: { label: 'In Progress', color: '#c98a18' },
+  scheduled: { label: 'Scheduled', color: 'var(--tone-blue-fg)' },
+  in_progress: { label: 'In Progress', color: 'var(--tone-amber-fg)' },
   completed: { label: 'Completed', color: 'var(--brand-strong)' },
-  cancelled: { label: 'Cancelled', color: '#9e2b21' },
+  cancelled: { label: 'Cancelled', color: 'var(--tone-red-fg)' },
   rescheduled: { label: 'Rescheduled', color: '#6b5bd1' },
 };
 

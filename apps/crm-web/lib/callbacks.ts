@@ -37,9 +37,9 @@ export function callbackStatus(
  */
 export const CALLBACK_STATUS_STYLE: Record<CallbackStatus, { label: string; fg: string; bg: string; dot: string }> = {
   upcoming: { label: 'Upcoming', fg: '#4a6b1f', bg: '#eef5e0', dot: 'var(--brand-lime)' },
-  due: { label: 'Due Now', fg: '#8a5d0a', bg: '#fdf1de', dot: '#c98a18' },
-  overdue: { label: 'Overdue', fg: '#8f2b1c', bg: '#fde9e6', dot: '#a8431f' },
-  completed: { label: 'Completed', fg: '#2c6b4f', bg: 'var(--brand-tint-2)', dot: 'var(--brand-strong)' },
+  due: { label: 'Due Now', fg: 'var(--tone-amber-fg-strong)', bg: 'var(--tone-amber-bg)', dot: 'var(--tone-amber-fg)' },
+  overdue: { label: 'Overdue', fg: '#8f2b1c', bg: 'var(--tone-red-bg)', dot: 'var(--tone-red-fg-2)' },
+  completed: { label: 'Completed', fg: '#2c6b4f', bg: 'var(--brand-surface-2)', dot: 'var(--brand-strong)' },
 };
 
 /** A callback as the reminder feeds return it. */

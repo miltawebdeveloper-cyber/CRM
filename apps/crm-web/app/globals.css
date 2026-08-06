@@ -114,9 +114,61 @@
   --brand-lime-deep: #7e9933;     /* highlight, on dark */
   --brand-lime: #a6c74d;
   --brand-lime-soft: #c7d69f;     /* nav labels on the dark sidebar */
-  --brand-tint: #e7f5dc;          /* the soft pill surface */
+  --brand-tint: #e7f5dc;          /* ALWAYS light — text/marks on dark chrome */
   --brand-tint-2: #eef7e4;        /* a step lighter again */
   --brand-line: #dde5d2;          /* borders on tinted surfaces */
+
+  /* The same three, but as SURFACES, which is a different job: a tint painted
+     on a card has to follow the card into dark mode, while `--brand-tint` used
+     as TEXT on the always-dark sidebar has to stay light or it disappears. One
+     token could not do both — the sidebar's labels and the pills' backgrounds
+     were the same value pulling in opposite directions.
+     Light mode aliases the tints, so a palette redefining those moves these too;
+     `.dark` replaces them outright, per palette. */
+  --brand-surface: var(--brand-tint);
+  /* Text/icons drawn ON --brand-surface. In light mode that IS the brand, so
+     this is an alias and changes nothing; in dark mode the brand is a dark
+     green sitting on a dark green tint, which is a chip you cannot read. */
+  --brand-on-surface: var(--brand);
+  --brand-surface-2: var(--brand-tint-2);
+  --brand-edge: var(--brand-line);
+
+  /* ── Status tones ──
+     The four things a row can be telling you — attention, trouble, new,
+     connected — plus the neutral. Palette-independent on purpose: red means
+     rejected whatever the CRM is painted in.
+     Each is a surface, one or two text weights, and (where one is drawn) an
+     edge. They exist so the same chip can be a pale wash on white and a deep
+     wash on a dark card WITHOUT every component learning about dark mode: the
+     token flips, the 200-odd call sites do not. */
+  --tone-amber-bg: #fdf1de;
+  --tone-amber-bg-2: #fdf0dc;
+  /* #96650b, not the old #c98a18: amber text on its own chip measured 2.64:1,
+     the one tone in the set that failed AA outright. Darkened until it passes
+     (4.52:1 on the chip, 5.04:1 on a white card) while staying amber. */
+  --tone-amber-fg: #96650b;
+  --tone-amber-fg-strong: #8a5d0a;
+  --tone-amber-line: #e8c68a;
+
+  --tone-red-bg: #fde9e6;
+  --tone-red-bg-2: #fef0ed;
+  --tone-red-fg: #9e2b21;
+  --tone-red-fg-2: #a8431f;       /* the rust used for error copy */
+  --tone-red-line: #f2cbc5;
+
+  --tone-blue-bg: #e6effb;
+  --tone-blue-bg-2: #f2f8ff;
+  --tone-blue-fg: #2c5d8f;
+  --tone-blue-fg-2: #1f5fae;
+  --tone-blue-line: #bcd9ff;
+
+  --tone-teal-bg: #e3f1ee;
+  --tone-teal-bg-2: #dff0ec;
+  --tone-teal-fg: #2f6f63;
+
+  --tone-neutral-bg: #f1f2ee;
+  /* 4.36:1 was large-text-only; #696c62 clears AA for body copy at 4.76:1. */
+  --tone-neutral-fg: #696c62;
 
   /* ── Pipeline chart steps ──
      The chart steps of the pipeline hues in components/calls-shared.tsx (CAT).
@@ -126,19 +178,37 @@
      its two greens sit ΔE 8.5 apart in normal vision, which is below the point
      where anyone can tell two slices apart.
 
-     Validated as a set against the card surface in both modes: lightness band,
-     chroma floor, all-pairs CVD separation and normal-vision separation all
-     pass. The one warning is hot-vs-closed under protanopia (ΔE 6.4 light /
-     6.2 dark, the classic red-green pair), which is legal only alongside a
-     second encoding — hence the ring's slice gaps and its labelled legend
-     carrying every name, count and percentage. Never colour alone.
+     PALETTE-INDEPENDENT, deliberately. These five are a vocabulary — a funnel
+     read as temperature — in the same way red means rejected: a Hot slice
+     painted in Ocean blue would say nothing. Every other thing a chart draws
+     (grid, axis, tooltip, the brand series) already comes from tokens and does
+     follow the palette, so what stays fixed here is only what carries meaning.
+
+     RE-VALIDATED after the surfaces changed. The old figures in this comment
+     were measured against the old greenish card and no longer described the
+     app, and two of the checks had stopped passing outright:
+       · warm on a white card was 2.58:1, under the 3:1 that WCAG 1.4.11 asks
+         of a meaningful graphic;
+       · warm vs hot in DARK collapsed to ΔE2000 2.2 under deuteranopia — two
+         slices the same colour, not merely a close pair.
+     Warm and hot were re-picked as the SMALLEST move that clears every check
+     (CIEDE2000, Viénot 1999 simulation), so the hues are still amber and red:
+       light  contrast ≥ 3.04 · normal 19.6 · protan 11.9 · deutan 8.2 · tritan 15.3
+       dark   contrast ≥ 4.45 · normal 17.4 · protan 12.7 · deutan 8.1 · tritan 16.3
+     measured against white and against all four dark cards.
+
+     What remains is warm-vs-hot under deuteranopia at ΔE ≈ 8 — amber and red
+     are the pair that vision compresses, and pulling them further apart costs
+     the hues their meaning. Legal only alongside a second encoding, which is
+     why the ring keeps its slice gaps and its labelled legend carrying every
+     name, count and percentage. Never colour alone.
 
      Connected / Follow-ups takes the neutral: it isn't a temperature on the
      Cold → Warm → Hot → Closed funnel, and a fifth hue that separates from
      these four doesn't exist in this brand's range. */
   --viz-cold: #3e63dd;
-  --viz-warm: #dc9200;
-  --viz-hot: #e5484d;
+  --viz-warm: #cb850b;
+  --viz-hot: #d24b4b;
   --viz-closed: #0d8a55;
   --viz-working: #7c8296;
 }
@@ -160,11 +230,50 @@
   --muted-foreground: 45 8% 62%;
   --border: 45 6% 22%;
 
+  /* Surfaces and tones, re-stepped for a dark card rather than flipped.
+     A pale wash inverted is a glowing chip: the light values sit far above the
+     dark lightness band and read as lit panels rather than as tinted ones. So
+     each surface becomes a deep, low-chroma version of its own hue, and each
+     text colour is lifted until it carries on that surface — the mid tones that
+     work on white are close to invisible here. */
+  --brand-surface: #1f2c1e;
+  --brand-on-surface: #8fc38a;
+  --brand-surface-2: #253320;
+  --brand-edge: #33422f;
+
+  --tone-amber-bg: #3a2c12;
+  --tone-amber-bg-2: #40310f;
+  --tone-amber-fg: #e7b45e;
+  --tone-amber-fg-strong: #f0c983;
+  --tone-amber-line: #5a4520;
+
+  --tone-red-bg: #3d1f1a;
+  --tone-red-bg-2: #45241e;
+  --tone-red-fg: #ef9a90;
+  --tone-red-fg-2: #f0a892;
+  --tone-red-line: #5c332c;
+
+  --tone-blue-bg: #16304a;
+  --tone-blue-bg-2: #1a3a56;
+  --tone-blue-fg: #9cc4ea;
+  --tone-blue-fg-2: #a8cef2;
+  --tone-blue-line: #2b4c6b;
+
+  --tone-teal-bg: #13342f;
+  --tone-teal-bg-2: #163b35;
+  --tone-teal-fg: #8fcabc;
+
+  /* #2f2e29, not #262621: against a #232220 card the darker value measured
+     1.05:1 and the chip simply was not there. This sits at ~1.15, matching what
+     the other tones do against the card. */
+  --tone-neutral-bg: #2f2e29;
+  --tone-neutral-fg: #a8a79e;
+
   /* Re-stepped for the dark card, not flipped: the light steps sit above the
      dark lightness band and would glow. Validated as its own set. */
   --viz-cold: #6f86ee;
-  --viz-warm: #b08600;
-  --viz-hot: #e46464;
+  --viz-warm: #cd981d;
+  --viz-hot: #d86464;
   --viz-closed: #12a06e;
   --viz-working: #949aa8;
 }
@@ -222,6 +331,11 @@
   --border: 205 20% 90%;
 }
 .dark[data-palette='ocean'] {
+  /* Tinted surfaces, in this palette's own hue. */
+  --brand-on-surface: #7cb8e0;
+  --brand-surface: #16283a;
+  --brand-surface-2: #1b3145;
+  --brand-edge: #294a63;
   --primary: 200 55% 48%;
   --background: 205 22% 9%;
   --foreground: 205 16% 95%;
@@ -260,6 +374,11 @@
   --border: 260 22% 91%;
 }
 .dark[data-palette='violet'] {
+  /* Tinted surfaces, in this palette's own hue. */
+  --brand-on-surface: #b49ae8;
+  --brand-surface: #251c3a;
+  --brand-surface-2: #2c2244;
+  --brand-edge: #3c3159;
   --primary: 257 45% 62%;
   --background: 260 18% 10%;
   --foreground: 260 14% 95%;
@@ -299,6 +418,11 @@
   --border: 210 9% 90%;
 }
 .dark[data-palette='graphite'] {
+  /* Tinted surfaces, in this palette's own hue. */
+  --brand-on-surface: #a8b6c0;
+  --brand-surface: #232830;
+  --brand-surface-2: #282e36;
+  --brand-edge: #363d46;
   --primary: 206 14% 56%;
   --background: 210 10% 9%;
   --foreground: 210 12% 95%;
@@ -339,6 +463,67 @@
   :focus-visible {
     outline: 2px solid hsl(var(--primary));
     outline-offset: 2px;
+  }
+
+  /* ── Reduced motion ──
+     This is a screen people sit in all day, and it moves: a pulsing dot while a
+     call rings, spinners on every save, a sidebar that slides, rows that fade
+     as they refetch. For someone with vestibular sensitivity that is not
+     decoration, it is a reason to stop using the app.
+     Animation is reduced to a single frame rather than removed: `1ms` still
+     FIRES, so anything waiting on `animationend` or `transitionend` to finish a
+     flow keeps working — where `animation: none` would leave it hanging forever.
+     The spinners stay honest too; they simply stop spinning while the work goes
+     on, which is what the preference asks for. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 1ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* ── Data-coloured chips ──
+     A chip whose colour is DATA — a configured call outcome, a meeting status —
+     rather than a token. The colour arrives as `--pill`; everything else is
+     derived here, because the call sites kept getting two things wrong:
+       1. they built the wash by concatenating alpha onto the hex (`${color}1f`),
+          which silently produces NOTHING the moment the colour is a var() —
+          the chip loses its background and becomes floating text;
+       2. a colour chosen to read on white is unreadable on a dark card, and a
+          pill drawn from configuration cannot be hand-tuned per theme.
+     color-mix does both jobs, for any colour the configuration happens to hold,
+     which is the only kind that can be promised here. */
+  .pill-tinted {
+    color: var(--pill);
+    background: color-mix(in oklab, var(--pill) 12%, transparent);
+  }
+  .pill-tinted .pill-dot {
+    background: var(--pill);
+  }
+  /* Lifted towards white until a configured mid-tone carries on a dark card. */
+  .dark .pill-tinted {
+    color: color-mix(in oklab, var(--pill) 55%, white);
+    background: color-mix(in oklab, var(--pill) 24%, transparent);
+  }
+  .dark .pill-tinted .pill-dot {
+    background: color-mix(in oklab, var(--pill) 55%, white);
+  }
+
+  /* The same colour worn as an outline rather than a wash — the outcome buttons
+     on the Call Panel, where the selected one is filled and the rest are not. */
+  .pill-outline {
+    color: var(--pill);
+    border-color: color-mix(in oklab, var(--pill) 40%, transparent);
+  }
+  .dark .pill-outline {
+    color: color-mix(in oklab, var(--pill) 55%, white);
+    border-color: color-mix(in oklab, var(--pill) 45%, transparent);
   }
 }
 

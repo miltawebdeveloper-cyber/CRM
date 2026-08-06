@@ -174,7 +174,7 @@ export default function OutcomesPage() {
       // The customer's clock, with the zone named — matching every other
       // scheduled time in the CRM.
       render: (r) => r.callbackAt
-        ? <span className="font-medium text-[#a8431f]">{formatInLeadZone(r.callbackAt, r.lead?.timezone)}</span>
+        ? <span className="font-medium text-[var(--tone-red-fg-2)]">{formatInLeadZone(r.callbackAt, r.lead?.timezone)}</span>
         : '—',
     },
     {
@@ -182,7 +182,7 @@ export default function OutcomesPage() {
       header: 'Pinned',
       render: (r) => {
         const pinned = !!(r.lead?.callbackAt && !r.lead.callbackCompletedAt && new Date(r.lead.callbackAt) <= new Date());
-        return pinned ? <span className="rounded-full bg-[#fde9e6] px-2 py-0.5 text-[10.5px] font-semibold text-[#a8431f]">Pinned</span> : '—';
+        return pinned ? <span className="rounded-full bg-[var(--tone-red-bg)] px-2 py-0.5 text-[10.5px] font-semibold text-[var(--tone-red-fg-2)]">Pinned</span> : '—';
       },
     },
     // `canEdit` closes over `me`, so the deps track the value it reads rather

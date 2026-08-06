@@ -50,7 +50,7 @@ export function AvailabilityPanel() {
       {/* Availability control */}
       <div className="flex flex-wrap items-center gap-3 rounded-2xl border bg-card p-4 shadow-sm">
         <span className="inline-flex items-center gap-2 text-[12.5px] font-semibold">
-          <Circle className={`h-2.5 w-2.5 ${online ? 'fill-[var(--brand-strong)] text-[var(--brand-strong)]' : 'fill-[#9e2b21] text-[#9e2b21]'}`} />
+          <Circle className={`h-2.5 w-2.5 ${online ? 'fill-[var(--brand-strong)] text-[var(--brand-strong)]' : 'fill-[var(--tone-red-fg)] text-[var(--tone-red-fg)]'}`} />
           {online ? 'Online' : `Offline${status?.reason ? ` · ${status.reason}` : ''}`}
         </span>
         <div className="ml-auto flex items-center gap-2">
@@ -63,7 +63,7 @@ export function AvailabilityPanel() {
                 <button onClick={() => setPicking(false)} className="rounded-md p-1.5 hover:bg-muted"><X className="h-4 w-4" /></button>
               </>
             ) : (
-              <button onClick={() => setPicking(true)} className="inline-flex items-center gap-2 rounded-md border border-[#f2cbc5] px-3 py-1.5 text-[12px] font-semibold text-[#9e2b21] hover:bg-[#fde9e6]">
+              <button onClick={() => setPicking(true)} className="inline-flex items-center gap-2 rounded-md border border-[var(--tone-red-line)] px-3 py-1.5 text-[12px] font-semibold text-[var(--tone-red-fg)] hover:bg-[var(--tone-red-bg)]">
                 <Power className="h-3.5 w-3.5" /> Mark Offline
               </button>
             )
@@ -80,7 +80,7 @@ export function AvailabilityPanel() {
       {inbox.length > 0 && (
         <div className="rounded-2xl border bg-card shadow-sm">
           <div className="flex items-center gap-2 border-b px-[18px] py-3.5">
-            <ArrowRightLeft className="h-4 w-4 text-[#c98a18]" />
+            <ArrowRightLeft className="h-4 w-4 text-[var(--tone-amber-fg)]" />
             <h3 className="font-display text-[14px] font-semibold">Reassigned to You</h3>
             <span className="ml-auto text-xs text-muted-foreground">{inbox.filter((i) => !i.acknowledged).length} new</span>
           </div>
@@ -89,13 +89,13 @@ export function AvailabilityPanel() {
               const Icon = TYPE_ICON[r.type];
               return (
                 <div key={r.id} className={`flex items-center gap-3 px-[18px] py-3 ${r.acknowledged ? 'opacity-60' : 'bg-[#fdfaf2]'}`}>
-                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-[#fdf1de] text-[#c98a18]"><Icon className="h-[18px] w-[18px]" /></div>
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-[var(--tone-amber-bg)] text-[var(--tone-amber-fg)]"><Icon className="h-[18px] w-[18px]" /></div>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[12.5px] font-semibold">
                       {REASSIGN_LABEL[r.type]} reassigned from {r.fromUserName}
                     </div>
                     <div className="truncate text-[11.5px] text-muted-foreground">
-                      {r.clientName ?? '—'} · {fmt(r.scheduledAt)} · <span className="font-medium text-[#a8431f]">{r.reason}</span>
+                      {r.clientName ?? '—'} · {fmt(r.scheduledAt)} · <span className="font-medium text-[var(--tone-red-fg-2)]">{r.reason}</span>
                     </div>
                   </div>
                   {!r.acknowledged && (

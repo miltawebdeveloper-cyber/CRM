@@ -22,7 +22,7 @@ function fillFor(total: number): { fill: string; text: string } {
   if (total === 0) return { fill: '#ffffff', text: '#5b6b5c' };
   if (total >= 60) return { fill: 'var(--brand-mid)', text: '#ffffff' };
   if (total >= 25) return { fill: 'var(--brand-lime)', text: 'var(--brand-ink-2)' };
-  return { fill: '#d8e8d9', text: 'var(--brand)' };
+  return { fill: 'var(--brand-edge)', text: 'var(--brand)' };
 }
 
 /** Metrics for a state with no leads yet — every state stays clickable. */
@@ -137,8 +137,8 @@ export default function TerritoriesPage() {
           {' '}Select a state for its lead stats
         </div>
         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-white ring-1 ring-[var(--brand-line)]" /> none</span>
-          <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-[#d8e8d9]" /> low</span>
+          <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-white ring-1 ring-[var(--brand-edge)]" /> none</span>
+          <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-[var(--brand-edge)]" /> low</span>
           <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-[var(--brand-lime)]" /> medium</span>
           <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-[var(--brand-mid)]" /> high</span>
         </div>
