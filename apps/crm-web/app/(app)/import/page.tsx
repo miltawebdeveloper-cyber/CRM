@@ -2,12 +2,13 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, Check, AlertTriangle, Undo2, Filter, Loader2 } from 'lucide-react';
+import { Upload, Check, AlertTriangle, Undo2, Filter, Loader2, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { importApi, type LeadRow, type ImportCheckResult } from '@/lib/crm';
 import { leadsApi } from '@/lib/leads';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageHead } from '@/components/page-head';
+import { downloadCsv } from '@/lib/export';
 import { TIMEZONE_CODES } from '@/lib/timezone';
 
 /** Which fields the duplicate check compares on — mirrors the API's `checkFields`. */
@@ -171,9 +172,77 @@ function buildRows(file: ParsedFile, mapping: Mapping): LeadRow[] {
   });
 }
 
-const SAMPLE = `${COLUMNS.map((c) => c.label).join(',')}
-L-99001,GEN-8802,2026-07-01,Google Ads,Acme Tax LLC,John Carter,Finance Manager,+13055551234,+13055555678,john@acme.com,https://acmetax.com,@acmetax,USA,Florida,Miami,EST,Accounting,10-50,2010,"123 Main St",Lisa - MAS21072,Contacted,2026-06-01,2026-07-01,2026-07-15,3,2026-07-10,
-L-99002,GEN-8803,2026-07-02,Referral,Bay Books Inc,Mia Wong,Operations Head,+14155559876,,mia@baybooks.com,https://baybooks.com,,USA,California,San Francisco,PST,Bookkeeping,50-200,1995,"456 Market St",caller2@crm.local,In Progress,2026-06-05,2026-07-02,2026-07-20,5,2026-07-12,`;
+/** The exact header row the mapper auto-detects, in the sheet's own order. */
+const TEMPLATE_HEADERS = COLUMNS.map((c) => c.label);
+
+/**
+ * A worked row per shape worth showing: one fully populated, one with the
+ * optional columns left blank, so both "fill everything in" and "I only have
+ * a name and a number" are demonstrated. Values are written in the forms the
+ * parser actually accepts — ISO dates, a zone CODE, an "Assigned To" in each
+ * of the two spellings employees are matched by.
+ *
+ * Shared by "Load sample" and the downloadable template so the two can never
+ * drift into disagreeing about what a valid file looks like.
+ */
+const TEMPLATE_EXAMPLE: string[][] = [
+  ['L-99001', 'GEN-8802', '2026-07-01', 'Google Ads', 'Acme Tax LLC', 'John Carter', 'Finance Manager', '+13055551234', '+13055555678', 'john@acme.com', 'https://acmetax.com', '@acmetax', 'USA', 'Florida', 'Miami', 'EST', 'Accounting', '10-50', '2010', '123 Main St', 'Lisa - MAS21072', 'Contacted', '2026-06-01', '2026-07-01', '2026-07-15', '3', '2026-07-10', ''],
+  ['L-99002', 'GEN-8803', '2026-07-02', 'Referral', 'Bay Books Inc', 'Mia Wong', 'Operations Head', '+14155559876', '', 'mia@baybooks.com', 'https://baybooks.com', '', 'USA', 'California', 'San Francisco', 'PST', 'Bookkeeping', '50-200', '1995', '456 Market St', 'caller2@crm.local', 'In Progress', '2026-06-05', '2026-07-02', '2026-07-20', '5', '2026-07-12', ''],
+];
+
+/** What the API does with each column, for the template's guide sheet. */
+const TEMPLATE_NOTES: string[][] = [
+  ['Company Name', 'Acme Tax LLC', 'Strongly recommended — a lead imported without one has nothing to show in the lists. Compared by the duplicate check on the trading name, so "Acme Tax LLC" and "The Acme Tax Co." count as the same company.'],
+  ['Phone', '+1 305 555 1234', 'Any format — matched on the last 10 digits. A row whose number is already in the CRM UPDATES that lead rather than creating a second one.'],
+  ['Alt Phone', '+1 305 555 5678', 'Also read by the duplicate check, against both phone columns on both sides.'],
+  ['Email', 'john@acme.com', 'The duplicate check ignores +tags, and dots on Gmail addresses only.'],
+  ['Time Zone', TIMEZONE_CODES.join(' / '), 'Must be one of these codes. Anything else is left BLANK rather than guessed — a lead with no zone is asked for one before a callback can be booked, which is safer than booking on the wrong clock.'],
+  ['Assigned To', 'Lisa   ·   lisa@crm.local   ·   Lisa - MAS21072', "The employee's name or login email; a trailing \" - CODE\" is ignored. A name that matches nobody is reported row by row and the lead imports unassigned. An import never takes a lead off the employee already holding it."],
+  ['Dates', '2026-07-15', 'Created Date, First Contact, Last Contact, Next Follow-up, Meeting Date. Use YYYY-MM-DD; a date that cannot be read is left blank rather than failing the row.'],
+  ['Follow-up Count', '3', 'Whole number.'],
+  ['Lead ID', 'L-99001', 'Leave blank and the CRM assigns the next one. A value matching an existing lead updates that lead.'],
+  ['Status', '(not a column)', 'Not imported from a file — every lead this creates starts as New, and status is moved from the CRM.'],
+];
+
+const csvCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+const SAMPLE = [TEMPLATE_HEADERS, ...TEMPLATE_EXAMPLE].map((r) => r.map(csvCell).join(',')).join('\n');
+
+const TEMPLATE_FILENAME = 'ranger-crm-lead-import-template';
+
+/**
+ * The template as a workbook: a "Leads" sheet holding the header row alone, and
+ * a "Field guide" sheet carrying the notes and the worked example.
+ *
+ * The example is deliberately NOT in the fillable sheet. An example row left in
+ * a template is an example row that gets imported, and "Acme Tax LLC" landing in
+ * the book is a worse outcome than a user having to look at the second tab. It
+ * cannot reach the CRM from there either: the uploader reads a workbook's FIRST
+ * sheet, so anything on the guide is inert.
+ */
+function downloadTemplateXlsx() {
+  const wb = XLSX.utils.book_new();
+
+  const leads = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS]);
+  leads['!cols'] = TEMPLATE_HEADERS.map((h) => ({ wch: Math.max(14, h.length + 3) }));
+  XLSX.utils.book_append_sheet(wb, leads, 'Leads');
+
+  const guide = XLSX.utils.aoa_to_sheet([
+    ['Ranger CRM — lead import template'],
+    ['Fill in the "Leads" tab, one lead per row, then upload it on the Import screen.'],
+    ['Every column is optional and the column ORDER does not matter — columns are matched by their heading, and anything unrecognised is reported before the import runs.'],
+    [],
+    ['Column', 'Example', 'How it is used'],
+    ...TEMPLATE_NOTES,
+    [],
+    ['Worked example — the same headings as the Leads tab, filled in.'],
+    TEMPLATE_HEADERS,
+    ...TEMPLATE_EXAMPLE,
+  ]);
+  guide['!cols'] = [{ wch: 20 }, { wch: 34 }, { wch: 96 }];
+  XLSX.utils.book_append_sheet(wb, guide, 'Field guide');
+
+  XLSX.writeFile(wb, `${TEMPLATE_FILENAME}.xlsx`);
+}
 
 export default function ImportPage() {
   const qc = useQueryClient();
@@ -333,11 +402,27 @@ export default function ImportPage() {
 
   return (
     <div>
+      <PageHead>
+        <button
+          onClick={downloadTemplateXlsx}
+          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted"
+        >
+          <Download className="h-4 w-4" /> Template (Excel)
+        </button>
+        <button
+          onClick={() => downloadCsv(TEMPLATE_FILENAME, TEMPLATE_HEADERS, [])}
+          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted"
+        >
+          <Download className="h-4 w-4" /> Template (CSV)
+        </button>
+      </PageHead>
+
       <div className="grid gap-[18px] lg:grid-cols-2">
         <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#bbd3bc] bg-background p-[34px] text-center transition-colors hover:border-[#a6c74d]">
           <div className="mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-[#d8eed9] text-[#266929]"><Upload className="h-6 w-6" /></div>
           <div className="font-semibold">Drop your file here or <span className="text-primary">browse</span></div>
           <div className="mt-1 text-[12.5px] text-muted-foreground">CSV or Excel (.xlsx/.xls) up to 25MB</div>
+          <div className="mt-1 text-[12px] text-muted-foreground">Don&apos;t have a file yet? Download the template above.</div>
           <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) loadFile(f); }} />
         </label>
         <div className="rounded-2xl border bg-card p-4 shadow-sm">
