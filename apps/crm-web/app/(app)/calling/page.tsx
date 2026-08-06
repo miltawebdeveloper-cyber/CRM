@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Phone, Check, Target, CheckCircle2, Clock, Percent, Video, ExternalLink, MessageSquare, Mail, Briefcase, Factory, UserRound, Send, X, Loader2 } from 'lucide-react';
+import { Phone, Check, Target, CheckCircle2, Clock, Percent, Video, ExternalLink, MessageSquare, Mail, Briefcase, Factory, UserRound, Search, Send, X, Loader2 } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { callsApi, communicationsApi, outcomesApi, formatDuration, type CallPhase } from '@/lib/crm';
 import { api } from '@/lib/api';
@@ -24,7 +24,7 @@ import { DialPad } from '@/components/dial-pad';
 import { useCall } from '@/components/call-provider';
 import { useCanCall } from '@/lib/use-can-call';
 import { launchQuoCall } from '@/lib/dialer';
-import { dayInLeadZone, formatScheduleInLeadZone, nowInLeadZone, zoneLabel, TIMEZONE_FILTER_OPTIONS } from '@/lib/timezone';
+import { dayInLeadZone, formatScheduleInLeadZone, nowInLeadZone, zoneLabel, TIMEZONE_FILTER_OPTIONS_COMPACT } from '@/lib/timezone';
 import { usePersistedState } from '@/lib/use-persisted-state';
 import { CallbackScheduler, callbackInputError } from '@/components/callback-scheduler';
 import { invalidateCallActivity } from '@/lib/sync';
@@ -88,6 +88,37 @@ function getQueueItemType(l: Lead) {
   return { type: 'new_call' as const, label: 'New Calling Queue', badge: 'New Call', scheduledAt: null, isToday: false };
 }
 
+/** Just the digits of a number, so formatting can't decide whether it matches. */
+const phoneDigits = (v?: string | null) => (v ?? '').replace(/\D/g, '');
+
+/**
+ * Does this lead answer what the rep typed into Contact Search?
+ *
+ * One free-text box rather than a field picker: the rep has a customer on the
+ * line saying a name, or a number on a sticky note, and asking them to first
+ * choose WHICH field that is costs more than searching all of them. So the text
+ * is matched as a substring against every identifier the row could be known by
+ * — the contact and the second contact, the company, both numbers, the email,
+ * the lead id, and the town and state the lead sits in.
+ *
+ * Numbers are compared digit-to-digit as well as as-written, which is what lets
+ * "3055551234" find a lead stored as "+1 (305) 555-1234". Three digits is the
+ * floor for that: below it every second lead in the book answers, and the
+ * as-written comparison still covers a one- or two-character query.
+ */
+function matchesContactSearch(l: Lead, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+
+  const digits = q.replace(/\D/g, '');
+  if (digits.length >= 3 && [l.phone, l.altPhone].some((p) => phoneDigits(p).includes(digits))) return true;
+
+  return [
+    l.contactName, l.contactName2, l.businessName, l.phone, l.altPhone,
+    l.email, l.leadId, l.city, l.state, l.industry,
+  ].some((v) => (v ?? '').toLowerCase().includes(q));
+}
+
 export default function CallingPage() {
   const qc = useQueryClient();
   // Which view is showing. The dialer's state lives here, so switching tabs and
@@ -99,6 +130,11 @@ export default function CallingPage() {
   // Management and returning — a rep working one region shouldn't have to reset
   // it every time they leave the panel. Cleared only by choosing All again.
   const [tzFilter, setTzFilter] = usePersistedState<string>('calling:queue-timezone', '');
+  // What the rep typed into Contact Search. Deliberately NOT persisted, unlike
+  // the zone: a zone is how someone works all day, a search is one lead they are
+  // looking for right now, and a box that still held yesterday's number would
+  // show an empty queue with no obvious reason why.
+  const [search, setSearch] = useState('');
   const [active, setActive] = useState<{ callId: string; lead: Lead; startedAt: number; from?: string; callerName?: string } | null>(null);
   const [live, setLive] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -235,19 +271,26 @@ export default function CallingPage() {
     processed.has(l.id);
   const queue = leads;
 
-  // ── Time-zone filter ──
-  // Purely a view over the queue: it narrows what the list DISPLAYS and the
-  // counts on the type tabs, which describe that list. It deliberately does not
-  // touch `nextPending` or `current` below — those decide which lead the panel
-  // hands the rep and are what the call, the outcome and the status update are
+  // ── Time-zone filter, then Contact Search ──
+  // Both are purely a view over the queue: they narrow what the list DISPLAYS
+  // and the counts on the type tabs, which describe that list. Neither touches
+  // `nextPending` or `current` below — those decide which lead the panel hands
+  // the rep and are what the call, the outcome and the status update are
   // recorded against, so a display filter must not be able to move them.
   //
-  // Matched on the lead's OWN configured zone, compared exactly. A lead with no
-  // zone set therefore matches no selection and appears only under All Time
-  // Zones — filing it under Eastern is precisely the guess the rest of this
-  // module exists to refuse.
+  // Applied with `filter`, in that order, so the server's queue ORDER survives
+  // both: the rows that remain are in exactly the positions the server gave
+  // them, which is why the # on each row still reads off the full queue.
+  //
+  // The zone is matched on the lead's OWN configured zone, compared exactly. A
+  // lead with no zone set therefore matches no selection and appears only under
+  // All Time Zones — filing it under Eastern is precisely the guess the rest of
+  // this module exists to refuse.
   const zoneQueue = tzFilter ? queue.filter((l) => l.timezone === tzFilter) : queue;
-  const filteredQueue = zoneQueue.filter((q) => {
+  // Search runs INSIDE the chosen zone, so the two compose: pick Central, then
+  // find the Alvarez in it. See matchesContactSearch for what counts as a hit.
+  const searchedQueue = search.trim() ? zoneQueue.filter((l) => matchesContactSearch(l, search)) : zoneQueue;
+  const filteredQueue = searchedQueue.filter((q) => {
     if (queueFilter === 'all') return true;
     return getQueueItemType(q).type === queueFilter;
   });
@@ -559,41 +602,88 @@ export default function CallingPage() {
               <div className="flex items-center justify-between gap-2">
                 <h3 className="font-display text-[15px] font-semibold">Your Queue</h3>
                 {/* Counts the leads actually listed below, so it moves with the
-                    zone filter rather than claiming a size the list doesn't show. */}
+                    zone filter and the search rather than claiming a size the
+                    list doesn't show. */}
                 <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
-                  {zoneQueue.length} leads
+                  {searchedQueue.length} leads
                 </span>
               </div>
 
-              {/* Time Zone filter — sits above the queue list and narrows it to
-                  leads whose configured zone matches. Full-width because the
-                  queue column is 280–300px: the shared FilterSelect is sized for
-                  a horizontal filter bar and would overflow here. */}
-              <div className="mt-3">
-                <label
-                  htmlFor="queue-timezone"
-                  className="mb-1 block text-[11px] font-semibold uppercase tracking-[.06em] text-muted-foreground"
-                >
-                  Time Zone
-                </label>
-                <div className="flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium text-[#163618] dark:text-foreground">
-                  <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <select
-                    id="queue-timezone"
-                    value={tzFilter}
-                    onChange={(e) => setTzFilter(e.target.value)}
-                    className="w-full min-w-0 cursor-pointer truncate border-none bg-transparent font-medium outline-none"
+              {/* Time Zone filter and Contact Search — one row above the queue,
+                  because they are used together: narrow to a region, then find
+                  the lead inside it.
+                  Sharing a 280–300px column is what decides the details here.
+                  The zone select carries the COMPACT labels (EST, CST, India)
+                  rather than the full "EST (Eastern Standard Time)" — a native
+                  select takes its width from its widest option, which at half a
+                  column would leave the search box unusable. The codes are the
+                  CRM's own vocabulary and are what each queue row already shows.
+                  Equal halves, because both sides need every pixel: "All Time
+                  Zones" only just fits beside its icon at ~128px, and a placeholder
+                  clipped at the tail is the cheapest thing to give up here. Below
+                  `xl` the queue is full-width and both grow with it. */}
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="min-w-0">
+                  <label
+                    htmlFor="queue-timezone"
+                    className="mb-1 block text-[11px] font-semibold uppercase tracking-[.06em] text-muted-foreground"
                   >
-                    {TIMEZONE_FILTER_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
+                    Time Zone
+                  </label>
+                  <div className="flex items-center gap-[5px] rounded-md border bg-card px-2 py-2 text-[13px] font-medium text-[#163618] dark:text-foreground">
+                    <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <select
+                      id="queue-timezone"
+                      value={tzFilter}
+                      onChange={(e) => setTzFilter(e.target.value)}
+                      className="w-full min-w-0 cursor-pointer truncate border-none bg-transparent font-medium outline-none"
+                    >
+                      {TIMEZONE_FILTER_OPTIONS_COMPACT.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="min-w-0">
+                  <label
+                    htmlFor="queue-search"
+                    className="mb-1 block text-[11px] font-semibold uppercase tracking-[.06em] text-muted-foreground"
+                  >
+                    Contact Search
+                  </label>
+                  <div className="flex items-center gap-[5px] rounded-md border bg-card px-2 py-2 text-[13px] focus-within:border-primary">
+                    <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <input
+                      id="queue-search"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      // Escape clears without reaching for the mouse — the box is
+                      // used mid-call, one-handed.
+                      onKeyDown={(e) => { if (e.key === 'Escape') setSearch(''); }}
+                      placeholder="Name or phone"
+                      title="Search this queue by contact name, company, phone, email or lead ID"
+                      className="w-full min-w-0 border-none bg-transparent font-medium outline-none placeholder:font-normal placeholder:text-muted-foreground"
+                    />
+                    {search && (
+                      <button
+                        type="button"
+                        onClick={() => setSearch('')}
+                        title="Clear search"
+                        aria-label="Clear search"
+                        className="grid h-4 w-4 shrink-0 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {/* Counts are of the zone-filtered queue, since they label that list.
+              {/* Counts are of the zone-filtered, searched queue, since they
+                  label that list — clicking a tab shows exactly this many.
                   All four sit on ONE row: the queue column is 280px at `xl`, which
                   the tabs overflow at their natural width — that overflow first
                   drew a scrollbar (`overflow-x-auto`, which also hid the last tab
@@ -608,38 +698,42 @@ export default function CallingPage() {
                   onClick={() => setQueueFilter('all')}
                   className={`flex-1 min-w-0 truncate rounded-md px-1 py-1 text-center font-semibold transition-colors ${queueFilter === 'all' ? 'bg-primary text-primary-foreground' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
                 >
-                  All ({zoneQueue.length})
+                  All ({searchedQueue.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setQueueFilter('callback')}
                   className={`flex-1 min-w-0 truncate rounded-md px-1 py-1 text-center font-semibold transition-colors ${queueFilter === 'callback' ? 'bg-[#9e2b21] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
                 >
-                  Callback ({zoneQueue.filter((l) => getQueueItemType(l).type === 'callback').length})
+                  Callback ({searchedQueue.filter((l) => getQueueItemType(l).type === 'callback').length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setQueueFilter('zoom')}
                   className={`flex-1 min-w-0 truncate rounded-md px-1 py-1 text-center font-semibold transition-colors ${queueFilter === 'zoom' ? 'bg-[#2c5d8f] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
                 >
-                  Zoom ({zoneQueue.filter((l) => getQueueItemType(l).type === 'zoom').length})
+                  Zoom ({searchedQueue.filter((l) => getQueueItemType(l).type === 'zoom').length})
                 </button>
                 <button
                   type="button"
                   onClick={() => setQueueFilter('new_call')}
                   className={`flex-1 min-w-0 truncate rounded-md px-1 py-1 text-center font-semibold transition-colors ${queueFilter === 'new_call' ? 'bg-[#266929] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
                 >
-                  New ({zoneQueue.filter((l) => getQueueItemType(l).type === 'new_call').length})
+                  New ({searchedQueue.filter((l) => getQueueItemType(l).type === 'new_call').length})
                 </button>
               </div>
             </div>
             <div className="max-h-[620px] overflow-y-auto p-[14px]">
-              {/* Two different empty states: an empty zone is worth naming, since
-                  otherwise "no items in this queue" reads as an empty queue and
-                  the rep has no reason to suspect a filter they set days ago. */}
+              {/* Three different empty states, because "no items in this queue"
+                  reads as an empty queue: a rep has no reason to suspect a zone
+                  they set days ago, or a search term still sitting in the box
+                  above a list they've scrolled away from. Each one names what
+                  emptied the list. */}
               {filteredQueue.length === 0 && (
                 <p className="py-6 text-center text-sm text-muted-foreground">
-                  {tzFilter && zoneQueue.length === 0
+                  {search.trim() && searchedQueue.length === 0
+                    ? `No leads match “${search.trim()}”${tzFilter ? ` in ${tzFilter}` : ''}.`
+                    : tzFilter && zoneQueue.length === 0
                     ? 'No leads available for the selected time zone.'
                     : 'No items in this queue.'}
                 </p>
