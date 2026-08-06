@@ -15,7 +15,7 @@ import { formatTime } from '@/lib/display-settings';
 function Toggle({ on: initial }: { on: boolean }) {
   const [on, setOn] = useState(initial);
   return (
-    <button onClick={() => setOn((v) => !v)} className={`relative h-6 w-[42px] shrink-0 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-[#bbd3bc]'}`}>
+    <button onClick={() => setOn((v) => !v)} className={`relative h-6 w-[42px] shrink-0 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-[var(--brand-line)]'}`}>
       <span className={`absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all ${on ? 'left-[21px]' : 'left-[3px]'}`} />
     </button>
   );
@@ -50,19 +50,19 @@ export default function AdminPage() {
     <div>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={Users} iconBg="#d8eed9" iconColor="#266929" value={activeUsers || '—'} label="Active Users" />
+        <KpiCard icon={Users} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={activeUsers || '—'} label="Active Users" />
         <KpiCard icon={Activity} iconBg="#dff0ec" iconColor="#2f6f63" value="99.98%" label="Uptime (30d)" />
         <KpiCard icon={Database} iconBg="#fdecdc" iconColor="#c98a18" value={(summary?.totalLeads ?? 0).toLocaleString()} label="Lead Records" />
-        <KpiCard icon={ShieldCheck} iconBg="#d8eed9" iconColor="#266929" value="Healthy" label="Security Status" />
+        <KpiCard icon={ShieldCheck} iconBg="var(--brand-tint)" iconColor="var(--brand)" value="Healthy" label="Security Status" />
       </div>
 
       <div className="grid gap-[18px] lg:grid-cols-2">
         <div className="rounded-2xl border bg-card shadow-sm">
-          <div className="border-b px-[18px] py-4"><h3 className="font-display text-[15px] font-semibold">System Controls</h3></div>
+          <div className="border-b px-[18px] py-4"><h3 className="font-display text-[14px] font-semibold">System Controls</h3></div>
           <div className="px-[18px]">
             {CONTROLS.map(([t, d, on]) => (
               <div key={t} className="flex items-center justify-between gap-4 border-b py-3.5 last:border-0">
-                <div><div className="text-[14px] font-semibold">{t}</div><div className="text-[12.5px] text-muted-foreground">{d}</div></div>
+                <div><div className="text-[13px] font-semibold">{t}</div><div className="text-[12px] text-muted-foreground">{d}</div></div>
                 <Toggle on={on} />
               </div>
             ))}
@@ -70,12 +70,12 @@ export default function AdminPage() {
         </div>
 
         <div className="rounded-2xl border bg-card shadow-sm">
-          <div className="border-b px-[18px] py-4"><h3 className="font-display text-[15px] font-semibold">Activity Log</h3><div className="text-xs text-muted-foreground">Recent system events</div></div>
+          <div className="border-b px-[18px] py-4"><h3 className="font-display text-[14px] font-semibold">Activity Log</h3><div className="text-xs text-muted-foreground">Recent system events</div></div>
           <div className="px-[18px]">
             {activities.slice(0, 6).map((a) => (
               <div key={a.id} className="flex items-center gap-3 border-b py-[11px] last:border-0">
-                <div className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[9px] bg-[#d8eed9] text-[#266929]"><Activity className="h-4 w-4" /></div>
-                <div className="flex-1"><div className="text-[13.5px]"><b>{a.user?.name ?? 'System'}</b> {a.action.replace('_', ' ')} {a.lead?.businessName ?? ''} {a.newValue ? `→ ${a.newValue}` : ''}</div><div className="text-[12px] text-muted-foreground">{formatTime(a.createdAt)}</div></div>
+                <div className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[9px] bg-[var(--brand-tint)] text-[var(--brand)]"><Activity className="h-4 w-4" /></div>
+                <div className="flex-1"><div className="text-[13px]"><b>{a.user?.name ?? 'System'}</b> {a.action.replace('_', ' ')} {a.lead?.businessName ?? ''} {a.newValue ? `→ ${a.newValue}` : ''}</div><div className="text-[11.5px] text-muted-foreground">{formatTime(a.createdAt)}</div></div>
               </div>
             ))}
             {activities.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">No events yet.</p>}
@@ -89,13 +89,13 @@ export default function AdminPage() {
       </div>
 
       <div className="mt-[18px] rounded-2xl border bg-card shadow-sm">
-        <div className="border-b px-[18px] py-4"><h3 className="font-display text-[15px] font-semibold">Data Management</h3></div>
+        <div className="border-b px-[18px] py-4"><h3 className="font-display text-[14px] font-semibold">Data Management</h3></div>
         <div className="grid gap-3.5 p-[18px] sm:grid-cols-2 lg:grid-cols-4">
           {DM.map((d) => (
             <button key={d.t} onClick={() => d.href && router.push(d.href)} className="rounded-2xl border bg-card p-5 text-center transition-all hover:-translate-y-0.5 hover:shadow-md">
-              <div className="mx-auto mb-3 grid h-[46px] w-[46px] place-items-center rounded-[12px] bg-[#d8eed9] text-[#266929]"><d.icon className="h-[22px] w-[22px]" /></div>
-              <div className="font-display text-[14px] font-bold">{d.t}</div>
-              <div className="mt-0.5 text-[12px] text-muted-foreground">{d.d}</div>
+              <div className="mx-auto mb-3 grid h-[46px] w-[46px] place-items-center rounded-[12px] bg-[var(--brand-tint)] text-[var(--brand)]"><d.icon className="h-[22px] w-[22px]" /></div>
+              <div className="font-display text-[13px] font-bold">{d.t}</div>
+              <div className="mt-0.5 text-[11.5px] text-muted-foreground">{d.d}</div>
             </button>
           ))}
         </div>

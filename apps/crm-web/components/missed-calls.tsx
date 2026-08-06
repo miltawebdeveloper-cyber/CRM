@@ -66,7 +66,7 @@ export function MissedCalls() {
         render: (r) => (
           <div>
             <div className="font-medium">{formatDate(r.at)}</div>
-            <div className="text-[11.5px] text-muted-foreground">
+            <div className="text-[11px] text-muted-foreground">
               {formatTime(r.at)}
             </div>
           </div>
@@ -86,7 +86,7 @@ export function MissedCalls() {
             <Avatar name={r.contactName || r.businessName} />
             <div className="min-w-0">
               <div className="truncate font-medium">{r.contactName || r.businessName}</div>
-              {r.contactName && <div className="truncate text-[11.5px] text-muted-foreground">{r.businessName}</div>}
+              {r.contactName && <div className="truncate text-[11px] text-muted-foreground">{r.businessName}</div>}
             </div>
           </div>
         ),
@@ -94,7 +94,7 @@ export function MissedCalls() {
       {
         key: 'phone',
         header: 'Phone Number',
-        cellClassName: 'font-mono text-[12px] text-muted-foreground',
+        cellClassName: 'font-mono text-[11.5px] text-muted-foreground',
         searchable: true,
         searchValue: (r) => r.phone,
         render: (r) => r.phone,
@@ -115,7 +115,7 @@ export function MissedCalls() {
         // Links through to the record, which is where a missed call is actually
         // acted on — there is no call-back button, because dialling is off.
         render: (r) => (
-          <Link href={`/leads/${r.leadId}`} className="font-mono text-[11.5px] font-medium text-primary hover:underline">
+          <Link href={`/leads/${r.leadId}`} className="font-mono text-[11px] font-medium text-primary hover:underline">
             {r.leadRef}
           </Link>
         ),
@@ -124,7 +124,7 @@ export function MissedCalls() {
         key: 'status',
         header: 'Status',
         render: (r) => (
-          <span className="inline-flex items-center gap-1 rounded-full bg-[#fbeeec] px-2 py-[3px] text-[11px] font-semibold capitalize text-[#a8431f]">
+          <span className="inline-flex items-center gap-1 rounded-full bg-[#fde9e6] px-2 py-[3px] text-[10.5px] font-semibold capitalize text-[#a8431f]">
             <PhoneMissed className="h-3 w-3" />
             {r.status.replace(/[-_]/g, ' ')}
           </span>
@@ -145,8 +145,8 @@ export function MissedCalls() {
   return (
     <div>
       <div className="mb-[18px] grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={PhoneMissed} iconBg="#fbeeec" iconColor="#a8431f" value={rows.length.toLocaleString()} label="Missed Calls" />
-        <KpiCard icon={Clock} iconBg="#fbf3e2" iconColor="#c98a18" value={todayCount.toLocaleString()} label="Missed Today" />
+        <KpiCard icon={PhoneMissed} iconBg="#fde9e6" iconColor="#a8431f" value={rows.length.toLocaleString()} label="Missed Calls" />
+        <KpiCard icon={Clock} iconBg="#fdf1de" iconColor="#c98a18" value={todayCount.toLocaleString()} label="Missed Today" />
         <KpiCard
           icon={PhoneIncoming}
           iconBg="#e3f1ee"

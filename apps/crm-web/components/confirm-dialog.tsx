@@ -57,28 +57,28 @@ export function ConfirmDialog({
           <div className="flex items-start gap-3 px-5 pt-5">
             <div
               className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${
-                destructive ? 'bg-[#fbeeec] text-[#a8431f]' : 'bg-muted text-foreground'
+                destructive ? 'bg-[#fde9e6] text-[#a8431f]' : 'bg-muted text-foreground'
               }`}
             >
               <AlertTriangle className="h-[18px] w-[18px]" />
             </div>
             <div className="min-w-0">
-              <h3 className="font-display text-[15px] font-semibold">{title}</h3>
-              <p className="mt-1 text-[13px] text-muted-foreground">{message}</p>
+              <h3 className="font-display text-[14px] font-semibold">{title}</h3>
+              <p className="mt-1 text-[12.5px] text-muted-foreground">{message}</p>
             </div>
           </div>
           <div className="mt-5 flex items-center justify-end gap-2 border-t bg-muted/30 px-5 py-3">
             <button
               onClick={onClose}
               disabled={busy}
-              className="rounded-md border bg-card px-3.5 py-2 text-[13px] font-medium hover:bg-muted disabled:opacity-50"
+              className="rounded-md border bg-card px-3.5 py-2 text-[12.5px] font-medium hover:bg-muted disabled:opacity-50"
             >
               {cancelLabel}
             </button>
             <button
               onClick={confirm}
               disabled={busy}
-              className={`inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60 ${
+              className={`inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-[12.5px] font-semibold text-white disabled:opacity-60 ${
                 destructive ? 'bg-[#b5372a] hover:bg-[#9e2b21]' : 'bg-primary hover:opacity-90'
               }`}
             >

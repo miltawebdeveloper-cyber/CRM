@@ -20,8 +20,8 @@ const STAGES: { key: Lead['status']; name: string; color: string }[] = [
   { key: 'new', name: 'New', color: '#2c5d8f' },
   { key: 'in_progress', name: 'In Progress', color: '#c98a18' },
   { key: 'contacted', name: 'Contacted', color: '#2f6f63' },
-  { key: 'interested', name: 'Interested', color: '#7e9933' },
-  { key: 'closed', name: 'Closed Won', color: '#317d34' },
+  { key: 'interested', name: 'Interested', color: 'var(--brand-lime-deep)' },
+  { key: 'closed', name: 'Closed Won', color: 'var(--brand-strong)' },
   { key: 'rejected', name: 'Rejected', color: '#a8431f' },
 ];
 
@@ -75,7 +75,7 @@ export default function PipelinePage() {
   const columns = useMemo<ColumnDef<Lead>[]>(() => [
     { key: 'deal', header: 'Deal', required: true, render: (d) => <div className="flex items-center gap-[10px]"><Avatar name={d.businessName} /><span className="font-semibold">{d.businessName}</span></div> },
     { key: 'location', header: 'Location', render: (d) => `${d.city}, ${d.state}` },
-    { key: 'timezone', header: 'Timezone', render: (d) => <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold">{d.timezone}</span> },
+    { key: 'timezone', header: 'Timezone', render: (d) => <span className="rounded-full bg-muted px-2 py-0.5 text-[10.5px] font-semibold">{d.timezone}</span> },
     { key: 'stage', header: 'Stage', render: (d) => <StatusPill status={d.status} /> },
   ], []);
 
@@ -91,9 +91,9 @@ export default function PipelinePage() {
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={GitBranch} iconBg="#d8eed9" iconColor="#266929" value={openDeals} label="Open Deals" />
-        <KpiCard icon={DollarSign} iconBg="#e4f2e4" iconColor="#317d34" value="$284K" label="Weighted Value" />
-        <KpiCard icon={Percent} iconBg="#fbf3e2" iconColor="#c98a18" value="22%" label="Win Rate" />
+        <KpiCard icon={GitBranch} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={openDeals} label="Open Deals" />
+        <KpiCard icon={DollarSign} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value="$284K" label="Weighted Value" />
+        <KpiCard icon={Percent} iconBg="#fdf1de" iconColor="#c98a18" value="22%" label="Win Rate" />
         <KpiCard icon={Clock} iconBg="#e3f1ee" iconColor="#2f6f63" value="14 days" label="Avg Cycle" />
       </div>
 
@@ -104,8 +104,8 @@ export default function PipelinePage() {
             return (
               <div key={stage.key} className="min-h-[300px] rounded-2xl border bg-background p-3">
                 <div className="mb-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-[12.5px] font-bold"><span className="h-[9px] w-[9px] rounded-[3px]" style={{ background: stage.color }} />{stage.name}</div>
-                  <span className="rounded-full border bg-card px-2 py-px text-[11px] font-bold text-muted-foreground">{deals.length}</span>
+                  <div className="flex items-center gap-2 text-[12px] font-bold"><span className="h-[9px] w-[9px] rounded-[3px]" style={{ background: stage.color }} />{stage.name}</div>
+                  <span className="rounded-full border bg-card px-2 py-px text-[10.5px] font-bold text-muted-foreground">{deals.length}</span>
                 </div>
                 {deals.slice(0, 8).map((d) => (
                   <div
@@ -117,12 +117,12 @@ export default function PipelinePage() {
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/leads/${d.id}`); } }}
                     className="mb-[9px] cursor-pointer rounded-[11px] border bg-card p-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                   >
-                    <div className="text-[13px] font-semibold">{d.businessName}</div>
-                    <div className="my-1.5 font-display text-[15px] font-semibold text-primary">{d.city}, {d.state}</div>
-                    <div className="flex items-center justify-between text-[11px] text-muted-foreground"><span>{d.timezone}</span><Avatar name={d.businessName} /></div>
+                    <div className="text-[12.5px] font-semibold">{d.businessName}</div>
+                    <div className="my-1.5 font-display text-[14px] font-semibold text-primary">{d.city}, {d.state}</div>
+                    <div className="flex items-center justify-between text-[10.5px] text-muted-foreground"><span>{d.timezone}</span><Avatar name={d.businessName} /></div>
                   </div>
                 ))}
-                {deals.length === 0 && <div className="p-2 text-center text-[12px] text-muted-foreground">No deals</div>}
+                {deals.length === 0 && <div className="p-2 text-center text-[11.5px] text-muted-foreground">No deals</div>}
               </div>
             );
           })}

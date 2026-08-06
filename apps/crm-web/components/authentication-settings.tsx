@@ -54,7 +54,7 @@ export function AuthenticationSettings() {
       <div className="flex items-center gap-2 border-b px-[18px] py-4">
         <ShieldCheck className="h-4 w-4 text-primary" />
         <div>
-          <h3 className="font-display text-[15px] font-semibold">Authentication Settings</h3>
+          <h3 className="font-display text-[14px] font-semibold">Authentication Settings</h3>
           <div className="text-xs text-muted-foreground">Email OTP required after password sign-in</div>
         </div>
       </div>
@@ -63,7 +63,7 @@ export function AuthenticationSettings() {
         {/* Without SMTP the code is only written to the server log, so enabling the
             gate would lock everyone out. Say so before they flip the switch. */}
         {data && !data.mailReady && (
-          <div className="flex items-start gap-2 rounded-lg bg-[#fbeeec] px-3 py-2.5 text-[12.5px] text-[#a8431f]">
+          <div className="flex items-start gap-2 rounded-lg bg-[#fde9e6] px-3 py-2.5 text-[12px] text-[#a8431f]">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
               <b>SMTP is not configured</b>, so OTP emails cannot be delivered. Enabling this now would prevent everyone from
@@ -77,11 +77,11 @@ export function AuthenticationSettings() {
             type="checkbox"
             checked={form.enabled}
             onChange={(e) => set('enabled', e.target.checked)}
-            className="mt-0.5 h-4 w-4 accent-[#266929]"
+            className="mt-0.5 h-4 w-4 accent-[var(--brand)]"
           />
           <span>
-            <span className="block text-[13.5px] font-semibold">OTP Authentication</span>
-            <span className="block text-[12px] text-muted-foreground">
+            <span className="block text-[13px] font-semibold">OTP Authentication</span>
+            <span className="block text-[11.5px] text-muted-foreground">
               Require a one-time code, emailed to the address below, after every successful password sign-in.
             </span>
           </span>
@@ -94,9 +94,9 @@ export function AuthenticationSettings() {
             value={form.recipientEmail}
             onChange={(e) => set('recipientEmail', e.target.value)}
             placeholder="mfsaccounting@gmail.com"
-            className={`w-full rounded-md border bg-background px-3 py-2 outline-none focus:border-primary ${noRecipient ? 'border-[#e0b4ae]' : ''}`}
+            className={`w-full rounded-md border bg-background px-3 py-2 outline-none focus:border-primary ${noRecipient ? 'border-[#f2cbc5]' : ''}`}
           />
-          <span className="block text-[11.5px] text-muted-foreground">
+          <span className="block text-[11px] text-muted-foreground">
             Every user&apos;s login code is sent here — not to the user&apos;s own address.
           </span>
         </label>
@@ -130,11 +130,11 @@ export function AuthenticationSettings() {
               type="checkbox"
               checked={form.trustDeviceEnabled}
               onChange={(e) => set('trustDeviceEnabled', e.target.checked)}
-              className="mt-0.5 h-4 w-4 accent-[#266929]"
+              className="mt-0.5 h-4 w-4 accent-[var(--brand)]"
             />
             <span>
-              <span className="block text-[13.5px] font-semibold">Remember trusted devices</span>
-              <span className="block text-[12px] text-muted-foreground">
+              <span className="block text-[13px] font-semibold">Remember trusted devices</span>
+              <span className="block text-[11.5px] text-muted-foreground">
                 After a code is verified, that browser skips the OTP until the trust period ends. Signing out does not
                 clear it — only an expiry or a revoke does.
               </span>
@@ -152,21 +152,21 @@ export function AuthenticationSettings() {
               onChange={(e) => set('trustDeviceDays', Number(e.target.value))}
               className="w-full rounded-md border bg-background px-3 py-2 outline-none focus:border-primary disabled:opacity-50"
             />
-            <span className="block text-[11.5px] text-muted-foreground">
+            <span className="block text-[11px] text-muted-foreground">
               Default 180 days. The next sign-in after this window needs a fresh code, which then renews it.
             </span>
           </label>
         </div>
 
         {noRecipient && (
-          <p className="text-[12.5px] font-medium text-[#a8431f]">Set a recipient email before enabling OTP authentication.</p>
+          <p className="text-[12px] font-medium text-[#a8431f]">Set a recipient email before enabling OTP authentication.</p>
         )}
 
         <div className="flex justify-end">
           <button
             onClick={() => save.mutate()}
             disabled={save.isPending || noRecipient}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground disabled:opacity-50"
           >
             {save.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {save.isPending ? 'Saving…' : 'Save settings'}

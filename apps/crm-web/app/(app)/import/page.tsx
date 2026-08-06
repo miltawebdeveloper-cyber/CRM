@@ -534,33 +534,33 @@ export default function ImportPage() {
       <PageHead>
         <button
           onClick={downloadTemplateXlsx}
-          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted"
+          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"
         >
           <Download className="h-4 w-4" /> Template (Excel)
         </button>
         <button
           onClick={() => downloadCsv(TEMPLATE_FILENAME, TEMPLATE_HEADERS, [])}
-          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted"
+          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"
         >
           <Download className="h-4 w-4" /> Template (CSV)
         </button>
       </PageHead>
 
       <div className="grid gap-[18px] lg:grid-cols-2">
-        <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#bbd3bc] bg-background p-[34px] text-center transition-colors hover:border-[#a6c74d]">
-          <div className="mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-[#d8eed9] text-[#266929]"><Upload className="h-6 w-6" /></div>
+        <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[var(--brand-line)] bg-background p-[34px] text-center transition-colors hover:border-[var(--brand-lime)]">
+          <div className="mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-[var(--brand-tint)] text-[var(--brand)]"><Upload className="h-6 w-6" /></div>
           <div className="font-semibold">Drop your file here or <span className="text-primary">browse</span></div>
-          <div className="mt-1 text-[12.5px] text-muted-foreground">CSV or Excel (.xlsx/.xls) up to 25MB</div>
-          <div className="mt-1 text-[12px] text-muted-foreground">Don&apos;t have a file yet? Download the template above.</div>
+          <div className="mt-1 text-[12px] text-muted-foreground">CSV or Excel (.xlsx/.xls) up to 25MB</div>
+          <div className="mt-1 text-[11.5px] text-muted-foreground">Don&apos;t have a file yet? Download the template above.</div>
           <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) loadFile(f); }} />
         </label>
         <div className="rounded-2xl border bg-card p-4 shadow-sm">
           <div className="mb-2 flex items-center justify-between">
-            <span className="text-[13px] font-semibold">Or paste CSV</span>
-            <button onClick={() => load(SAMPLE)} className="text-[12px] font-semibold text-primary">Load sample</button>
+            <span className="text-[12.5px] font-semibold">Or paste CSV</span>
+            <button onClick={() => load(SAMPLE)} className="text-[11.5px] font-semibold text-primary">Load sample</button>
           </div>
           <textarea value={raw} onChange={(e) => load(e.target.value)} rows={6} placeholder="Paste rows with the standard lead columns…" className="w-full rounded-md border bg-background px-3 py-2 font-mono text-xs" />
-          <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+          <p className="mt-2 text-[10.5px] leading-relaxed text-muted-foreground">
             Columns: {COLUMNS.map((c) => c.label).join(' · ')}
           </p>
         </div>
@@ -572,11 +572,11 @@ export default function ImportPage() {
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b pb-3">
             <div className="flex items-center gap-2">
               <Filter className="h-4 w-4 text-primary" />
-              <h3 className="font-display text-[15px] font-semibold">Duplicate Validation Settings</h3>
+              <h3 className="font-display text-[14px] font-semibold">Duplicate Validation Settings</h3>
             </div>
-            <span className="text-[12px] text-muted-foreground">A row is a duplicate on an exact match — never on a partial one</span>
+            <span className="text-[11.5px] text-muted-foreground">A row is a duplicate on an exact match — never on a partial one</span>
           </div>
-          <div className="flex flex-wrap items-center gap-6 pt-1 text-[13px]">
+          <div className="flex flex-wrap items-center gap-6 pt-1 text-[12.5px]">
             {(
               [
                 { field: 'phone' as const, label: 'Phone Number', hint: 'Compared as written, including Alt Phone' },
@@ -598,13 +598,13 @@ export default function ImportPage() {
                     className="h-4 w-4 rounded border-muted-foreground/30 accent-primary disabled:opacity-60"
                   />
                   <span>{label}</span>
-                  <span className="text-[11.5px] font-normal text-muted-foreground">{hint}</span>
+                  <span className="text-[11px] font-normal text-muted-foreground">{hint}</span>
                 </label>
               );
             })}
           </div>
           <label
-            className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-dashed bg-muted/30 px-3 py-2.5 text-[12.5px]"
+            className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-dashed bg-muted/30 px-3 py-2.5 text-[12px]"
             title="Compare numbers by their last 10 digits instead of as written"
           >
             <input
@@ -616,7 +616,7 @@ export default function ImportPage() {
             />
             <span className={dupCheckFields.phone ? '' : 'opacity-50'}>
               <span className="font-medium">Also match numbers written differently</span>
-              <span className="block text-[11.5px] leading-relaxed text-muted-foreground">
+              <span className="block text-[11px] leading-relaxed text-muted-foreground">
                 Compares the last 10 digits, so <span className="font-mono">+1 (305) 555-1234</span> and{' '}
                 <span className="font-mono">3055551234</span> count as one number. Looser than an exact match — worth
                 turning on for a file whose numbers are written in a different style to the CRM&apos;s.
@@ -624,7 +624,7 @@ export default function ImportPage() {
             </span>
           </label>
 
-          <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-lg border border-dashed bg-muted/30 px-3 py-2.5 text-[12.5px]">
+          <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-lg border border-dashed bg-muted/30 px-3 py-2.5 text-[12px]">
             <input
               type="checkbox"
               checked={matchCompanyDomain}
@@ -633,7 +633,7 @@ export default function ImportPage() {
             />
             <span>
               <span className="font-medium">Also match the company domain</span>
-              <span className="block text-[11.5px] leading-relaxed text-muted-foreground">
+              <span className="block text-[11px] leading-relaxed text-muted-foreground">
                 Taken from the email and the website, so <span className="font-mono">@acmetax.com</span> and{' '}
                 <span className="font-mono">acmetax.com</span> are one firm. Noisier than the rules above — it flags two{' '}
                 <b className="font-semibold">different people</b> at one company, which is often two real leads. Gmail
@@ -642,7 +642,7 @@ export default function ImportPage() {
             </span>
           </label>
 
-          <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-lg border border-dashed bg-muted/30 px-3 py-2.5 text-[12.5px]">
+          <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-lg border border-dashed bg-muted/30 px-3 py-2.5 text-[12px]">
             <input
               type="checkbox"
               checked={matchLocation}
@@ -651,7 +651,7 @@ export default function ImportPage() {
             />
             <span>
               <span className="font-medium">Also match company name with city and state</span>
-              <span className="block text-[11.5px] leading-relaxed text-muted-foreground">
+              <span className="block text-[11px] leading-relaxed text-muted-foreground">
                 All three together, so <span className="font-mono">Acme Tax · Miami · FL</span> already in the CRM
                 flags a row for the same firm even when its number is new, while{' '}
                 <span className="font-mono">Acme Tax · Austin · TX</span> stays a separate lead. Case, punctuation and{' '}
@@ -661,7 +661,7 @@ export default function ImportPage() {
             </span>
           </label>
 
-          <p className="mt-2.5 text-[11.5px] leading-relaxed text-muted-foreground">
+          <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground">
             Company name is never compared on its own — two firms trading under the same word are two leads. Rows are
             checked against both the leads already in the CRM and the earlier rows of this file.
           </p>
@@ -672,15 +672,15 @@ export default function ImportPage() {
       {file.headers.length > 0 && (
         <div className="mt-[18px] rounded-2xl border bg-card p-[18px] shadow-sm">
           <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="font-display text-[15px] font-semibold">Column mapping</h3>
+            <h3 className="font-display text-[14px] font-semibold">Column mapping</h3>
             <button
               onClick={() => setMapping(autoMap(file.headers))}
-              className="rounded-md border bg-card px-2.5 py-1.5 text-[12px] font-semibold hover:bg-muted"
+              className="rounded-md border bg-card px-2.5 py-1.5 text-[11.5px] font-semibold hover:bg-muted"
             >
               Reset to auto-detected
             </button>
           </div>
-          <p className="mb-3 text-[12px] text-muted-foreground">
+          <p className="mb-3 text-[11.5px] text-muted-foreground">
             Matched by column name, so your file&apos;s column order doesn&apos;t matter. Change any
             row to point a CRM field at a different column. All fields are optional — leave anything
             you don&apos;t have set to <span className="font-medium">Don&apos;t import</span>.
@@ -690,15 +690,15 @@ export default function ImportPage() {
             {COLUMNS.map((col) => {
               const idx = mapping[col.key] ?? NOT_MAPPED;
               return (
-                <label key={col.key} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-[12.5px]">
+                <label key={col.key} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-[12px]">
                   <span className="shrink-0 font-medium">{col.label}</span>
                   <span className="flex min-w-0 items-center gap-1.5">
-                    {idx >= 0 && <Check className="h-3.5 w-3.5 shrink-0 text-[#317d34]" />}
+                    {idx >= 0 && <Check className="h-3.5 w-3.5 shrink-0 text-[var(--brand-strong)]" />}
                     <select
                       value={idx}
                       onChange={(e) => setField(col.key, Number(e.target.value))}
                       aria-label={`Source column for ${col.label}`}
-                      className={`min-w-0 max-w-[170px] cursor-pointer truncate rounded border bg-background px-1.5 py-1 text-[12px] outline-none ${idx < 0 ? 'text-muted-foreground/70' : ''}`}
+                      className={`min-w-0 max-w-[170px] cursor-pointer truncate rounded border bg-background px-1.5 py-1 text-[11.5px] outline-none ${idx < 0 ? 'text-muted-foreground/70' : ''}`}
                     >
                       <option value={NOT_MAPPED}>Don&apos;t import</option>
                       {file.headers.map((h, i) => (
@@ -712,7 +712,7 @@ export default function ImportPage() {
           </div>
 
           {unmapped.length > 0 && (
-            <div className="mt-3 flex items-start gap-2 rounded-md bg-[#fbf3e2] px-3 py-2 text-[12.5px] text-[#8a6a12]">
+            <div className="mt-3 flex items-start gap-2 rounded-md bg-[#fdf1de] px-3 py-2 text-[12px] text-[#8a6a12]">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>
                 Not imported — no CRM field is pointed at {unmapped.length > 1 ? 'these columns' : 'this column'}:{' '}
@@ -727,20 +727,20 @@ export default function ImportPage() {
       {rows.length > 0 && (
         <div className="mt-[18px] overflow-hidden rounded-2xl border bg-card shadow-sm">
           <div className="flex items-center justify-between border-b px-[18px] py-4">
-            <div><h3 className="font-display text-[15px] font-semibold">Preview</h3><div className="text-xs text-muted-foreground">{rows.length} rows · first 10 shown</div></div>
-            <button onClick={startImport} disabled={importing} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground disabled:opacity-60">
+            <div><h3 className="font-display text-[14px] font-semibold">Preview</h3><div className="text-xs text-muted-foreground">{rows.length} rows · first 10 shown</div></div>
+            <button onClick={startImport} disabled={importing} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground disabled:opacity-60">
               {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               {check.isPending ? 'Checking Duplicates…' : importMut.isPending ? 'Importing…' : `Import ${rows.length} Leads`}
             </button>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full whitespace-nowrap text-[13px]">
-              <thead><tr className="border-b bg-background text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">{COLUMNS.map((c) => <th key={c.key} className="px-4 py-2.5 font-semibold">{c.label}</th>)}</tr></thead>
+            <table className="w-full whitespace-nowrap text-[12.5px]">
+              <thead><tr className="border-b bg-background text-left text-[10.5px] uppercase tracking-[.06em] text-muted-foreground">{COLUMNS.map((c) => <th key={c.key} className="px-4 py-2.5 font-semibold">{c.label}</th>)}</tr></thead>
               <tbody>
                 {rows.slice(0, 10).map((r, i) => {
                   const dup = dupResult?.duplicateRows.some((d) => d.index === i);
                   return (
-                  <tr key={i} className={`border-b last:border-0 ${dup ? 'bg-[#fbf3e2]/50' : ''}`}>
+                  <tr key={i} className={`border-b last:border-0 ${dup ? 'bg-[#fdf1de]/50' : ''}`}>
                     {COLUMNS.map((c) => <td key={c.key} className="px-4 py-2 text-muted-foreground">{(r as unknown as Record<string, string | undefined>)[c.key] ?? '—'}</td>)}
                   </tr>
                   );
@@ -754,20 +754,20 @@ export default function ImportPage() {
       {/* DEDICATED DUPLICATE RECORDS REVIEW SECTION AT THE BOTTOM OF THE SCREEN */}
       {dupResult && dupResult.duplicateRows.length > 0 && (
         <div className="mt-[24px] overflow-hidden rounded-2xl border border-[#e8c68a] bg-card shadow-md">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e8c68a] bg-[#fbf3e2]/60 px-6 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e8c68a] bg-[#fdf1de]/60 px-6 py-4">
             <div className="flex items-center gap-3">
               <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#f5dfb8] text-[#8a5d0a]">
                 <AlertTriangle className="h-5 w-5" />
               </div>
               <div>
-                <h3 className="font-display text-[16px] font-semibold text-[#664304]">Duplicate Records Review & Comparison</h3>
-                <p className="text-[12.5px] text-[#8a5d0a]">
+                <h3 className="font-display text-[15px] font-semibold text-[#664304]">Duplicate Records Review & Comparison</h3>
+                <p className="text-[12px] text-[#8a5d0a]">
                   Review detected duplicates below. Compare imported file records with existing CRM leads, and choose bulk or individual actions before completing import.
                 </p>
                 {/* What the file would do to the book, counting every row and not
                     just the flagged ones — a row nobody flagged can still land on
                     an existing lead, and that was nowhere on this screen. */}
-                <p className="mt-1.5 text-[12px] text-[#8a5d0a]">
+                <p className="mt-1.5 text-[11.5px] text-[#8a5d0a]">
                   Importing all {dupResult.total} rows would update{' '}
                   <b className="tabular-nums">{dupResult.willUpdateRecords}</b> existing{' '}
                   {dupResult.willUpdateRecords === 1 ? 'lead' : 'leads'} and create{' '}
@@ -775,7 +775,7 @@ export default function ImportPage() {
                   {dupResult.willCreateRecords === 1 ? 'one' : 'ones'}.
                 </p>
                 {dupResult.decidedBefore > 0 && (
-                  <p className="mt-1 inline-flex items-center gap-1.5 text-[12px] font-medium text-[#8a5d0a]">
+                  <p className="mt-1 inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[#8a5d0a]">
                     <History className="h-3.5 w-3.5" />
                     <b className="tabular-nums">{dupResult.decidedBefore}</b> of these were ruled on before — those rows
                     open on that answer.
@@ -790,7 +790,7 @@ export default function ImportPage() {
                 type="button"
                 onClick={handleImportAllDuplicates}
                 disabled={importing}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#a6c74d] bg-[#f4f9e8] px-3.5 py-2 text-[12.5px] font-semibold text-[#266929] shadow-2xs hover:bg-[#e6f2d2] disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--brand-lime)] bg-[#f4f9e8] px-3.5 py-2 text-[12px] font-semibold text-[var(--brand)] shadow-2xs hover:bg-[#e6f2d2] disabled:opacity-50"
               >
                 <Check className="h-4 w-4" /> Import All Duplicates
               </button>
@@ -798,7 +798,7 @@ export default function ImportPage() {
                 type="button"
                 onClick={handleSkipAllDuplicates}
                 disabled={importing}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#e0b4ae] bg-[#fdf3f1] px-3.5 py-2 text-[12.5px] font-semibold text-[#9e2b21] shadow-2xs hover:bg-[#fae4e1] disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#f2cbc5] bg-[#fef0ed] px-3.5 py-2 text-[12px] font-semibold text-[#9e2b21] shadow-2xs hover:bg-[#fae4e1] disabled:opacity-50"
               >
                 Skip All Duplicates
               </button>
@@ -807,9 +807,9 @@ export default function ImportPage() {
 
           {/* Comparison Grid */}
           <div className="overflow-x-auto p-6">
-            <table className="w-full border-collapse text-[12.5px]">
+            <table className="w-full border-collapse text-[12px]">
               <thead>
-                <tr className="border-b text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                <tr className="border-b text-left text-[10.5px] uppercase tracking-wider text-muted-foreground">
                   <th className="pb-2.5 pr-4 font-semibold">Imported Record (File Row)</th>
                   <th className="pb-2.5 pr-4 font-semibold">Matched On</th>
                   <th className="pb-2.5 pr-4 font-semibold">Existing CRM Lead</th>
@@ -823,15 +823,15 @@ export default function ImportPage() {
                   const kept = mergeKeep[d.index]?.size ?? 0;
                   return (
                   <Fragment key={d.index}>
-                    <tr className={`transition-colors ${decision === 'import' ? 'bg-[#f4f9e8]/60' : 'bg-[#fbf3e2]/30'}`}>
+                    <tr className={`transition-colors ${decision === 'import' ? 'bg-[#f4f9e8]/60' : 'bg-[#fdf1de]/30'}`}>
                       <td className="py-3 pr-4">
                         <div className="font-semibold text-foreground">{d.row.businessName || '—'}</div>
-                        <div className="font-mono text-[11.5px] text-muted-foreground">
+                        <div className="font-mono text-[11px] text-muted-foreground">
                           {d.row.phone || '—'} {d.row.email ? `· ${d.row.email}` : ''}
                         </div>
                         {/* Why this row opened on the answer it did. */}
                         {d.priorDecision && (
-                          <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
+                          <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                             <History className="h-3 w-3" />
                             Last time: {d.priorDecision.decision === 'import' ? 'imported' : 'skipped'}
                             {d.priorDecision.decidedBy ? ` by ${d.priorDecision.decidedBy}` : ''} ·{' '}
@@ -840,7 +840,7 @@ export default function ImportPage() {
                         )}
                       </td>
                       <td className="py-3 pr-4">
-                        <span className="inline-flex rounded-full bg-[#f4e4c1] px-2.5 py-0.5 text-[11px] font-semibold text-[#8a5d0a]">
+                        <span className="inline-flex rounded-full bg-[#f4e4c1] px-2.5 py-0.5 text-[10.5px] font-semibold text-[#8a5d0a]">
                           {d.matchedOn.join(', ')}
                         </span>
                       </td>
@@ -850,13 +850,13 @@ export default function ImportPage() {
                             {d.existing.map((ex) => (
                               <div key={ex.leadId}>
                                 <div className="flex flex-wrap items-center gap-1.5 font-semibold">
-                                  <span className="font-mono text-[11.5px] text-primary">{ex.leadId}</span>
+                                  <span className="font-mono text-[11px] text-primary">{ex.leadId}</span>
                                   <span>{ex.businessName || <span className="italic text-muted-foreground">Unnamed lead</span>}</span>
                                 </div>
-                                <div className="font-mono text-[11.5px] text-muted-foreground">
+                                <div className="font-mono text-[11px] text-muted-foreground">
                                   {ex.phone || '—'}{ex.altPhone ? ` · ${ex.altPhone}` : ''}{ex.email ? ` · ${ex.email}` : ''}
                                 </div>
-                                <div className="text-[11.5px] text-muted-foreground">
+                                <div className="text-[11px] text-muted-foreground">
                                   Assigned: {ex.assignedTo ?? 'Unassigned'}
                                 </div>
                               </div>
@@ -872,7 +872,7 @@ export default function ImportPage() {
                             email whose phone matches nothing creates a NEW lead;
                             a row matching by phone is written into the one it
                             found. The user was deciding without either fact. */}
-                        <div className="mb-1.5 text-[11.5px] text-muted-foreground">
+                        <div className="mb-1.5 text-[11px] text-muted-foreground">
                           {d.willUpdate ? (
                             <>Import updates <span className="font-mono text-primary">{d.willUpdate.leadId}</span></>
                           ) : (
@@ -883,9 +883,9 @@ export default function ImportPage() {
                           <button
                             type="button"
                             onClick={() => toggleDupDecision(d.index, 'import')}
-                            className={`rounded-md px-3 py-1.5 text-[12px] font-semibold transition-all ${
+                            className={`rounded-md px-3 py-1.5 text-[11.5px] font-semibold transition-all ${
                               decision === 'import'
-                                ? 'bg-[#266929] text-white shadow-2xs'
+                                ? 'bg-[var(--brand)] text-white shadow-2xs'
                                 : 'text-muted-foreground hover:text-foreground'
                             }`}
                           >
@@ -894,7 +894,7 @@ export default function ImportPage() {
                           <button
                             type="button"
                             onClick={() => toggleDupDecision(d.index, 'skip')}
-                            className={`rounded-md px-3 py-1.5 text-[12px] font-semibold transition-all ${
+                            className={`rounded-md px-3 py-1.5 text-[11.5px] font-semibold transition-all ${
                               decision === 'skip'
                                 ? 'bg-[#9e2b21] text-white shadow-2xs'
                                 : 'text-muted-foreground hover:text-foreground'
@@ -911,11 +911,11 @@ export default function ImportPage() {
                             <button
                               type="button"
                               onClick={() => setMergeOpen(mergeOpen === d.index ? null : d.index)}
-                              className="inline-flex items-center gap-1 rounded-md border bg-background px-2.5 py-1 text-[11.5px] font-semibold hover:bg-muted"
+                              className="inline-flex items-center gap-1 rounded-md border bg-background px-2.5 py-1 text-[11px] font-semibold hover:bg-muted"
                             >
                               <GitCompare className="h-3.5 w-3.5" />
                               {mergeOpen === d.index ? 'Hide' : 'Compare'} {diff.length} difference{diff.length === 1 ? '' : 's'}
-                              {kept > 0 && <span className="text-[#266929]">· {kept} kept</span>}
+                              {kept > 0 && <span className="text-[var(--brand)]">· {kept} kept</span>}
                             </button>
                           </div>
                         )}
@@ -925,15 +925,15 @@ export default function ImportPage() {
                     {mergeOpen === d.index && d.willUpdate && (
                       <tr>
                         <td colSpan={4} className="bg-muted/30 px-4 py-4">
-                          <div className="mb-2 text-[12px] text-muted-foreground">
+                          <div className="mb-2 text-[11.5px] text-muted-foreground">
                             Importing this row writes into{' '}
                             <span className="font-mono text-primary">{d.willUpdate.leadId}</span>{' '}
                             <b className="text-foreground">{d.willUpdate.businessName}</b>. Every column below differs —
                             choose which side wins. Columns the file leaves empty are never written either way.
                           </div>
-                          <table className="w-full border-collapse text-[12px]">
+                          <table className="w-full border-collapse text-[11.5px]">
                             <thead>
-                              <tr className="border-b text-left text-[10.5px] uppercase tracking-wider text-muted-foreground">
+                              <tr className="border-b text-left text-[10px] uppercase tracking-wider text-muted-foreground">
                                 <th className="pb-1.5 pr-3 font-semibold">Field</th>
                                 <th className="pb-1.5 pr-3 font-semibold">Currently in CRM</th>
                                 <th className="pb-1.5 pr-3 font-semibold">In this file</th>
@@ -946,10 +946,10 @@ export default function ImportPage() {
                                 return (
                                   <tr key={f.key}>
                                     <td className="py-1.5 pr-3 font-medium">{f.label}</td>
-                                    <td className={`py-1.5 pr-3 ${keepCrm ? 'font-semibold text-[#266929]' : 'text-muted-foreground line-through'}`}>
+                                    <td className={`py-1.5 pr-3 ${keepCrm ? 'font-semibold text-[var(--brand)]' : 'text-muted-foreground line-through'}`}>
                                       {f.crmValue || <span className="italic no-underline">empty</span>}
                                     </td>
-                                    <td className={`py-1.5 pr-3 ${keepCrm ? 'text-muted-foreground line-through' : 'font-semibold text-[#266929]'}`}>
+                                    <td className={`py-1.5 pr-3 ${keepCrm ? 'text-muted-foreground line-through' : 'font-semibold text-[var(--brand)]'}`}>
                                       {f.fileValue}
                                     </td>
                                     <td className="py-1.5 text-right">
@@ -957,14 +957,14 @@ export default function ImportPage() {
                                         <button
                                           type="button"
                                           onClick={() => keepCrm && toggleMergeField(d.index, f.key)}
-                                          className={`rounded px-2 py-1 text-[11px] font-semibold ${!keepCrm ? 'bg-[#266929] text-white' : 'text-muted-foreground hover:text-foreground'}`}
+                                          className={`rounded px-2 py-1 text-[10.5px] font-semibold ${!keepCrm ? 'bg-[var(--brand)] text-white' : 'text-muted-foreground hover:text-foreground'}`}
                                         >
                                           File
                                         </button>
                                         <button
                                           type="button"
                                           onClick={() => !keepCrm && toggleMergeField(d.index, f.key)}
-                                          className={`rounded px-2 py-1 text-[11px] font-semibold ${keepCrm ? 'bg-[#266929] text-white' : 'text-muted-foreground hover:text-foreground'}`}
+                                          className={`rounded px-2 py-1 text-[10.5px] font-semibold ${keepCrm ? 'bg-[var(--brand)] text-white' : 'text-muted-foreground hover:text-foreground'}`}
                                         >
                                           CRM
                                         </button>
@@ -996,7 +996,7 @@ export default function ImportPage() {
                 type="button"
                 onClick={handleApplyCurrentDecisions}
                 disabled={importing}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-[13px] font-semibold text-primary-foreground shadow-sm hover:opacity-90 disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-[12.5px] font-semibold text-primary-foreground shadow-sm hover:opacity-90 disabled:opacity-60"
               >
                 {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                 Complete Import Based on Review Choices
@@ -1007,7 +1007,7 @@ export default function ImportPage() {
       )}
 
       {importMut.isSuccess && (
-        <div className="mt-4 rounded-md bg-[#e4f2e4] px-4 py-3 text-sm text-[#317d34]">
+        <div className="mt-4 rounded-md bg-[var(--brand-tint-2)] px-4 py-3 text-sm text-[var(--brand-strong)]">
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-medium">
             <span>Total: <b className="tabular-nums">{importMut.data.totalRows}</b></span>
             <span>New: <b className="tabular-nums">{importMut.data.newRecords}</b></span>
@@ -1028,7 +1028,7 @@ export default function ImportPage() {
               <button
                 onClick={() => setConfirmRollback(true)}
                 disabled={rollback.isPending}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[#e0b4ae] bg-card px-3 py-1.5 text-[12.5px] font-semibold text-[#9e2b21] hover:bg-[#fdf3f1] disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#f2cbc5] bg-card px-3 py-1.5 text-[12px] font-semibold text-[#9e2b21] hover:bg-[#fef0ed] disabled:opacity-60"
               >
                 <Undo2 className="h-3.5 w-3.5" /> Undo import ({importMut.data.createdIds.length} added)
               </button>
@@ -1053,7 +1053,7 @@ export default function ImportPage() {
       )}
 
       {importMut.isError && (
-        <div className="mt-4 rounded-md bg-[#fbeeec] px-4 py-3 text-sm text-[#a8431f]">
+        <div className="mt-4 rounded-md bg-[#fde9e6] px-4 py-3 text-sm text-[#a8431f]">
           Import failed — nothing was saved. {errorText(importMut.error)}
         </div>
       )}

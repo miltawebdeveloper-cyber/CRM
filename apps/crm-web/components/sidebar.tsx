@@ -13,17 +13,20 @@ import { cn } from '@/lib/utils';
 function ShieldMark() {
   return (
     <div
-      className="grid h-9 w-9 place-items-center rounded-[9px]"
+      className="grid h-8 w-8 place-items-center rounded-[7px]"
       style={{
-        background: 'linear-gradient(150deg,#7e9933,#1d491f)',
+        background: 'linear-gradient(150deg,var(--brand-lime-deep),var(--brand-deep))',
         boxShadow: 'inset 0 0 0 1.5px rgba(255,255,255,.14)',
       }}
     >
-      <svg viewBox="0 0 24 24" fill="none" className="h-[21px] w-[21px]">
-        <path d="M12 2L3 6v6c0 5 3.8 8.6 9 10 5.2-1.4 9-5 9-10V6l-9-4z" fill="#d8eed9" />
+      {/* Painted with utility classes, not fill=/stroke= attributes: the palette
+          is a CSS variable, and a var() inside a presentation attribute is not
+          reliably resolved. As a class it compiles to a real CSS rule. */}
+      <svg viewBox="0 0 24 24" fill="none" className="h-[18px] w-[18px]">
+        <path d="M12 2L3 6v6c0 5 3.8 8.6 9 10 5.2-1.4 9-5 9-10V6l-9-4z" className="fill-[var(--brand-tint)]" />
         <path
           d="M9.5 12l1.8 1.8 3.5-3.6"
-          stroke="#266929"
+          className="stroke-[var(--brand)]"
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -68,14 +71,19 @@ function NavLink({
       aria-label={collapsed ? item.label : undefined}
       className={cn(
         // Height comes from the flex basis, not padding: the row sits at its full
-        // 38px when there's room and gives height back when there isn't, so the
+        // 32px when there's room and gives height back when there isn't, so the
         // menu fits the window instead of scrolling out of it.
-        'relative mb-0.5 flex min-h-[22px] shrink basis-[38px] items-center gap-[11px] rounded-[9px] px-3 text-[13.5px] font-medium transition-colors',
+        //
+        // 32px rows, a 16px icon and a 1px gap between them — the compact rhythm
+        // an operations sidebar wants. A CRM's menu is long and permanent: it is
+        // read as a shape you learn, not a list you study, so the rows want to be
+        // dense enough that the whole thing takes in at a glance.
+        'relative mb-px flex min-h-[20px] shrink basis-[32px] items-center gap-[10px] rounded-[6px] px-[10px] text-[12.5px] font-medium transition-colors',
         collapsed && 'lg:justify-center lg:gap-0 lg:px-0',
-        active ? 'bg-[#266929] text-white shadow-sm' : 'text-[#c7d69f] hover:bg-white/[.06] hover:text-white',
+        active ? 'bg-[var(--brand)] text-white shadow-sm' : 'text-[var(--brand-lime-soft)] hover:bg-white/[.06] hover:text-white',
       )}
     >
-      <Icon className={cn('h-[18px] w-[18px] shrink-0', active ? 'opacity-100' : 'opacity-85')} />
+      <Icon className={cn('h-4 w-4 shrink-0', active ? 'opacity-100' : 'opacity-85')} />
       <span className={cn('flex-1 truncate', collapsed && 'lg:hidden')}>{item.label}</span>
     </Link>
   );
@@ -119,7 +127,7 @@ export function Sidebar({ mobileOpen = false, onClose }: { mobileOpen?: boolean;
 
       <aside
         className={cn(
-          'flex h-screen shrink-0 flex-col overflow-hidden text-[#d8eed9]',
+          'flex h-screen shrink-0 flex-col overflow-hidden text-[var(--brand-tint)]',
           // Below `lg`: an off-canvas drawer, slid out of view until opened. At
           // `lg` and up: back to a normal sticky column, always on screen.
           'fixed inset-y-0 left-0 z-50 w-[268px] max-w-[85vw] transition-transform duration-200 ease-out',
@@ -128,22 +136,22 @@ export function Sidebar({ mobileOpen = false, onClose }: { mobileOpen?: boolean;
           // The collapse rail is a desktop affordance only — see NavLink.
           collapsed ? 'lg:w-[68px]' : 'lg:w-[248px]',
         )}
-        style={{ background: 'linear-gradient(177deg,#163618,#112712)' }}
+        style={{ background: 'linear-gradient(177deg,var(--brand-ink),var(--brand-ink-2))' }}
       >
         {/* Head — brand lockup, the collapse control (desktop) and the drawer's
             close button (mobile). Railed, the row becomes a centred column with
             the toggle under the mark: there isn't width for both side by side. */}
-        <div className={cn('border-b border-white/[.07] px-[18px] pb-[14px] pt-[18px]', collapsed && 'lg:px-0')}>
-          <div className={cn('flex items-center gap-[11px]', collapsed && 'lg:flex-col lg:gap-2')}>
+        <div className={cn('border-b border-white/[.07] px-[14px] pb-3 pt-[14px]', collapsed && 'lg:px-0')}>
+          <div className={cn('flex items-center gap-[10px]', collapsed && 'lg:flex-col lg:gap-2')}>
             <ShieldMark />
             <div
               className={cn(
-                'font-display text-[18px] font-semibold leading-none tracking-tight text-white',
+                'font-display text-[15px] font-semibold leading-none tracking-tight text-white',
                 collapsed && 'lg:hidden',
               )}
             >
               Milta
-              <small className="mt-[2px] block text-[9.5px] font-medium uppercase tracking-[.22em] text-[#7e9933]">
+              <small className="mt-[2px] block text-[9px] font-medium uppercase tracking-[.2em] text-[var(--brand-lime-deep)]">
                 Sales CRM
               </small>
             </div>
@@ -156,20 +164,20 @@ export function Sidebar({ mobileOpen = false, onClose }: { mobileOpen?: boolean;
               aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               className={cn(
-                'hidden h-8 w-8 shrink-0 place-items-center rounded-[9px] text-[#c7d69f] transition-colors hover:bg-white/[.08] hover:text-white lg:grid',
+                'hidden h-7 w-7 shrink-0 place-items-center rounded-[7px] text-[var(--brand-lime-soft)] transition-colors hover:bg-white/[.08] hover:text-white lg:grid',
                 !collapsed && 'ml-auto',
               )}
             >
-              {collapsed ? <PanelLeftOpen className="h-[18px] w-[18px]" /> : <PanelLeftClose className="h-[18px] w-[18px]" />}
+              {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
             </button>
             {/* Close the drawer — mobile only. */}
             <button
               type="button"
               onClick={onClose}
               aria-label="Close menu"
-              className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-[9px] text-[#c7d69f] transition-colors hover:bg-white/[.08] hover:text-white lg:hidden"
+              className="ml-auto grid h-7 w-7 shrink-0 place-items-center rounded-[7px] text-[var(--brand-lime-soft)] transition-colors hover:bg-white/[.08] hover:text-white lg:hidden"
             >
-              <X className="h-[18px] w-[18px]" />
+              <X className="h-4 w-4" />
             </button>
           </div>
         </div>
@@ -182,8 +190,8 @@ export function Sidebar({ mobileOpen = false, onClose }: { mobileOpen?: boolean;
           the dark rail reads as part of the chrome. */}
         <nav
           className={cn(
-            'flex flex-1 flex-col overflow-y-auto px-3 pb-5 pt-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
-            collapsed && 'lg:px-2.5',
+            'flex flex-1 flex-col overflow-y-auto px-2.5 pb-4 pt-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+            collapsed && 'lg:px-2',
           )}
         >
           {nav.map((group) => (
@@ -195,14 +203,14 @@ export function Sidebar({ mobileOpen = false, onClose }: { mobileOpen?: boolean;
                   its headings while the desktop rail shows rules. */}
               <p
                 className={cn(
-                  'mt-4 shrink-0 px-3 pb-[5px] text-[10px] font-semibold uppercase tracking-[.16em] text-[#7e9933] first:mt-0',
+                  'mt-[13px] shrink-0 px-[10px] pb-1 text-[9.5px] font-semibold uppercase tracking-[.14em] text-[var(--brand-lime-deep)] first:mt-0',
                   collapsed && 'lg:hidden',
                 )}
               >
                 {group.heading}
               </p>
               {collapsed && (
-                <hr className="mx-2 mt-3 hidden shrink-0 border-white/[.09] first:mt-0 first:border-0 lg:block" aria-hidden />
+                <hr className="mx-1.5 mt-2.5 hidden shrink-0 border-white/[.09] first:mt-0 first:border-0 lg:block" aria-hidden />
               )}
               {group.items.map((item) => (
                 <NavLink key={item.href} item={item} active={isActive(item.href)} collapsed={collapsed} onNavigate={onClose} />
@@ -213,23 +221,23 @@ export function Sidebar({ mobileOpen = false, onClose }: { mobileOpen?: boolean;
 
         {/* Foot — user. On the rail the avatar carries the name in its tooltip,
             so the link stays identifiable without the two lines of text. */}
-        <div className={cn('border-t border-white/[.07] p-3', collapsed && 'lg:p-2')}>
+        <div className={cn('border-t border-white/[.07] p-2.5', collapsed && 'lg:p-2')}>
           <Link
             href="/settings"
             onClick={onClose}
             title={collapsed ? `${name}${role ? ` · ${role}` : ''}` : undefined}
             aria-label={collapsed ? `${name} — account settings` : undefined}
             className={cn(
-              'flex items-center gap-[10px] rounded-[10px] p-2 transition-colors hover:bg-white/[.06]',
+              'flex items-center gap-[9px] rounded-[8px] p-1.5 transition-colors hover:bg-white/[.06]',
               collapsed && 'lg:justify-center lg:gap-0',
             )}
           >
-            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#2b732f] font-display text-[13px] font-semibold text-white">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--brand-mid)] font-display text-[12px] font-semibold text-white">
               {initials || 'U'}
             </div>
             <div className={cn('overflow-hidden leading-tight', collapsed && 'lg:hidden')}>
-              <div className="truncate text-[13px] font-semibold text-white">{name}</div>
-              <div className="text-[11px] capitalize text-[#a6c74d]">{role || 'Member'}</div>
+              <div className="truncate text-[12.5px] font-semibold text-white">{name}</div>
+              <div className="text-[10.5px] capitalize text-[var(--brand-lime)]">{role || 'Member'}</div>
             </div>
           </Link>
         </div>

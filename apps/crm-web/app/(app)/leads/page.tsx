@@ -359,7 +359,7 @@ export default function LeadsPage() {
       render: (l) => (
         <div className="flex items-center gap-[10px]">
           <Avatar name={l.leadId} />
-          <span className="font-mono text-[11.5px] text-muted-foreground">{l.leadId}</span>
+          <span className="font-mono text-[11px] text-muted-foreground">{l.leadId}</span>
         </div>
       ),
     },
@@ -369,8 +369,8 @@ export default function LeadsPage() {
     { key: 'businessName', header: 'Company Name', render: (l) => l.businessName, searchable: true, sortable: true, searchValue: (l) => l.businessName },
     { key: 'contactName', header: 'Contact Person', render: (l) => l.contactName ?? '—', searchable: true, sortable: true, searchValue: (l) => l.contactName },
     { key: 'contactName2', header: 'Designation', render: (l) => l.contactName2 ?? '—', searchable: true, sortable: true, searchValue: (l) => l.contactName2 },
-    { key: 'phone', header: 'Phone', cellClassName: 'font-mono text-[12px] text-muted-foreground', render: (l) => l.phone, searchable: true, sortable: true, searchValue: (l) => l.phone },
-    { key: 'altPhone', header: 'Alt Phone', cellClassName: 'font-mono text-[12px] text-muted-foreground', render: (l) => l.altPhone ?? '—', searchable: true, sortable: true, searchValue: (l) => l.altPhone },
+    { key: 'phone', header: 'Phone', cellClassName: 'font-mono text-[11.5px] text-muted-foreground', render: (l) => l.phone, searchable: true, sortable: true, searchValue: (l) => l.phone },
+    { key: 'altPhone', header: 'Alt Phone', cellClassName: 'font-mono text-[11.5px] text-muted-foreground', render: (l) => l.altPhone ?? '—', searchable: true, sortable: true, searchValue: (l) => l.altPhone },
     { key: 'email', header: 'Email', cellClassName: 'text-muted-foreground', render: (l) => l.email ?? '—', searchable: true, sortable: true, searchValue: (l) => l.email },
     { key: 'website', header: 'Website', cellClassName: 'text-muted-foreground', render: (l) => l.website ?? '—', searchable: true, sortable: true, searchValue: (l) => l.website },
     { key: 'socialMedia', header: 'Social Media', cellClassName: 'text-muted-foreground', render: (l) => l.socialMedia ?? '—', searchable: true, sortable: true, searchValue: (l) => l.socialMedia },
@@ -393,7 +393,7 @@ export default function LeadsPage() {
       header: 'Assigned To',
       render: (l) =>
         l.assignedTo ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-[#d8eed9] px-2 py-0.5 text-[11px] font-medium text-[#266929]">
+          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--brand-tint)] px-2 py-0.5 text-[10.5px] font-medium text-[var(--brand)]">
             <Lock className="h-3 w-3" /> {l.assignedTo.name}
           </span>
         ) : (
@@ -460,9 +460,9 @@ export default function LeadsPage() {
             {/* Hidden while calling is disabled — a Call button that can't call is
                 worse than no button. The row's View action still opens the lead. */}
             {callingEnabled && (
-              <button onClick={() => { if (!dial(l.phone)) return; router.push(`/calling?leadId=${l.id}&autocall=1`); }} title="Call" aria-label={`Call ${l.businessName}`} className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#1d491f] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Phone className="h-[15px] w-[15px]" /></button>
+              <button onClick={() => { if (!dial(l.phone)) return; router.push(`/calling?leadId=${l.id}&autocall=1`); }} title="Call" aria-label={`Call ${l.businessName}`} className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[var(--brand-deep)] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Phone className="h-[15px] w-[15px]" /></button>
             )}
-            <button onClick={() => router.push(`/leads/${l.id}`)} title="View" aria-label={`View ${l.businessName}`} className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#1d491f] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Eye className="h-[15px] w-[15px]" /></button>
+            <button onClick={() => router.push(`/leads/${l.id}`)} title="View" aria-label={`View ${l.businessName}`} className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[var(--brand-deep)] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Eye className="h-[15px] w-[15px]" /></button>
           </div>
         </div>
       ),
@@ -501,21 +501,21 @@ export default function LeadsPage() {
     <div>
       <PageHead>
         {canManage && (
-          <button onClick={() => router.push('/import')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted">
+          <button onClick={() => router.push('/import')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted">
             <Upload className="h-4 w-4" /> Import CSV
           </button>
         )}
         <button
           onClick={() => runExport((rows) => downloadCsv('leads', EXPORT_HEADERS, rows))}
           disabled={total === 0 || exporting}
-          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
         >
           <Download className="h-4 w-4" /> {exporting ? 'Preparing…' : 'Export CSV'}
         </button>
         <button
           onClick={() => runExport((rows) => downloadXlsx('leads', EXPORT_HEADERS, rows))}
           disabled={total === 0 || exporting}
-          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
         >
           <Download className="h-4 w-4" /> Export Excel
         </button>
@@ -524,18 +524,18 @@ export default function LeadsPage() {
             onClick={() => { setSyncMsg(null); syncAll.mutate(); }}
             disabled={syncAll.isPending}
             title="Push every not-yet-synced lead to QUO/OpenPhone as a contact"
-            className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
           >
             <RefreshCw className={`h-4 w-4 ${syncAll.isPending ? 'animate-spin' : ''}`} />
             {syncAll.isPending ? 'Syncing…' : 'Sync all to QUO'}
           </button>
         )}
-        <button onClick={() => (showForm ? closeForm() : setShowForm(true))} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground shadow-sm hover:opacity-90">
+        <button onClick={() => (showForm ? closeForm() : setShowForm(true))} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground shadow-sm hover:opacity-90">
           {showForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />} {showForm ? 'Close' : 'Add Lead'}
         </button>
       </PageHead>
       {syncMsg && (
-        <div className="mb-3 rounded-md border bg-muted/50 px-3 py-2 text-[13px] text-muted-foreground">{syncMsg}</div>
+        <div className="mb-3 rounded-md border bg-muted/50 px-3 py-2 text-[12.5px] text-muted-foreground">{syncMsg}</div>
       )}
 
       {/* KPIs — for employees every card is derived from their own assigned book.
@@ -545,11 +545,11 @@ export default function LeadsPage() {
           TARGET, not the number of leads anyone had been given — which made
           Balance and Progress answer a different question than their labels. */}
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={Target} iconBg="#e7f0f8" iconColor="#2c5d8f" value={(s?.totalLeads ?? 0).toLocaleString()} label="Total Leads" />
-        <KpiCard icon={Zap} iconBg="#d8eed9" iconColor="#266929" value={(s?.assignedLeads ?? 0).toLocaleString()} label="Assigned Leads" />
+        <KpiCard icon={Target} iconBg="#e6effb" iconColor="#2c5d8f" value={(s?.totalLeads ?? 0).toLocaleString()} label="Total Leads" />
+        <KpiCard icon={Zap} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={(s?.assignedLeads ?? 0).toLocaleString()} label="Assigned Leads" />
         <KpiCard icon={PhoneCall} iconBg="#e3f1ee" iconColor="#2f6f63" value={(s?.contactedLeads ?? 0).toLocaleString()} label="Contacted" />
-        <KpiCard icon={Hourglass} iconBg="#fbf3e2" iconColor="#c98a18" value={(s?.balanceLeads ?? 0).toLocaleString()} label="Balance Leads" />
-        <KpiCard icon={Percent} iconBg="#e4f2e4" iconColor="#317d34" value={`${s?.progressPct ?? 0}%`} label="Progress" />
+        <KpiCard icon={Hourglass} iconBg="#fdf1de" iconColor="#c98a18" value={(s?.balanceLeads ?? 0).toLocaleString()} label="Balance Leads" />
+        <KpiCard icon={Percent} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value={`${s?.progressPct ?? 0}%`} label="Progress" />
       </div>
 
       {/* Filter bar — one row on a laptop and up.
@@ -654,22 +654,22 @@ export default function LeadsPage() {
           </label>
           {/* Refused as a duplicate — the matches, then the choice. */}
           {dupBlock && (
-            <div className="col-span-full rounded-lg border border-[#e8c68a] bg-[#fbf3e2]/60 p-3.5">
+            <div className="col-span-full rounded-lg border border-[#e8c68a] bg-[#fdf1de]/60 p-3.5">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#8a5d0a]" />
                 <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-semibold text-[#664304]">{dupBlock.message}</div>
+                  <div className="text-[12.5px] font-semibold text-[#664304]">{dupBlock.message}</div>
                   <ul className="mt-2 space-y-1.5">
                     {dupBlock.duplicates.map((m) => (
-                      <li key={m.id} className="text-[12.5px]">
+                      <li key={m.id} className="text-[12px]">
                         <span className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-mono text-[11.5px] text-primary">{m.leadId}</span>
+                          <span className="font-mono text-[11px] text-primary">{m.leadId}</span>
                           <b>{m.businessName || 'Unnamed lead'}</b>
-                          <span className="rounded-full bg-[#f4e4c1] px-2 py-0.5 text-[10.5px] font-semibold text-[#8a5d0a]">
+                          <span className="rounded-full bg-[#f4e4c1] px-2 py-0.5 text-[10px] font-semibold text-[#8a5d0a]">
                             {m.matchedOn.join(', ')}
                           </span>
                         </span>
-                        <span className="block font-mono text-[11.5px] text-muted-foreground">
+                        <span className="block font-mono text-[11px] text-muted-foreground">
                           {[m.phone, m.altPhone, m.email].filter(Boolean).join(' · ')} · {m.assignedTo ?? 'Unassigned'}
                         </span>
                       </li>
@@ -679,7 +679,7 @@ export default function LeadsPage() {
                     <button
                       type="button"
                       onClick={() => router.push(`/leads/${dupBlock.duplicates[0].id}`)}
-                      className="rounded-md border bg-card px-3 py-1.5 text-[12.5px] font-semibold hover:bg-muted"
+                      className="rounded-md border bg-card px-3 py-1.5 text-[12px] font-semibold hover:bg-muted"
                     >
                       Open {dupBlock.duplicates[0].leadId} instead
                     </button>
@@ -687,7 +687,7 @@ export default function LeadsPage() {
                       type="button"
                       onClick={() => create.mutate({ allowDuplicate: true })}
                       disabled={create.isPending}
-                      className="rounded-md border border-[#e0b4ae] bg-card px-3 py-1.5 text-[12.5px] font-semibold text-[#9e2b21] hover:bg-[#fdf3f1] disabled:opacity-60"
+                      className="rounded-md border border-[#f2cbc5] bg-card px-3 py-1.5 text-[12px] font-semibold text-[#9e2b21] hover:bg-[#fef0ed] disabled:opacity-60"
                     >
                       Create it anyway
                     </button>
@@ -758,7 +758,7 @@ export default function LeadsPage() {
           <button
             onClick={() => { clearTableSelection.current = clear; setAssignLeads(rows); }}
             title="Assign selected leads to an employee"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-[12.5px] font-semibold text-foreground hover:bg-muted"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-[12px] font-semibold text-foreground hover:bg-muted"
           >
             <UserPlus className="h-4 w-4" /> Assign
           </button>
@@ -775,12 +775,12 @@ export default function LeadsPage() {
             type="button"
             onClick={() => leadsQuery.fetchNextPage()}
             disabled={isFetchingNextPage}
-            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12px] font-semibold hover:bg-muted disabled:opacity-50"
           >
             {isFetchingNextPage ? 'Loading more…' : `Load more (${(total - leads.length).toLocaleString()} left)`}
           </button>
         ) : (
-          total > 0 && <p className="text-[12px] text-muted-foreground">All {total.toLocaleString()} leads loaded.</p>
+          total > 0 && <p className="text-[11.5px] text-muted-foreground">All {total.toLocaleString()} leads loaded.</p>
         )}
       </div>
 

@@ -17,7 +17,7 @@ export function Segmented<T extends string>({
           key={o.value}
           type="button"
           onClick={() => onChange(o.value)}
-          className={`rounded-[7px] px-[13px] py-1.5 text-[12.5px] font-semibold transition-colors ${
+          className={`rounded-[7px] px-[13px] py-1.5 text-[12px] font-semibold transition-colors ${
             value === o.value ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'
           }`}
         >

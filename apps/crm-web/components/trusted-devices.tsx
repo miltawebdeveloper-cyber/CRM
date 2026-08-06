@@ -24,9 +24,9 @@ function daysLeft(iso: string): number {
 }
 
 const STATUS_STYLE: Record<TrustedDevice['status'], string> = {
-  active: 'bg-[#d8eed9] text-[#266929]',
+  active: 'bg-[var(--brand-tint)] text-[var(--brand)]',
   expired: 'bg-muted text-muted-foreground',
-  revoked: 'bg-[#fbeeec] text-[#a8431f]',
+  revoked: 'bg-[#fde9e6] text-[#a8431f]',
 };
 
 /**
@@ -75,7 +75,7 @@ export function TrustedDevices({ scope = 'mine' }: { scope?: 'mine' | 'all' }) {
       <div className="flex items-center gap-2 border-b px-[18px] py-4">
         <MonitorSmartphone className="h-4 w-4 text-primary" />
         <div className="flex-1">
-          <h3 className="font-display text-[15px] font-semibold">Trusted Devices</h3>
+          <h3 className="font-display text-[14px] font-semibold">Trusted Devices</h3>
           <div className="text-xs text-muted-foreground">
             {scope === 'all'
               ? 'Every device across all users that can sign in without an OTP'
@@ -85,7 +85,7 @@ export function TrustedDevices({ scope = 'mine' }: { scope?: 'mine' | 'all' }) {
         {scope === 'mine' && activeCount > 0 && (
           <button
             onClick={() => setConfirming('all')}
-            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12.5px] font-semibold text-[#a8431f] hover:bg-muted"
+            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12px] font-semibold text-[#a8431f] hover:bg-muted"
           >
             <ShieldOff className="h-3.5 w-3.5" /> Revoke all
           </button>
@@ -100,8 +100,8 @@ export function TrustedDevices({ scope = 'mine' }: { scope?: 'mine' | 'all' }) {
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-[13px]">
-            <thead className="border-b text-[11.5px] uppercase tracking-wide text-muted-foreground">
+          <table className="w-full text-left text-[12.5px]">
+            <thead className="border-b text-[11px] uppercase tracking-wide text-muted-foreground">
               <tr>
                 {scope === 'all' && <th className="px-[18px] py-2.5 font-semibold">User</th>}
                 <th className="px-[18px] py-2.5 font-semibold">Device</th>
@@ -119,7 +119,7 @@ export function TrustedDevices({ scope = 'mine' }: { scope?: 'mine' | 'all' }) {
                   {scope === 'all' && (
                     <td className="px-[18px] py-3">
                       <div className="font-semibold">{d.user?.name ?? '—'}</div>
-                      <div className="text-[12px] text-muted-foreground">{d.user?.email}</div>
+                      <div className="text-[11.5px] text-muted-foreground">{d.user?.email}</div>
                     </td>
                   )}
                   <td className="px-[18px] py-3">
@@ -127,10 +127,10 @@ export function TrustedDevices({ scope = 'mine' }: { scope?: 'mine' | 'all' }) {
                       <Laptop className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <span className="font-semibold">{d.deviceName}</span>
                       {d.current && (
-                        <span className="rounded-full bg-[#d8eed9] px-2 py-[1px] text-[11px] font-semibold text-[#266929]">This device</span>
+                        <span className="rounded-full bg-[var(--brand-tint)] px-2 py-[1px] text-[10.5px] font-semibold text-[var(--brand)]">This device</span>
                       )}
                     </div>
-                    {d.ipAddress && <div className="mt-0.5 pl-6 text-[12px] text-muted-foreground">{d.ipAddress}</div>}
+                    {d.ipAddress && <div className="mt-0.5 pl-6 text-[11.5px] text-muted-foreground">{d.ipAddress}</div>}
                   </td>
                   <td className="px-[18px] py-3">{d.browser}</td>
                   <td className="px-[18px] py-3">{d.os}</td>
@@ -138,11 +138,11 @@ export function TrustedDevices({ scope = 'mine' }: { scope?: 'mine' | 'all' }) {
                   <td className="px-[18px] py-3">
                     {fmtDate(d.trustedUntil)}
                     {d.status === 'active' && (
-                      <span className="block text-[12px] text-muted-foreground">{daysLeft(d.trustedUntil)} day(s) left</span>
+                      <span className="block text-[11.5px] text-muted-foreground">{daysLeft(d.trustedUntil)} day(s) left</span>
                     )}
                   </td>
                   <td className="px-[18px] py-3">
-                    <span className={`inline-block rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold capitalize ${STATUS_STYLE[d.status]}`}>
+                    <span className={`inline-block rounded-full px-2.5 py-[3px] text-[11px] font-semibold capitalize ${STATUS_STYLE[d.status]}`}>
                       {d.status}
                     </span>
                   </td>
@@ -151,7 +151,7 @@ export function TrustedDevices({ scope = 'mine' }: { scope?: 'mine' | 'all' }) {
                       <button
                         onClick={() => setConfirming(d)}
                         disabled={revoke.isPending}
-                        className="inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1.5 text-[12.5px] font-semibold text-[#a8431f] hover:bg-muted disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1.5 text-[12px] font-semibold text-[#a8431f] hover:bg-muted disabled:opacity-50"
                       >
                         {revoke.isPending && revoke.variables?.id === d.id ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />

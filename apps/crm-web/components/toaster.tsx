@@ -45,7 +45,7 @@ export function Toaster() {
             style={{ borderInlineStartWidth: 3, borderInlineStartColor: s.bar }}
           >
             <Icon className="mt-px h-[18px] w-[18px] shrink-0" style={{ color: s.bar }} />
-            <p className="flex-1 text-[13px] leading-snug text-foreground">{t.message}</p>
+            <p className="flex-1 text-[12.5px] leading-snug text-foreground">{t.message}</p>
             <button
               onClick={() => dismissToast(t.id)}
               aria-label="Dismiss notification"

@@ -64,7 +64,7 @@ export function LeadCommentCell({ lead }: { lead: Lead }) {
         }}
         onClick={(e) => e.stopPropagation()}
         placeholder="Add a comment…"
-        className="w-full min-w-[180px] resize-y rounded-md border bg-background px-2 py-1 text-[12.5px] outline-none focus:border-primary"
+        className="w-full min-w-[180px] resize-y rounded-md border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary"
       />
     );
   }
@@ -75,7 +75,7 @@ export function LeadCommentCell({ lead }: { lead: Lead }) {
         onClick={(e) => { e.stopPropagation(); beginEdit(); }}
         // The full text is on the title so a truncated remark is still readable.
         title={lead.comments || 'Click to add a comment'}
-        className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-[12.5px] hover:bg-muted"
+        className="min-w-0 flex-1 truncate rounded px-1 py-0.5 text-left text-[12px] hover:bg-muted"
       >
         {save.isPending ? (
           <span className="inline-flex items-center gap-1 text-muted-foreground">
@@ -113,20 +113,20 @@ function CommentHistoryDialog({ lead, onClose }: { lead: Lead; onClose: () => vo
       <div className="fixed inset-0 z-50 grid place-items-center p-4" role="dialog" aria-modal="true" aria-label="Comment history">
         <div onClick={(e) => e.stopPropagation()} className="flex max-h-[80vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl">
           <div className="border-b px-5 py-4">
-            <h3 className="font-display text-[15px] font-semibold">Comment history</h3>
+            <h3 className="font-display text-[14px] font-semibold">Comment history</h3>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">{lead.businessName} · {lead.leadId}</p>
           </div>
           <div className="flex-1 overflow-y-auto p-4">
-            {isLoading && <p className="py-6 text-center text-[12.5px] text-muted-foreground">Loading…</p>}
+            {isLoading && <p className="py-6 text-center text-[12px] text-muted-foreground">Loading…</p>}
             {!isLoading && data.length === 0 && (
-              <p className="py-6 text-center text-[12.5px] text-muted-foreground">No comments recorded yet.</p>
+              <p className="py-6 text-center text-[12px] text-muted-foreground">No comments recorded yet.</p>
             )}
             {data.map((c) => (
               <div key={c.id} className="mb-2 rounded-lg border px-3 py-2">
-                <div className="mb-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+                <div className="mb-1 flex items-center gap-2 text-[10.5px] text-muted-foreground">
                   <span
                     className={`rounded-full px-1.5 py-0.5 font-medium ${
-                      c.source === 'Call Notes' ? 'bg-[#d8eed9] text-[#266929]' : 'bg-muted text-foreground'
+                      c.source === 'Call Notes' ? 'bg-[var(--brand-tint)] text-[var(--brand)]' : 'bg-muted text-foreground'
                     }`}
                   >
                     {c.source}
@@ -134,12 +134,12 @@ function CommentHistoryDialog({ lead, onClose }: { lead: Lead; onClose: () => vo
                   <span className="font-medium text-foreground">{c.user}</span>
                   <span>{formatDateTime(c.at)}</span>
                 </div>
-                <p className="whitespace-pre-wrap text-[12.5px]">{c.text}</p>
+                <p className="whitespace-pre-wrap text-[12px]">{c.text}</p>
               </div>
             ))}
           </div>
           <div className="flex justify-end border-t px-5 py-3">
-            <button onClick={onClose} className="rounded-md border bg-card px-3 py-2 text-[13px] font-medium hover:bg-muted">Close</button>
+            <button onClick={onClose} className="rounded-md border bg-card px-3 py-2 text-[12.5px] font-medium hover:bg-muted">Close</button>
           </div>
         </div>
       </div>

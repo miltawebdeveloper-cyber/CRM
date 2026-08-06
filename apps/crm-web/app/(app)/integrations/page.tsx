@@ -73,31 +73,31 @@ export default function IntegrationsPage() {
   });
 
   const syncColumns = useMemo<ColumnDef<SyncRow>[]>(() => [
-    { key: 'time', header: 'Time', required: true, cellClassName: 'font-mono text-[12px]', render: (r) => r[0] },
+    { key: 'time', header: 'Time', required: true, cellClassName: 'font-mono text-[11.5px]', render: (r) => r[0] },
     { key: 'caller', header: 'Caller', render: (r) => <div className="flex items-center gap-[10px]"><Avatar name={r[1]} /><span className="font-semibold">{r[1]}</span></div> },
     { key: 'lead', header: 'Lead', render: (r) => r[2] },
-    { key: 'source', header: 'Source', render: (r) => <span className="rounded bg-muted px-2 py-0.5 text-[11.5px] font-semibold">{r[3]}</span> },
+    { key: 'source', header: 'Source', render: (r) => <span className="rounded bg-muted px-2 py-0.5 text-[11px] font-semibold">{r[3]}</span> },
     { key: 'duration', header: 'Duration', cellClassName: 'font-mono', render: (r) => r[4] },
-    { key: 'status', header: 'Status', render: (r) => r[5] ? <span className="inline-flex items-center gap-1.5 rounded-full bg-[#d8eed9] px-2.5 py-[3px] text-[11.5px] font-semibold text-[#266929]"><span className="h-1.5 w-1.5 rounded-full bg-[#266929]" /> Synced</span> : <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e7f0f8] px-2.5 py-[3px] text-[11.5px] font-semibold text-[#2c5d8f]"><span className="h-1.5 w-1.5 rounded-full bg-[#2c5d8f]" /> Syncing…</span> },
+    { key: 'status', header: 'Status', render: (r) => r[5] ? <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--brand-tint)] px-2.5 py-[3px] text-[11px] font-semibold text-[var(--brand)]"><span className="h-1.5 w-1.5 rounded-full bg-[var(--brand)]" /> Synced</span> : <span className="inline-flex items-center gap-1.5 rounded-full bg-[#e6effb] px-2.5 py-[3px] text-[11px] font-semibold text-[#2c5d8f]"><span className="h-1.5 w-1.5 rounded-full bg-[#2c5d8f]" /> Syncing…</span> },
   ], []);
   const syncRows = (SYNC as unknown as SyncRow[]).filter((r) => !syncStatus || (syncStatus === 'synced' ? !!r[5] : !r[5]));
 
   return (
     <div>
       <PageHead>
-        <button className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted"><KeyRound className="h-4 w-4" /> API Keys</button>
+        <button className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"><KeyRound className="h-4 w-4" /> API Keys</button>
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={Phone} iconBg="#d8eed9" iconColor="#266929" value="1,284" label="Calls Synced (30d)" trend="9%" trendDir="up" />
+        <KpiCard icon={Phone} iconBg="var(--brand-tint)" iconColor="var(--brand)" value="1,284" label="Calls Synced (30d)" trend="9%" trendDir="up" />
         <KpiCard icon={Mic} iconBg="#fdecdc" iconColor="#c98a18" value="1,201" label="Recordings Stored" />
         <KpiCard icon={Users} iconBg="#dff0ec" iconColor="#2f6f63" value="2,940" label="Contacts Synced" />
-        <KpiCard icon={CheckCircle2} iconBg="#d8eed9" iconColor="#266929" value={activeConnections} label="Active Connections" />
+        <KpiCard icon={CheckCircle2} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={activeConnections} label="Active Connections" />
       </div>
 
       <div className="mb-[18px] flex gap-1 overflow-x-auto border-b">
         {TABS.map((t) => (
-          <button key={t} onClick={() => setTab(t)} className={`whitespace-nowrap border-b-2 px-4 py-[11px] text-[13.5px] font-semibold ${tab === t ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-primary'}`}>{t}</button>
+          <button key={t} onClick={() => setTab(t)} className={`whitespace-nowrap border-b-2 px-4 py-[11px] text-[13px] font-semibold ${tab === t ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-primary'}`}>{t}</button>
         ))}
       </div>
 
@@ -107,15 +107,15 @@ export default function IntegrationsPage() {
             <div key={i.nm} className="flex items-start gap-3.5 rounded-2xl border bg-card p-[18px] shadow-sm">
               <div className="grid h-[46px] w-[46px] shrink-0 place-items-center rounded-[12px] font-display font-bold text-white" style={{ background: i.bg }}>{i.logo}</div>
               <div className="flex-1">
-                <div className="flex items-center gap-2 font-bold">{i.nm} {i.connected && <span className="inline-flex items-center gap-1.5 rounded-full bg-[#d8eed9] px-2 py-px text-[11px] font-semibold text-[#266929]"><span className="h-1.5 w-1.5 rounded-full bg-[#266929]" /> Connected</span>}</div>
-                <div className="mt-0.5 max-w-[46ch] text-[12.5px] text-muted-foreground">{i.ds}</div>
-                <div className="mt-[7px] text-[12px] text-muted-foreground">{i.meta}</div>
+                <div className="flex items-center gap-2 font-bold">{i.nm} {i.connected && <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--brand-tint)] px-2 py-px text-[10.5px] font-semibold text-[var(--brand)]"><span className="h-1.5 w-1.5 rounded-full bg-[var(--brand)]" /> Connected</span>}</div>
+                <div className="mt-0.5 max-w-[46ch] text-[12px] text-muted-foreground">{i.ds}</div>
+                <div className="mt-[7px] text-[11.5px] text-muted-foreground">{i.meta}</div>
               </div>
               {i.nm === 'OpenPhone' ? (
                 <div className="flex shrink-0 flex-col items-end gap-1.5">
                   <button
                     onClick={() => setConnectOpen(true)}
-                    className={`rounded-md px-[15px] py-[9px] text-[13px] font-semibold ${i.connected ? 'border bg-card hover:bg-muted' : 'bg-primary text-primary-foreground'}`}
+                    className={`rounded-md px-[15px] py-[9px] text-[12.5px] font-semibold ${i.connected ? 'border bg-card hover:bg-muted' : 'bg-primary text-primary-foreground'}`}
                   >
                     {i.connected ? 'Manage' : 'Connect'}
                   </button>
@@ -123,14 +123,14 @@ export default function IntegrationsPage() {
                     <button
                       onClick={() => disconnect.mutate()}
                       disabled={disconnect.isPending}
-                      className="text-[11.5px] font-semibold text-[#9e2b21] hover:underline disabled:opacity-50"
+                      className="text-[11px] font-semibold text-[#9e2b21] hover:underline disabled:opacity-50"
                     >
                       Disconnect
                     </button>
                   )}
                 </div>
               ) : (
-                <button className={`shrink-0 rounded-md px-[15px] py-[9px] text-[13px] font-semibold ${i.connected ? 'border bg-card hover:bg-muted' : 'bg-primary text-primary-foreground'}`}>{i.connected ? 'Manage' : 'Connect'}</button>
+                <button className={`shrink-0 rounded-md px-[15px] py-[9px] text-[12.5px] font-semibold ${i.connected ? 'border bg-card hover:bg-muted' : 'bg-primary text-primary-foreground'}`}>{i.connected ? 'Manage' : 'Connect'}</button>
               )}
             </div>
           ))}
@@ -167,7 +167,7 @@ export default function IntegrationsPage() {
                   { label: 'Syncing', value: 'syncing' },
                 ]}
               />
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#d8eed9] px-2.5 py-[3px] text-[11.5px] font-semibold text-[#266929]"><span className="h-1.5 w-1.5 rounded-full bg-[#266929]" /> Auto-sync on</span>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--brand-tint)] px-2.5 py-[3px] text-[11px] font-semibold text-[var(--brand)]"><span className="h-1.5 w-1.5 rounded-full bg-[var(--brand)]" /> Auto-sync on</span>
             </>
           }
         />
@@ -175,17 +175,17 @@ export default function IntegrationsPage() {
 
       {tab === 'Recordings' && (
         <div className="rounded-2xl border bg-card shadow-sm">
-          <div className="border-b px-[18px] py-4"><h3 className="font-display text-[15px] font-semibold">Call Recording Management</h3><div className="text-xs text-muted-foreground">Access-controlled — Admin &amp; Team Leader only</div></div>
+          <div className="border-b px-[18px] py-4"><h3 className="font-display text-[14px] font-semibold">Call Recording Management</h3><div className="text-xs text-muted-foreground">Access-controlled — Admin &amp; Team Leader only</div></div>
           <div className="p-[18px]">
             {RECS.map((r) => (
               <div key={r[0]} className="flex items-center gap-3.5 border-b py-3.5 last:border-0">
                 <button className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-full bg-primary text-primary-foreground"><Play className="ml-0.5 h-4 w-4" /></button>
                 <div className="flex-1">
-                  <div className="text-[13.5px] font-semibold">{r[0]} <span className="text-[12px] text-muted-foreground">· {r[1]}</span></div>
-                  <div className="mt-1.5 flex h-[26px] items-center gap-0.5">{Array.from({ length: 42 }).map((_, i) => <i key={i} className="flex-1 rounded-[2px] bg-[#a6c74d]" style={{ height: `${20 + ((i * 37) % 80)}%` }} />)}</div>
+                  <div className="text-[13px] font-semibold">{r[0]} <span className="text-[11.5px] text-muted-foreground">· {r[1]}</span></div>
+                  <div className="mt-1.5 flex h-[26px] items-center gap-0.5">{Array.from({ length: 42 }).map((_, i) => <i key={i} className="flex-1 rounded-[2px] bg-[var(--brand-lime)]" style={{ height: `${20 + ((i * 37) % 80)}%` }} />)}</div>
                 </div>
-                <div className="shrink-0 text-right"><div className="font-mono text-[13px] font-semibold">{r[2]}</div><div className="text-[12px] text-muted-foreground">{r[3]}</div></div>
-                <span className="rounded bg-muted px-2 py-0.5 text-[11.5px] font-semibold">{r[4]}</span>
+                <div className="shrink-0 text-right"><div className="font-mono text-[12.5px] font-semibold">{r[2]}</div><div className="text-[11.5px] text-muted-foreground">{r[3]}</div></div>
+                <span className="rounded bg-muted px-2 py-0.5 text-[11px] font-semibold">{r[4]}</span>
                 <button className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted"><Download className="h-4 w-4" /></button>
               </div>
             ))}
@@ -195,15 +195,15 @@ export default function IntegrationsPage() {
 
       {tab === 'Contact Sync' && (
         <div className="rounded-2xl border bg-card shadow-sm">
-          <div className="flex items-center justify-between border-b px-[18px] py-4"><div><h3 className="font-display text-[15px] font-semibold">Contact Sync</h3><div className="text-xs text-muted-foreground">Two-way sync between CRM and platforms</div></div><button className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground"><RefreshCw className="h-4 w-4" /> Sync Now</button></div>
+          <div className="flex items-center justify-between border-b px-[18px] py-4"><div><h3 className="font-display text-[14px] font-semibold">Contact Sync</h3><div className="text-xs text-muted-foreground">Two-way sync between CRM and platforms</div></div><button className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground"><RefreshCw className="h-4 w-4" /> Sync Now</button></div>
           <div className="p-[18px]">
             <div className="grid grid-cols-2 gap-[18px] border-b pb-5 sm:grid-cols-4">
-              {[['2,940', 'Total Contacts'], ['2,940', 'In Sync'], ['0', 'Conflicts'], ['2 min ago', 'Last Sync']].map(([v, l]) => <div key={l}><div className="font-display text-[24px] font-semibold">{v}</div><div className="text-[12px] text-muted-foreground">{l}</div></div>)}
+              {[['2,940', 'Total Contacts'], ['2,940', 'In Sync'], ['0', 'Conflicts'], ['2 min ago', 'Last Sync']].map(([v, l]) => <div key={l}><div className="font-display text-[21px] font-semibold">{v}</div><div className="text-[11.5px] text-muted-foreground">{l}</div></div>)}
             </div>
             <div className="flex items-center justify-center gap-[30px] py-3.5">
-              <div className="text-center"><div className="mx-auto mb-2.5 grid h-[58px] w-[58px] place-items-center rounded-[15px] bg-[#266929] font-display text-[17px] font-bold text-white">CRM</div><b className="block text-[14px]">Ranger CRM</b><span className="text-[12px] text-muted-foreground">2,940 contacts</span></div>
-              <div className="text-center text-[#2b732f]"><RefreshCw className="mx-auto mb-1 h-[30px] w-[30px]" /><span className="text-[12px] text-muted-foreground">Two-way · auto</span></div>
-              <div className="text-center"><div className="mx-auto mb-2.5 grid h-[58px] w-[58px] place-items-center rounded-[15px] font-display text-[17px] font-bold text-white" style={{ background: '#5b5bd6' }}>OP</div><b className="block text-[14px]">OpenPhone</b><span className="text-[12px] text-muted-foreground">2,940 contacts</span></div>
+              <div className="text-center"><div className="mx-auto mb-2.5 grid h-[58px] w-[58px] place-items-center rounded-[15px] bg-[var(--brand)] font-display text-[15.5px] font-bold text-white">CRM</div><b className="block text-[13px]">Ranger CRM</b><span className="text-[11.5px] text-muted-foreground">2,940 contacts</span></div>
+              <div className="text-center text-[var(--brand-mid)]"><RefreshCw className="mx-auto mb-1 h-[30px] w-[30px]" /><span className="text-[11.5px] text-muted-foreground">Two-way · auto</span></div>
+              <div className="text-center"><div className="mx-auto mb-2.5 grid h-[58px] w-[58px] place-items-center rounded-[15px] font-display text-[15.5px] font-bold text-white" style={{ background: '#5b5bd6' }}>OP</div><b className="block text-[13px]">OpenPhone</b><span className="text-[11.5px] text-muted-foreground">2,940 contacts</span></div>
             </div>
           </div>
         </div>
@@ -240,7 +240,7 @@ function ConnectModal({
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-2xl border bg-card p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="font-display text-[16px] font-semibold">Connect OpenPhone</h3>
+          <h3 className="font-display text-[15px] font-semibold">Connect OpenPhone</h3>
           <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
         </div>
 
@@ -261,19 +261,19 @@ function ConnectModal({
             <input type="password" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} placeholder="For verifying inbound webhooks" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
           </label>
 
-          {save.isError && <p className="text-[13px] text-[#9e2b21]">Could not save. Check the credentials and try again.</p>}
+          {save.isError && <p className="text-[12.5px] text-[#9e2b21]">Could not save. Check the credentials and try again.</p>}
           {save.isSuccess && (save.data as { connected?: boolean })?.connected === false && (
-            <p className="text-[13px] text-[#9e2b21]">Saved, but OpenPhone rejected the key: {(save.data as { error?: string }).error ?? 'verification failed'}.</p>
+            <p className="text-[12.5px] text-[#9e2b21]">Saved, but OpenPhone rejected the key: {(save.data as { error?: string }).error ?? 'verification failed'}.</p>
           )}
 
           <div className="flex items-center justify-end gap-2 pt-1">
-            <button type="button" onClick={onClose} className="rounded-md border bg-card px-4 py-2 text-[13px] font-semibold hover:bg-muted">Cancel</button>
-            <button type="submit" disabled={save.isPending} className="rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground disabled:opacity-60">
+            <button type="button" onClick={onClose} className="rounded-md border bg-card px-4 py-2 text-[12.5px] font-semibold hover:bg-muted">Cancel</button>
+            <button type="submit" disabled={save.isPending} className="rounded-md bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground disabled:opacity-60">
               {save.isPending ? 'Connecting…' : 'Connect'}
             </button>
           </div>
         </form>
-        <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+        <p className="mt-3 text-[10.5px] leading-relaxed text-muted-foreground">
           Stored securely on the server (admin only). The key is never shown again — only a masked hint.
         </p>
       </div>

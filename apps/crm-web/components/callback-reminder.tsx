@@ -108,11 +108,11 @@ export function CallbackReminders() {
       <div className="w-full max-w-[400px] overflow-hidden rounded-2xl border bg-card shadow-2xl">
         <div className="flex items-center gap-2.5 px-4 py-3" style={{ background: style.dot, color: '#fff' }}>
           <Bell className="h-4 w-4 animate-pulse" />
-          <span className="text-[13px] font-semibold">
+          <span className="text-[12.5px] font-semibold">
             {current.status === 'overdue' ? 'Overdue callback' : 'Callback due now'}
           </span>
           {visible.length > 1 && (
-            <span className="rounded-full bg-white/25 px-2 py-0.5 text-[11px] font-semibold">
+            <span className="rounded-full bg-white/25 px-2 py-0.5 text-[10.5px] font-semibold">
               +{visible.length - 1} more
             </span>
           )}
@@ -129,11 +129,11 @@ export function CallbackReminders() {
         </div>
 
         <div className="p-4">
-          <div className="text-[15px] font-bold">{current.businessName}</div>
+          <div className="text-[14px] font-bold">{current.businessName}</div>
           {current.contactName && (
-            <div className="text-[12.5px] text-muted-foreground">{current.contactName}</div>
+            <div className="text-[12px] text-muted-foreground">{current.contactName}</div>
           )}
-          <div className="font-mono text-[13px] font-semibold">{current.phone}</div>
+          <div className="font-mono text-[12.5px] font-semibold">{current.phone}</div>
 
           {/* Both clocks again, for the same reason the scheduler shows both:
               the rep needs the time they promised the customer AND the one on
@@ -145,7 +145,7 @@ export function CallbackReminders() {
                 <div className="text-[10px] uppercase tracking-[.08em] text-muted-foreground">
                   Scheduled ({current.timezone ?? 'no zone set'})
                 </div>
-                <div className="text-[12.5px] font-semibold">{current.callbackAtLabel}</div>
+                <div className="text-[12px] font-semibold">{current.callbackAtLabel}</div>
               </div>
             </div>
             <div className="flex items-start gap-1.5">
@@ -154,13 +154,13 @@ export function CallbackReminders() {
                 <div className="text-[10px] uppercase tracking-[.08em] text-muted-foreground">
                   Your time ({userZoneLabel()})
                 </div>
-                <div className="text-[12.5px] font-semibold">{formatInUserZone(new Date(current.callbackAt))}</div>
+                <div className="text-[12px] font-semibold">{formatInUserZone(new Date(current.callbackAt))}</div>
               </div>
             </div>
           </div>
 
           <span
-            className="mt-2.5 inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold"
+            className="mt-2.5 inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-semibold"
             style={{ background: style.bg, color: style.fg }}
           >
             {current.status === 'overdue' && <AlertTriangle className="h-3 w-3" />}
@@ -178,14 +178,14 @@ export function CallbackReminders() {
               <div className="mt-2.5 flex items-center justify-end gap-2">
                 <button
                   onClick={() => { setRescheduling(null); setNewTime(''); }}
-                  className="rounded-md border bg-card px-3 py-2 text-[13px] font-semibold hover:bg-muted"
+                  className="rounded-md border bg-card px-3 py-2 text-[12.5px] font-semibold hover:bg-muted"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => reschedule.mutate({ leadId: current.leadId, at: newTime })}
                   disabled={!!rescheduleError || busy}
-                  className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground disabled:opacity-50"
                 >
                   {reschedule.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Save new time
                 </button>
@@ -205,14 +205,14 @@ export function CallbackReminders() {
                       if (!dial(current.phone)) return;
                       router.push(`/calling?leadId=${current.leadId}&autocall=1`);
                     }}
-                    className="inline-flex items-center gap-2 rounded-full bg-[#266929] px-4 py-2 text-[13px] font-semibold text-white hover:opacity-90"
+                    className="inline-flex items-center gap-2 rounded-full bg-[var(--brand)] px-4 py-2 text-[12.5px] font-semibold text-white hover:opacity-90"
                   >
                     <Phone className="h-4 w-4" /> Call Now
                   </button>
                 )}
                 <button
                   onClick={() => { setRescheduling(current.leadId); setNewTime(''); }}
-                  className="inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-[12.5px] font-semibold hover:bg-muted"
+                  className="inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-[12px] font-semibold hover:bg-muted"
                 >
                   <CalendarClock className="h-3.5 w-3.5" /> Reschedule
                 </button>
@@ -220,20 +220,20 @@ export function CallbackReminders() {
                   onClick={() => dismiss.mutate(current.leadId)}
                   disabled={busy}
                   title="Stop reminding me — the callback stays scheduled"
-                  className="inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-[12px] font-semibold hover:bg-muted disabled:opacity-50"
                 >
                   <BellOff className="h-3.5 w-3.5" /> Dismiss
                 </button>
               </div>
 
               <div className="mt-2.5 flex items-center gap-1.5">
-                <span className="text-[11.5px] font-semibold text-muted-foreground">Snooze</span>
+                <span className="text-[11px] font-semibold text-muted-foreground">Snooze</span>
                 {SNOOZE_OPTIONS.map((o) => (
                   <button
                     key={o.minutes}
                     onClick={() => snooze.mutate({ leadId: current.leadId, minutes: o.minutes })}
                     disabled={busy}
-                    className="rounded-full border px-2.5 py-1 text-[11.5px] font-semibold hover:bg-muted disabled:opacity-50"
+                    className="rounded-full border px-2.5 py-1 text-[11px] font-semibold hover:bg-muted disabled:opacity-50"
                   >
                     {o.label}
                   </button>

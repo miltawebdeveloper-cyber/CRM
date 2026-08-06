@@ -51,7 +51,7 @@ export function useCall(): CallContextValue {
 const PHASES: Record<CallPhase, { label: string; bg: string; fg: string; pulse: boolean }> = {
   initiated: { label: 'Calling…', bg: '#8a6d1f', fg: '#fff', pulse: true },
   ringing: { label: 'Ringing…', bg: '#8a6d1f', fg: '#fff', pulse: true },
-  connected: { label: 'Connected', bg: '#266929', fg: '#fff', pulse: false },
+  connected: { label: 'Connected', bg: 'var(--brand)', fg: '#fff', pulse: false },
   on_hold: { label: 'On Hold', bg: '#2c5d8f', fg: '#fff', pulse: false },
   ended: { label: 'Call ended', bg: '#5b5b5b', fg: '#fff', pulse: false },
 };
@@ -204,21 +204,21 @@ function CallWidget(props: {
       {/* Status header — no live timer during the call; only the phase label. */}
       <div className="flex items-center gap-2.5 px-4 py-3" style={{ background: p.bg, color: p.fg }}>
         <Phone className={`h-4 w-4 ${p.pulse ? 'animate-pulse' : ''}`} />
-        <span className="text-[13px] font-semibold">{props.ending ? 'Wrap up call' : p.label}</span>
+        <span className="text-[12.5px] font-semibold">{props.ending ? 'Wrap up call' : p.label}</span>
         <button onClick={props.onClose} className="ml-auto grid h-7 w-7 place-items-center rounded-lg hover:bg-white/10">
           <X className="h-4 w-4" />
         </button>
       </div>
 
       <div className="p-4">
-        <div className="text-[15px] font-bold">{props.lead.businessName}</div>
-        <div className="font-mono text-[12.5px] text-muted-foreground">{props.lead.phone}</div>
+        <div className="text-[14px] font-bold">{props.lead.businessName}</div>
+        <div className="font-mono text-[12px] text-muted-foreground">{props.lead.phone}</div>
         {(props.lead.city || props.lead.state) && (
-          <div className="mt-0.5 text-[12.5px] text-muted-foreground">{[props.lead.city, props.lead.state].filter(Boolean).join(', ')}</div>
+          <div className="mt-0.5 text-[12px] text-muted-foreground">{[props.lead.city, props.lead.state].filter(Boolean).join(', ')}</div>
         )}
         {props.identity?.from && (
           // The identity the customer sees — so the agent dials from the right line.
-          <div className="mt-2 flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-[11.5px] text-muted-foreground">
+          <div className="mt-2 flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-[11px] text-muted-foreground">
             <Phone className="h-3 w-3" />
             <span>Calling as <span className="font-semibold text-foreground">{props.identity.callerName}</span> · <span className="font-mono">{props.identity.from}</span></span>
           </div>
@@ -235,18 +235,18 @@ function CallWidget(props: {
               <button
                 onClick={() => launchQuoCall(props.lead.phone, props.identity?.from)}
                 title="Send this number to the Quo app again"
-                className="inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-[12.5px] font-semibold hover:bg-muted"
+                className="inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-[12px] font-semibold hover:bg-muted"
               >
                 <ExternalLink className="h-3.5 w-3.5" /> Open in Quo
               </button>
               <button
                 onClick={props.onEndCall}
-                className="ml-auto inline-flex items-center gap-2 rounded-full bg-[#9e2b21] px-5 py-2.5 text-[13px] font-semibold text-white hover:opacity-90"
+                className="ml-auto inline-flex items-center gap-2 rounded-full bg-[#9e2b21] px-5 py-2.5 text-[12.5px] font-semibold text-white hover:opacity-90"
               >
                 <PhoneOff className="h-4 w-4" /> End Call
               </button>
             </div>
-            <p className="mt-2.5 text-[11px] leading-relaxed text-muted-foreground">
+            <p className="mt-2.5 text-[10.5px] leading-relaxed text-muted-foreground">
               Live status updates automatically. Audio, mute, and hold run through the Quo app; this stays your control
               panel. If Quo didn&apos;t come to the front, use <b>Open in Quo</b>.
             </p>
@@ -254,13 +254,13 @@ function CallWidget(props: {
         ) : (
           <>
             {/* Disposition / wrap-up */}
-            <div className="mt-3 text-[12px] font-semibold text-muted-foreground">Duration {fmt(props.durationSecs)} · pick an outcome</div>
+            <div className="mt-3 text-[11.5px] font-semibold text-muted-foreground">Duration {fmt(props.durationSecs)} · pick an outcome</div>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {props.outcomes.map((o) => (
                 <button
                   key={o.slug}
                   onClick={() => props.onOutcome(o.slug)}
-                  className={`rounded-full border px-2.5 py-[5px] text-[12px] font-semibold ${props.outcome === o.slug ? 'text-white' : 'bg-card hover:bg-muted'}`}
+                  className={`rounded-full border px-2.5 py-[5px] text-[11.5px] font-semibold ${props.outcome === o.slug ? 'text-white' : 'bg-card hover:bg-muted'}`}
                   style={props.outcome === o.slug ? { background: o.color, borderColor: o.color } : { color: o.color }}
                 >
                   {o.name}
@@ -290,11 +290,11 @@ function CallWidget(props: {
             />
 
             <div className="mt-3 flex items-center justify-end gap-2">
-              <button onClick={props.onClose} className="rounded-md border bg-card px-3 py-2 text-[13px] font-semibold hover:bg-muted">Discard</button>
+              <button onClick={props.onClose} className="rounded-md border bg-card px-3 py-2 text-[12.5px] font-semibold hover:bg-muted">Discard</button>
               <button
                 onClick={props.onSave}
                 disabled={!props.canSave || props.saving}
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground disabled:opacity-50"
               >
                 {props.saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
                 {props.saving ? 'Saving…' : 'Save & Close'}

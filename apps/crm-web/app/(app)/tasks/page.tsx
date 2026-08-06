@@ -12,10 +12,10 @@ const COLS: { key: TaskStatus; name: string; color: string }[] = [
   { key: 'todo', name: 'To Do', color: '#2c5d8f' },
   { key: 'in_progress', name: 'In Progress', color: '#c98a18' },
   { key: 'review', name: 'Review', color: '#2f6f63' },
-  { key: 'done', name: 'Done', color: '#317d34' },
+  { key: 'done', name: 'Done', color: 'var(--brand-strong)' },
 ];
 const NEXT: Record<TaskStatus, TaskStatus | null> = { todo: 'in_progress', in_progress: 'review', review: 'done', done: null };
-const PRI_STYLE: Record<string, string> = { high: 'bg-[#fbeeec] text-[#a8431f]', medium: 'bg-[#fbf3e2] text-[#c98a18]', low: 'bg-muted text-muted-foreground' };
+const PRI_STYLE: Record<string, string> = { high: 'bg-[#fde9e6] text-[#a8431f]', medium: 'bg-[#fdf1de] text-[#c98a18]', low: 'bg-muted text-muted-foreground' };
 
 export default function TasksPage() {
   const qc = useQueryClient();
@@ -45,13 +45,13 @@ export default function TasksPage() {
           ]}
         />
         <DateFilter value={dateRange} onChange={setDateRange} />
-        <button onClick={() => setAdding((v) => !v)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> New task</button>
+        <button onClick={() => setAdding((v) => !v)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> New task</button>
       </PageHead>
 
       {adding && (
         <form onSubmit={(e) => { e.preventDefault(); if (title.trim()) create.mutate(title.trim()); }} className="mb-[18px] flex gap-2.5 rounded-2xl border bg-card p-4 shadow-sm">
           <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Task title…" className="flex-1 rounded-md border bg-background px-3 py-2 text-sm outline-none focus:border-primary" />
-          <button type="submit" disabled={create.isPending} className="rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground disabled:opacity-60">Add</button>
+          <button type="submit" disabled={create.isPending} className="rounded-md bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground disabled:opacity-60">Add</button>
         </form>
       )}
 
@@ -61,15 +61,15 @@ export default function TasksPage() {
           return (
             <div key={col.key} className="min-h-[300px] rounded-2xl border bg-background p-3">
               <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-2 text-[12.5px] font-bold"><span className="h-[9px] w-[9px] rounded-[3px]" style={{ background: col.color }} />{col.name}</div>
-                <span className="rounded-full border bg-card px-2 py-px text-[11px] font-bold text-muted-foreground">{items.length}</span>
+                <div className="flex items-center gap-2 text-[12px] font-bold"><span className="h-[9px] w-[9px] rounded-[3px]" style={{ background: col.color }} />{col.name}</div>
+                <span className="rounded-full border bg-card px-2 py-px text-[10.5px] font-bold text-muted-foreground">{items.length}</span>
               </div>
               {items.map((t) => {
                 const next = NEXT[t.status];
                 return (
                   <div key={t.id} className="group mb-[9px] rounded-[11px] border bg-card p-3 shadow-sm">
                     <div className="flex items-start justify-between gap-2">
-                      <div className="text-[13px] font-semibold leading-snug">{t.title}</div>
+                      <div className="text-[12.5px] font-semibold leading-snug">{t.title}</div>
                       <button onClick={() => del.mutate(t.id)} className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-[#9e2b21] group-hover:opacity-100"><X className="h-3.5 w-3.5" /></button>
                     </div>
                     <div className="mt-2.5 flex items-center justify-between">
@@ -82,7 +82,7 @@ export default function TasksPage() {
                   </div>
                 );
               })}
-              {items.length === 0 && <div className="py-6 text-center text-[12px] text-muted-foreground">No tasks</div>}
+              {items.length === 0 && <div className="py-6 text-center text-[11.5px] text-muted-foreground">No tasks</div>}
             </div>
           );
         })}

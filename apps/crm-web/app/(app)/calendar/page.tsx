@@ -19,8 +19,8 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 
 /** One visual identity per activity type, reused by the chips and the legend. */
 const TYPE_META: Record<ActivityType, { label: string; chip: string; dot: string; icon: typeof Phone }> = {
-  call: { label: 'Scheduled Call', chip: 'bg-[#d8eed9] text-[#266929]', dot: 'bg-[#a6c74d]', icon: Phone },
-  callback: { label: 'Callback', chip: 'bg-[#fbf3e2] text-[#8a5d0a]', dot: 'bg-[#f0d589]', icon: PhoneCall },
+  call: { label: 'Scheduled Call', chip: 'bg-[var(--brand-tint)] text-[var(--brand)]', dot: 'bg-[var(--brand-lime)]', icon: Phone },
+  callback: { label: 'Callback', chip: 'bg-[#fdf1de] text-[#8a5d0a]', dot: 'bg-[#f0d589]', icon: PhoneCall },
   zoom: { label: 'Zoom Meeting', chip: 'bg-[#e7f0fb] text-[#1f5fae]', dot: 'bg-[#a9c8e6]', icon: Video },
 };
 
@@ -30,7 +30,7 @@ const TYPE_META: Record<ActivityType, { label: string; chip: string; dot: string
  * amber as a comfortably-upcoming one is how it stays unnoticed in a full month.
  */
 const overdueChip = (e: CalendarEvent): string | null =>
-  e.callbackStatus === 'overdue' ? 'bg-[#fbeeec] text-[#8f2b1c]' : e.callbackStatus === 'due' ? 'bg-[#f7e2c0] text-[#8a5d0a]' : null;
+  e.callbackStatus === 'overdue' ? 'bg-[#fde9e6] text-[#8f2b1c]' : e.callbackStatus === 'due' ? 'bg-[#f7e2c0] text-[#8a5d0a]' : null;
 
 type CalView = 'month' | 'week' | 'day';
 const VIEWS = [{ label: 'Month', value: 'month' as CalView }, { label: 'Week', value: 'week' as CalView }, { label: 'Day', value: 'day' as CalView }];
@@ -103,9 +103,9 @@ export default function CalendarPage() {
       <div
         key={d}
         onClick={() => setOpenDay(evs.length ? d : null)}
-        className={`min-h-[96px] rounded-[10px] border bg-card p-[7px] transition-colors hover:bg-muted/50 ${evs.length ? 'cursor-pointer' : ''} ${d === todayDay ? 'border-[#2b732f] shadow-[inset_0_0_0_1px_#2b732f]' : ''}`}
+        className={`min-h-[96px] rounded-[10px] border bg-card p-[7px] transition-colors hover:bg-muted/50 ${evs.length ? 'cursor-pointer' : ''} ${d === todayDay ? 'border-[var(--brand-mid)] shadow-[inset_0_0_0_1px_var(--brand-mid)]' : ''}`}
       >
-        <div className="mb-[5px] text-[12px] font-semibold">{d}</div>
+        <div className="mb-[5px] text-[11.5px] font-semibold">{d}</div>
         {evs.slice(0, view === 'day' ? 20 : 3).map((e) => (
           // `atLabel` is the API's rendering on the CUSTOMER's clock with the
           // zone named. The chip used to call `toLocaleTimeString` on the
@@ -114,7 +114,7 @@ export default function CalendarPage() {
           <div
             key={e.id}
             title={`${TYPE_META[e.type].label} · ${e.companyName} · ${e.atLabel}`}
-            className={`mb-[3px] truncate rounded-[5px] px-1.5 py-0.5 text-[10.5px] font-semibold ${overdueChip(e) ?? TYPE_META[e.type].chip}`}
+            className={`mb-[3px] truncate rounded-[5px] px-1.5 py-0.5 text-[10px] font-semibold ${overdueChip(e) ?? TYPE_META[e.type].chip}`}
           >
             {e.atLabel} {e.companyName}
           </div>
@@ -162,16 +162,16 @@ export default function CalendarPage() {
 
       {/* Summary — counts for the selected window and employee scope. */}
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
-        <KpiCard index={0} icon={Phone} iconBg="#d8eed9" iconColor="#266929" value={s?.calls ?? 0} label="Scheduled Calls" />
-        <KpiCard index={1} icon={PhoneCall} iconBg="#fbf3e2" iconColor="#c98a18" value={s?.callbacks ?? 0} label="Callback Calls" />
+        <KpiCard index={0} icon={Phone} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={s?.calls ?? 0} label="Scheduled Calls" />
+        <KpiCard index={1} icon={PhoneCall} iconBg="#fdf1de" iconColor="#c98a18" value={s?.callbacks ?? 0} label="Callback Calls" />
         <KpiCard index={2} icon={Video} iconBg="#e7f0fb" iconColor="#1f5fae" value={s?.zooms ?? 0} label="Zoom Meetings" />
-        <KpiCard index={3} icon={CalendarDays} iconBg="#e4f2e4" iconColor="#317d34" value={s?.total ?? 0} label="Total Scheduled" />
+        <KpiCard index={3} icon={CalendarDays} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value={s?.total ?? 0} label="Total Scheduled" />
       </div>
 
       <div className="rounded-2xl border bg-card shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-[18px] py-4">
-          <h3 className="font-display text-[15px] font-semibold">{heading} <span className="text-xs font-normal capitalize text-muted-foreground">· {view} view</span></h3>
-          <div className="flex flex-wrap gap-3.5 text-[12px] text-muted-foreground">
+          <h3 className="font-display text-[14px] font-semibold">{heading} <span className="text-xs font-normal capitalize text-muted-foreground">· {view} view</span></h3>
+          <div className="flex flex-wrap gap-3.5 text-[11.5px] text-muted-foreground">
             {(Object.keys(TYPE_META) as ActivityType[]).map((t) => (
               <span key={t} className="flex items-center gap-1.5"><i className={`h-2.5 w-2.5 rounded-[3px] ${TYPE_META[t].dot}`} /> {TYPE_META[t].label}s</span>
             ))}
@@ -182,7 +182,7 @@ export default function CalendarPage() {
             minimum width and the container scrolls sideways instead. */}
         <div className="overflow-x-auto p-3 sm:p-[18px]">
           <div className="grid min-w-[560px] grid-cols-7 gap-1.5">
-            {DOW.map((d) => <div key={d} className="py-1.5 text-center text-[11px] font-semibold uppercase tracking-[.08em] text-muted-foreground">{d}</div>)}
+            {DOW.map((d) => <div key={d} className="py-1.5 text-center text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">{d}</div>)}
             {cells}
           </div>
         </div>
@@ -192,14 +192,14 @@ export default function CalendarPage() {
           owner and the status, so they're listed underneath. */}
       <div className="mt-[18px] rounded-2xl border bg-card shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b px-[18px] py-4">
-          <h3 className="font-display text-[15px] font-semibold">
+          <h3 className="font-display text-[14px] font-semibold">
             Scheduled Activities
             <span className="ml-1.5 text-xs font-normal text-muted-foreground">
               {openDay ? `· ${MONTHS[month - 1]} ${openDay}` : '· selected range'} · {detail.length}
             </span>
           </h3>
           {openDay && (
-            <button onClick={() => setOpenDay(null)} className="text-[12px] font-medium text-primary hover:underline">Show whole range</button>
+            <button onClick={() => setOpenDay(null)} className="text-[11.5px] font-medium text-primary hover:underline">Show whole range</button>
           )}
         </div>
         <div className="max-h-[420px] overflow-y-auto p-[14px]">
@@ -212,8 +212,8 @@ export default function CalendarPage() {
                 <div className={`grid h-9 w-9 shrink-0 place-items-center rounded-[9px] ${M.chip}`}><Icon className="h-[17px] w-[17px]" /></div>
                 <Avatar name={e.companyName} />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-semibold">{e.companyName}</div>
-                  <div className="truncate text-[11.5px] text-muted-foreground">
+                  <div className="truncate text-[12.5px] font-semibold">{e.companyName}</div>
+                  <div className="truncate text-[11px] text-muted-foreground">
                     {e.leadName ? `${e.leadName} · ` : ''}{e.leadId}
                   </div>
                 </div>
@@ -221,16 +221,16 @@ export default function CalendarPage() {
                     pairing the scheduler and the reminder popup show, so the
                     rep never has to work out the difference in their head. */}
                 <div className="hidden min-w-0 shrink-0 sm:block">
-                  <div className="text-[12px] font-medium">{e.atLabel}</div>
-                  <div className="text-[11.5px] text-muted-foreground">
+                  <div className="text-[11.5px] font-medium">{e.atLabel}</div>
+                  <div className="text-[11px] text-muted-foreground">
                     Your time: {formatInUserZone(new Date(e.date))}
                   </div>
                 </div>
-                <div className="hidden w-[130px] shrink-0 truncate text-[12px] md:block">
+                <div className="hidden w-[130px] shrink-0 truncate text-[11.5px] md:block">
                   <span className="text-muted-foreground">{e.assignedTo ?? 'Unassigned'}</span>
                 </div>
                 {e.callbackStatus && <CallbackStatusPill status={e.callbackStatus} className="shrink-0" />}
-                <span className={`shrink-0 rounded-full px-2 py-[3px] text-[10.5px] font-semibold capitalize ${M.chip}`}>
+                <span className={`shrink-0 rounded-full px-2 py-[3px] text-[10px] font-semibold capitalize ${M.chip}`}>
                   {e.status.replace(/_/g, ' ')}
                 </span>
               </div>

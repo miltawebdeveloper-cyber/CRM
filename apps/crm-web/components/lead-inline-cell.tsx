@@ -60,7 +60,7 @@ export function LeadInlineCell({
         }}
         onClick={(e) => e.stopPropagation()}
         placeholder={placeholder}
-        className="w-full min-w-[160px] resize-y rounded-md border bg-background px-2 py-1 text-[12.5px] outline-none focus:border-primary"
+        className="w-full min-w-[160px] resize-y rounded-md border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary"
       />
     );
   }
@@ -69,7 +69,7 @@ export function LeadInlineCell({
     <button
       onClick={(e) => { e.stopPropagation(); begin(); }}
       title={current || placeholder}
-      className="block w-full min-w-0 truncate rounded px-1 py-0.5 text-left text-[12.5px] hover:bg-muted"
+      className="block w-full min-w-0 truncate rounded px-1 py-0.5 text-left text-[12px] hover:bg-muted"
     >
       {save.isPending ? (
         <span className="inline-flex items-center gap-1 text-muted-foreground">

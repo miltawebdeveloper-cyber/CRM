@@ -92,7 +92,7 @@ export function DirectionPill({ direction }: { direction: 'inbound' | 'outbound'
   if (!direction) return <span className="text-muted-foreground">—</span>;
   const inbound = direction === 'inbound';
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-[3px] text-[11px] font-semibold ${inbound ? 'bg-[#e3f1ee] text-[#2f6f63]' : 'bg-[#e7eed8] text-[#42512f]'}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-[3px] text-[10.5px] font-semibold ${inbound ? 'bg-[#e3f1ee] text-[#2f6f63]' : 'bg-[#e7eed8] text-[#42512f]'}`}>
       {inbound ? <PhoneIncoming className="h-3 w-3" /> : <PhoneOutgoing className="h-3 w-3" />}
       {inbound ? 'Incoming' : 'Outgoing'}
     </span>

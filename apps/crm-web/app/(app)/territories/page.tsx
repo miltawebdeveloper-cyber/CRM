@@ -20,9 +20,9 @@ const CALLOUT_X = 846;
 // Choropleth buckets by total leads — mirrored by the legend below the header.
 function fillFor(total: number): { fill: string; text: string } {
   if (total === 0) return { fill: '#ffffff', text: '#5b6b5c' };
-  if (total >= 60) return { fill: '#2b732f', text: '#ffffff' };
-  if (total >= 25) return { fill: '#a6c74d', text: '#112712' };
-  return { fill: '#d8e8d9', text: '#266929' };
+  if (total >= 60) return { fill: 'var(--brand-mid)', text: '#ffffff' };
+  if (total >= 25) return { fill: 'var(--brand-lime)', text: 'var(--brand-ink-2)' };
+  return { fill: '#d8e8d9', text: 'var(--brand)' };
 }
 
 /** Metrics for a state with no leads yet — every state stays clickable. */
@@ -79,7 +79,7 @@ export default function TerritoriesPage() {
         <path
           d={s.d}
           fill={fill}
-          stroke={isSelected ? '#0c120d' : '#bbd3bc'}
+          stroke={isSelected ? '#14140f' : 'var(--brand-line)'}
           strokeWidth={isSelected ? 2.5 : 0.75}
           strokeLinejoin="round"
           className="transition-[fill,stroke] hover:brightness-95"
@@ -91,10 +91,10 @@ export default function TerritoriesPage() {
               y1={s.ly}
               x2={LEADER_X}
               y2={callout}
-              stroke={isSelected ? '#0c120d' : '#9db69e'}
+              stroke={isSelected ? '#14140f' : '#9db69e'}
               strokeWidth={isSelected ? 1.5 : 0.75}
             />
-            <circle cx={s.lx} cy={s.ly} r={1.5} fill={isSelected ? '#0c120d' : '#9db69e'} />
+            <circle cx={s.lx} cy={s.ly} r={1.5} fill={isSelected ? '#14140f' : '#9db69e'} />
             <text
               x={CALLOUT_X}
               y={callout + 4}
@@ -102,7 +102,7 @@ export default function TerritoriesPage() {
               fontSize={11}
               fontWeight={600}
               fontFamily="var(--font-mono)"
-              fill={isSelected ? '#0c120d' : '#4a5a4b'}
+              fill={isSelected ? '#14140f' : '#4a5a4b'}
               className="select-none"
             >
               {s.ab}
@@ -116,7 +116,7 @@ export default function TerritoriesPage() {
             fontSize={11}
             fontWeight={600}
             fontFamily="var(--font-mono)"
-            fill={isSelected ? '#0c120d' : text}
+            fill={isSelected ? '#14140f' : text}
             className="pointer-events-none select-none"
           >
             {s.ab}
@@ -137,10 +137,10 @@ export default function TerritoriesPage() {
           {' '}Select a state for its lead stats
         </div>
         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-white ring-1 ring-[#bbd3bc]" /> none</span>
+          <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-white ring-1 ring-[var(--brand-line)]" /> none</span>
           <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-[#d8e8d9]" /> low</span>
-          <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-[#a6c74d]" /> medium</span>
-          <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-[#2b732f]" /> high</span>
+          <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-[var(--brand-lime)]" /> medium</span>
+          <span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-[3px] bg-[var(--brand-mid)]" /> high</span>
         </div>
       </div>
 
@@ -163,7 +163,7 @@ export default function TerritoriesPage() {
 
         {selected && metric && (
           <div
-            className="absolute z-10 w-[190px] max-w-[calc(100%-36px)] rounded-[10px] bg-[#0c120d] px-3 py-2.5 text-[12px] text-white shadow-lg"
+            className="absolute z-10 w-[190px] max-w-[calc(100%-36px)] rounded-[10px] bg-[#14140f] px-3 py-2.5 text-[11.5px] text-white shadow-lg"
             style={{
               left: `${px}%`,
               top: `${py}%`,
@@ -171,13 +171,13 @@ export default function TerritoriesPage() {
             }}
           >
             <div className="mb-1.5 flex items-start justify-between gap-2">
-              <span className="font-display text-[13px] font-bold leading-tight">
+              <span className="font-display text-[12.5px] font-bold leading-tight">
                 {metric.state} ({selected.ab})
               </span>
               <button
                 type="button"
                 aria-label="Close"
-                className="-mr-1 -mt-0.5 px-1 text-[14px] leading-none text-white/50 hover:text-white"
+                className="-mr-1 -mt-0.5 px-1 text-[13px] leading-none text-white/50 hover:text-white"
                 onClick={() => setSelected(null)}
               >
                 ×
@@ -189,7 +189,7 @@ export default function TerritoriesPage() {
               ['Contacted', metric.contacted],
             ] as const).map(([label, value]) => (
               <div key={label} className="flex justify-between gap-4 py-px">
-                <span className="text-[#a6c74d]">{label}</span>
+                <span className="text-[var(--brand-lime)]">{label}</span>
                 <span className="font-mono">{value.toLocaleString()}</span>
               </div>
             ))}

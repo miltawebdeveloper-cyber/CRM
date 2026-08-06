@@ -49,8 +49,8 @@ export function AvailabilityPanel() {
     <div className="space-y-4">
       {/* Availability control */}
       <div className="flex flex-wrap items-center gap-3 rounded-2xl border bg-card p-4 shadow-sm">
-        <span className="inline-flex items-center gap-2 text-[13px] font-semibold">
-          <Circle className={`h-2.5 w-2.5 ${online ? 'fill-[#317d34] text-[#317d34]' : 'fill-[#9e2b21] text-[#9e2b21]'}`} />
+        <span className="inline-flex items-center gap-2 text-[12.5px] font-semibold">
+          <Circle className={`h-2.5 w-2.5 ${online ? 'fill-[var(--brand-strong)] text-[var(--brand-strong)]' : 'fill-[#9e2b21] text-[#9e2b21]'}`} />
           {online ? 'Online' : `Offline${status?.reason ? ` · ${status.reason}` : ''}`}
         </span>
         <div className="ml-auto flex items-center gap-2">
@@ -58,17 +58,17 @@ export function AvailabilityPanel() {
             picking ? (
               <>
                 {OFFLINE_REASONS.map((r) => (
-                  <button key={r} disabled={busy} onClick={() => goOffline(r)} className="rounded-md border px-3 py-1.5 text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50">{r}</button>
+                  <button key={r} disabled={busy} onClick={() => goOffline(r)} className="rounded-md border px-3 py-1.5 text-[12px] font-semibold hover:bg-muted disabled:opacity-50">{r}</button>
                 ))}
                 <button onClick={() => setPicking(false)} className="rounded-md p-1.5 hover:bg-muted"><X className="h-4 w-4" /></button>
               </>
             ) : (
-              <button onClick={() => setPicking(true)} className="inline-flex items-center gap-2 rounded-md border border-[#e0b4ae] px-3 py-1.5 text-[12.5px] font-semibold text-[#9e2b21] hover:bg-[#fbeeec]">
+              <button onClick={() => setPicking(true)} className="inline-flex items-center gap-2 rounded-md border border-[#f2cbc5] px-3 py-1.5 text-[12px] font-semibold text-[#9e2b21] hover:bg-[#fde9e6]">
                 <Power className="h-3.5 w-3.5" /> Mark Offline
               </button>
             )
           ) : (
-            <button disabled={busy} onClick={goOnline} className="inline-flex items-center gap-2 rounded-md bg-[#317d34] px-3 py-1.5 text-[12.5px] font-semibold text-white disabled:opacity-50">
+            <button disabled={busy} onClick={goOnline} className="inline-flex items-center gap-2 rounded-md bg-[var(--brand-strong)] px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50">
               <Power className="h-3.5 w-3.5" /> Go Online
             </button>
           )}
@@ -81,7 +81,7 @@ export function AvailabilityPanel() {
         <div className="rounded-2xl border bg-card shadow-sm">
           <div className="flex items-center gap-2 border-b px-[18px] py-3.5">
             <ArrowRightLeft className="h-4 w-4 text-[#c98a18]" />
-            <h3 className="font-display text-[15px] font-semibold">Reassigned to You</h3>
+            <h3 className="font-display text-[14px] font-semibold">Reassigned to You</h3>
             <span className="ml-auto text-xs text-muted-foreground">{inbox.filter((i) => !i.acknowledged).length} new</span>
           </div>
           <div className="max-h-[420px] divide-y overflow-y-auto">
@@ -89,17 +89,17 @@ export function AvailabilityPanel() {
               const Icon = TYPE_ICON[r.type];
               return (
                 <div key={r.id} className={`flex items-center gap-3 px-[18px] py-3 ${r.acknowledged ? 'opacity-60' : 'bg-[#fdfaf2]'}`}>
-                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-[#fbf3e2] text-[#c98a18]"><Icon className="h-[18px] w-[18px]" /></div>
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-[#fdf1de] text-[#c98a18]"><Icon className="h-[18px] w-[18px]" /></div>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-semibold">
+                    <div className="truncate text-[12.5px] font-semibold">
                       {REASSIGN_LABEL[r.type]} reassigned from {r.fromUserName}
                     </div>
-                    <div className="truncate text-[12px] text-muted-foreground">
+                    <div className="truncate text-[11.5px] text-muted-foreground">
                       {r.clientName ?? '—'} · {fmt(r.scheduledAt)} · <span className="font-medium text-[#a8431f]">{r.reason}</span>
                     </div>
                   </div>
                   {!r.acknowledged && (
-                    <button onClick={() => dismiss(r.id)} title="Dismiss" className="shrink-0 rounded-md border px-2.5 py-1 text-[12px] font-semibold hover:bg-muted">Got it</button>
+                    <button onClick={() => dismiss(r.id)} title="Dismiss" className="shrink-0 rounded-md border px-2.5 py-1 text-[11.5px] font-semibold hover:bg-muted">Got it</button>
                   )}
                 </div>
               );

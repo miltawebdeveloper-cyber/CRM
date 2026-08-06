@@ -67,7 +67,7 @@ export function MultiSelect({
         type="button"
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
-        className={`flex w-full items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-left text-[12.5px] outline-none focus:border-primary disabled:opacity-50 ${selected.length ? 'border-primary/60' : ''}`}
+        className={`flex w-full items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-left text-[12px] outline-none focus:border-primary disabled:opacity-50 ${selected.length ? 'border-primary/60' : ''}`}
       >
         {Icon && <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
         <span className={`min-w-0 flex-1 truncate ${selected.length ? 'font-medium' : 'text-muted-foreground'}`}>{summary}</span>
@@ -94,11 +94,11 @@ export function MultiSelect({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={placeholder}
-              className="w-full bg-transparent text-[12.5px] outline-none placeholder:text-muted-foreground"
+              className="w-full bg-transparent text-[12px] outline-none placeholder:text-muted-foreground"
             />
           </div>
           <div className="max-h-52 overflow-y-auto py-1">
-            {shown.length === 0 && <div className="px-3 py-3 text-center text-[12px] text-muted-foreground">{emptyText}</div>}
+            {shown.length === 0 && <div className="px-3 py-3 text-center text-[11.5px] text-muted-foreground">{emptyText}</div>}
             {shown.map((o) => {
               const on = selectedSet.has(o);
               return (
@@ -106,7 +106,7 @@ export function MultiSelect({
                   key={o}
                   type="button"
                   onClick={() => toggle(o)}
-                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12.5px] hover:bg-muted"
+                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] hover:bg-muted"
                 >
                   <span className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${on ? 'border-primary bg-primary text-primary-foreground' : 'border-input'}`}>
                     {on && <Check className="h-3 w-3" />}
@@ -116,7 +116,7 @@ export function MultiSelect({
               );
             })}
             {hiddenCount > 0 && (
-              <div className="px-3 py-1.5 text-center text-[11px] text-muted-foreground">
+              <div className="px-3 py-1.5 text-center text-[10.5px] text-muted-foreground">
                 +{hiddenCount} more — refine your search
               </div>
             )}

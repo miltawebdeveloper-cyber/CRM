@@ -24,16 +24,16 @@ export function LeadAssignmentHistory({ leadId }: { leadId: string }) {
     retry: false,
   });
 
-  if (isLoading) return <p className="py-6 text-center text-[13px] text-muted-foreground">Loading assignment history…</p>;
+  if (isLoading) return <p className="py-6 text-center text-[12.5px] text-muted-foreground">Loading assignment history…</p>;
   if (rows.length === 0) {
-    return <p className="py-6 text-center text-[13px] text-muted-foreground">This lead has never been assigned.</p>;
+    return <p className="py-6 text-center text-[12.5px] text-muted-foreground">This lead has never been assigned.</p>;
   }
 
   return (
     <div className="overflow-hidden rounded-xl border bg-card">
       <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2">
-        <h4 className="text-[11px] font-bold uppercase tracking-[.09em]">Assignment History</h4>
-        <span className="ml-auto text-[11px] text-muted-foreground">
+        <h4 className="text-[10.5px] font-bold uppercase tracking-[.09em]">Assignment History</h4>
+        <span className="ml-auto text-[10.5px] text-muted-foreground">
           {rows.length} {rows.length === 1 ? 'entry' : 'entries'}
         </span>
       </div>
@@ -50,19 +50,19 @@ export function LeadAssignmentHistory({ leadId }: { leadId: string }) {
                 >
                   <Icon className="h-3.5 w-3.5" />
                 </span>
-                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: reassigned ? '#8a5a00' : '#0a6640' }}>
+                <span className="text-[10.5px] font-bold uppercase tracking-wider" style={{ color: reassigned ? '#8a5a00' : '#0a6640' }}>
                   {reassigned ? 'Reassignment' : 'New assignment'}
                 </span>
                 {/* Which row names the owner right now — the rest are history. */}
                 {r.current && (
                   <span className="rounded-full border px-1.5 py-[1px] text-[10px] font-semibold text-muted-foreground">Current</span>
                 )}
-                <span className="ml-auto shrink-0 text-[11.5px] tabular-nums text-muted-foreground">{stamp(r.assignedAt)}</span>
+                <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">{stamp(r.assignedAt)}</span>
               </div>
 
               {/* From → to. A first assignment has no "from", so it says so
                   rather than showing an arrow out of nowhere. */}
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-8 text-[13px]">
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-8 text-[12.5px]">
                 {r.previousEmployee ? (
                   <>
                     <span className="text-muted-foreground">{r.previousEmployee}</span>
@@ -75,7 +75,7 @@ export function LeadAssignmentHistory({ leadId }: { leadId: string }) {
                 <span className="font-semibold">{r.newEmployee}</span>
               </div>
 
-              <p className="mt-0.5 pl-8 text-[11.5px] text-muted-foreground">
+              <p className="mt-0.5 pl-8 text-[11px] text-muted-foreground">
                 by {r.assignedBy}
                 {r.remarks && <> · {r.remarks}</>}
               </p>

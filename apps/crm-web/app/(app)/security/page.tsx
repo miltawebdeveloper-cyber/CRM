@@ -24,7 +24,7 @@ export default function SecurityPage() {
   const columns = useMemo<ColumnDef<Activity>[]>(() => [
     { key: 'when', header: 'When', required: true, cellClassName: 'text-muted-foreground', render: (a) => formatDateTime(a.createdAt) },
     { key: 'user', header: 'User', render: (a) => a.user?.name ?? '—' },
-    { key: 'action', header: 'Action', render: (a) => <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">{a.action}</span> },
+    { key: 'action', header: 'Action', render: (a) => <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10.5px]">{a.action}</span> },
     { key: 'lead', header: 'Lead', render: (a) => a.lead?.businessName ?? '—' },
     { key: 'detail', header: 'Detail', cellClassName: 'text-muted-foreground', render: (a) => `${a.oldValue ? `${a.oldValue} → ` : ''}${a.newValue ?? ''}` },
   ], []);

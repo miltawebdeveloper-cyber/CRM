@@ -40,7 +40,7 @@ export class OutcomesService {
       data: {
         slug,
         name: dto.name,
-        color: dto.color ?? '#6b7359',
+        color: dto.color ?? '#75766a',
         schedulesCallback: dto.schedulesCallback ?? false,
         schedulesZoom: dto.schedulesZoom ?? false,
         leadStatus: dto.leadStatus ?? null,

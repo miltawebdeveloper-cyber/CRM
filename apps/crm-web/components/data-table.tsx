@@ -407,8 +407,8 @@ export function DataTable<T>({
       {(title || subtitle || toolbar || searchOn || (selectionOn && selectedRows.length > 0)) && (
         <div className="flex flex-wrap items-center justify-between gap-2.5 border-b px-[18px] py-4">
           <div>
-            {title && <h3 className="font-display text-[15px] font-semibold">{title}</h3>}
-            {subtitle && <div className="text-xs text-muted-foreground">{subtitle}</div>}
+            {title && <h3 className="font-display text-[14px] font-semibold">{title}</h3>}
+            {subtitle && <div className="text-[11.5px] text-muted-foreground">{subtitle}</div>}
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
             {/* Selection actions — edit/delete symbols above the table, top-right. */}
@@ -432,7 +432,7 @@ export function DataTable<T>({
                     disabled={deleting}
                     title={deleteLabel}
                     aria-label={deleteLabel}
-                    className="grid h-8 w-8 place-items-center rounded-md border border-[#e0b4ae] bg-[#fdf3f1] text-[#9e2b21] hover:bg-[#f9e7e3] disabled:opacity-50"
+                    className="grid h-8 w-8 place-items-center rounded-md border border-[#f2cbc5] bg-[#fef0ed] text-[#9e2b21] hover:bg-[#f9e7e3] disabled:opacity-50"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
@@ -450,7 +450,7 @@ export function DataTable<T>({
                 grid is showing four rows out of four hundred. */}
             {searchOn && (
               searchOpen || query ? (
-                <div className="flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium">
+                <div className="flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[12.5px] font-medium">
                   <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <input
                     autoFocus
@@ -518,9 +518,9 @@ export function DataTable<T>({
           and keeps the horizontal scrollbar on screen; uncapped, the element
           just grows and neither engages. */}
       <div ref={scrollRef} className="overflow-auto" style={viewportH ? { maxHeight: viewportH } : undefined}>
-        <table className="w-full whitespace-nowrap text-[13px]">
+        <table className="w-full whitespace-nowrap text-[12.5px]">
           <thead className="sticky top-0 z-20">
-            <tr className="border-b text-left text-[11px] uppercase tracking-[.06em] text-muted-foreground">
+            <tr className="border-b text-left text-[11.5px] font-semibold uppercase tracking-[.06em] text-muted-foreground">
               {showCheckbox && (
                 <th className={`w-10 px-4 py-[11px] ${stickyHeadCls}`}>
                   <input
@@ -529,7 +529,7 @@ export function DataTable<T>({
                     checked={allSelected}
                     onChange={toggleAll}
                     aria-label="Select all rows"
-                    className="h-4 w-4 cursor-pointer accent-[#266929] align-middle"
+                    className="h-4 w-4 cursor-pointer accent-[var(--brand)] align-middle"
                   />
                 </th>
               )}
@@ -636,7 +636,7 @@ export function DataTable<T>({
                       title={pickable ? undefined : rowNotSelectableReason?.(row)}
                       onChange={() => pickable && toggleRow(key)}
                       aria-label="Select row"
-                      className={`h-4 w-4 accent-[#266929] align-middle ${pickable ? 'cursor-pointer' : 'cursor-not-allowed opacity-40'}`}
+                      className={`h-4 w-4 accent-[var(--brand)] align-middle ${pickable ? 'cursor-pointer' : 'cursor-not-allowed opacity-40'}`}
                     />
                   </td>
                 )}
@@ -691,7 +691,7 @@ export function ColumnsButton({ onClick, customized }: { onClick: () => void; cu
     <button
       onClick={onClick}
       title="Customize columns"
-      className="inline-flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium hover:bg-muted"
+      className="inline-flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[12.5px] font-medium hover:bg-muted"
     >
       <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
       Columns
@@ -741,8 +741,8 @@ function CustomizePanel<T>({
       >
         <div className="flex items-center justify-between border-b px-5 py-4">
           <div>
-            <h3 className="font-display text-[15px] font-semibold">Customize Columns</h3>
-            <p className="text-xs text-muted-foreground">Show/hide &amp; reorder · configure tracking &amp; search</p>
+            <h3 className="font-display text-[14px] font-semibold">Customize Columns</h3>
+            <p className="text-[11.5px] text-muted-foreground">Show/hide &amp; reorder · configure tracking &amp; search</p>
           </div>
           <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
         </div>
@@ -764,14 +764,14 @@ function CustomizePanel<T>({
                 className={`mb-1.5 flex items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-colors ${isOver ? 'border-primary bg-primary/5' : 'border-transparent bg-background'} ${dragKey === col.key ? 'opacity-50' : ''}`}
               >
                 <GripVertical className={`h-4 w-4 shrink-0 ${col.required ? 'text-muted-foreground/30' : 'cursor-grab text-muted-foreground'}`} />
-                <label className="flex flex-1 cursor-pointer items-center justify-between gap-2 text-[13px]">
+                <label className="flex flex-1 cursor-pointer items-center justify-between gap-2 text-[12.5px]">
                   <span className={hidden && !col.required ? 'text-muted-foreground' : 'font-medium'}>{col.header || '—'}</span>
                   <input
                     type="checkbox"
                     checked={col.required || !hidden}
                     disabled={col.required}
                     onChange={() => prefs.toggle(col.key)}
-                    className="h-4 w-4 accent-[#266929] disabled:opacity-40"
+                    className="h-4 w-4 accent-[var(--brand)] disabled:opacity-40"
                   />
                 </label>
               </div>
@@ -800,11 +800,11 @@ function CustomizePanel<T>({
           <button
             onClick={prefs.reset}
             disabled={!prefs.customized}
-            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-2 text-[13px] font-medium hover:bg-muted disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-2 text-[12.5px] font-medium hover:bg-muted disabled:opacity-40"
           >
             <RotateCcw className="h-3.5 w-3.5" /> Reset to default
           </button>
-          <button onClick={onClose} className="rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground hover:opacity-90">Done</button>
+          <button onClick={onClose} className="rounded-md bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground hover:opacity-90">Done</button>
         </div>
       </aside>
     </>
@@ -816,7 +816,7 @@ function SectionLabel({ children, hint }: { children: ReactNode; hint?: string }
   return (
     <div className="mb-1.5 mt-4 px-1 first:mt-0">
       <div className="text-[11px] font-semibold uppercase tracking-[.08em] text-muted-foreground">{children}</div>
-      {hint && <div className="mt-0.5 text-[11px] text-muted-foreground/80">{hint}</div>}
+      {hint && <div className="mt-0.5 text-[10.5px] text-muted-foreground/80">{hint}</div>}
     </div>
   );
 }
@@ -824,13 +824,13 @@ function SectionLabel({ children, hint }: { children: ReactNode; hint?: string }
 /** A plain checkbox row (no drag handle) used by the Trackable / Searchable sections. */
 function ConfigRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: () => void }) {
   return (
-    <label className="mb-1.5 flex cursor-pointer items-center justify-between gap-2 rounded-lg border border-transparent bg-background px-3 py-2.5 text-[13px] hover:border-border">
+    <label className="mb-1.5 flex cursor-pointer items-center justify-between gap-2 rounded-lg border border-transparent bg-background px-3 py-2.5 text-[12.5px] hover:border-border">
       <span className={checked ? 'font-medium' : 'text-muted-foreground'}>{label}</span>
       <input
         type="checkbox"
         checked={checked}
         onChange={onChange}
-        className="h-4 w-4 accent-[#266929]"
+        className="h-4 w-4 accent-[var(--brand)]"
       />
     </label>
   );

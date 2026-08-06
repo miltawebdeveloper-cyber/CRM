@@ -195,15 +195,15 @@ export function CommandPalette() {
               onChange={(e) => { setTerm(e.target.value); setCursor(0); }}
               placeholder="Search leads by company, contact, phone or ID — or jump to a module…"
               aria-label="Search leads or jump to a module"
-              className="flex-1 border-none bg-transparent py-3.5 text-[14px] outline-none placeholder:text-muted-foreground"
+              className="flex-1 border-none bg-transparent py-3.5 text-[13px] outline-none placeholder:text-muted-foreground"
             />
             {isFetching && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />}
-            <kbd className="shrink-0 rounded border bg-muted px-1.5 py-0.5 font-mono text-[10.5px] text-muted-foreground">Esc</kbd>
+            <kbd className="shrink-0 rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">Esc</kbd>
           </div>
 
           <div ref={listRef} className="max-h-[52vh] overflow-y-auto p-2">
             {choices.length === 0 && (
-              <p className="px-3 py-6 text-center text-[13px] text-muted-foreground">
+              <p className="px-3 py-6 text-center text-[12.5px] text-muted-foreground">
                 {debounced.length >= 2 ? `Nothing matches “${debounced}”.` : 'Type at least two characters to search leads.'}
               </p>
             )}
@@ -229,9 +229,9 @@ export function CommandPalette() {
                   >
                     <Icon className="h-4 w-4 shrink-0 opacity-80" />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13.5px] font-medium">{c.label}</span>
+                      <span className="block truncate text-[13px] font-medium">{c.label}</span>
                       {c.hint && (
-                        <span className={cn('block truncate text-[11.5px]', i === active ? 'opacity-80' : 'text-muted-foreground')}>
+                        <span className={cn('block truncate text-[11px]', i === active ? 'opacity-80' : 'text-muted-foreground')}>
                           {c.hint}
                         </span>
                       )}
@@ -243,7 +243,7 @@ export function CommandPalette() {
             })}
           </div>
 
-          <div className="flex items-center gap-3 border-t bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-3 border-t bg-muted/30 px-4 py-2 text-[10.5px] text-muted-foreground">
             <span className="flex items-center gap-1"><kbd className="rounded border bg-card px-1 font-mono">↑</kbd><kbd className="rounded border bg-card px-1 font-mono">↓</kbd> navigate</span>
             <span className="flex items-center gap-1"><kbd className="rounded border bg-card px-1 font-mono">↵</kbd> open</span>
             <span className="ml-auto flex items-center gap-1"><ArrowRight className="h-3 w-3" /> {choices.length} result{choices.length === 1 ? '' : 's'}</span>

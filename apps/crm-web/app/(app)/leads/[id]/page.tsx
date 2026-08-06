@@ -179,14 +179,14 @@ export default function LeadDetailPage() {
                 if (!dial(lead.phone)) return;
                 router.push(`/calling?leadId=${lead.id}&autocall=1`);
               }}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90"
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground hover:opacity-90"
             >
               <Phone className="h-4 w-4" /> Call
             </button>
           )}
           <button
             onClick={() => setSmsOpen((v) => !v)}
-            className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted"
+            className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"
           >
             <MessageSquare className="h-4 w-4" /> Send SMS
           </button>
@@ -195,7 +195,7 @@ export default function LeadDetailPage() {
               onClick={startEdit}
               title="Edit lead"
               aria-label="Edit lead"
-              className="inline-flex items-center gap-2 rounded-md border bg-card px-[12px] py-[9px] text-[13px] font-semibold hover:bg-muted"
+              className="inline-flex items-center gap-2 rounded-md border bg-card px-[12px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"
             >
               <Pencil className="h-4 w-4" /> Edit
             </button>
@@ -205,7 +205,7 @@ export default function LeadDetailPage() {
               onClick={() => setShowActivity(true)}
               title="Activity log"
               aria-label="Activity log"
-              className="inline-flex items-center gap-2 rounded-md border bg-card px-[12px] py-[9px] text-[13px] font-semibold hover:bg-muted"
+              className="inline-flex items-center gap-2 rounded-md border bg-card px-[12px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"
             >
               <Info className="h-4 w-4" /> Activity
             </button>
@@ -216,10 +216,10 @@ export default function LeadDetailPage() {
       {smsOpen && (
         <div className="rounded-lg border bg-card p-4 shadow-sm">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <span className="text-[13px] font-semibold">Send SMS to {lead.phone}</span>
+            <span className="text-[12.5px] font-semibold">Send SMS to {lead.phone}</span>
             <div className="ml-auto flex flex-wrap gap-1.5">
               {SMS_TEMPLATES.map((t) => (
-                <button key={t.label} onClick={() => setSmsBody(t.text(lead.contactName ?? lead.leadId))} className="rounded-full border px-2.5 py-1 text-[11.5px] font-medium hover:bg-muted">
+                <button key={t.label} onClick={() => setSmsBody(t.text(lead.contactName ?? lead.leadId))} className="rounded-full border px-2.5 py-1 text-[11px] font-medium hover:bg-muted">
                   {t.label}
                 </button>
               ))}
@@ -227,10 +227,10 @@ export default function LeadDetailPage() {
           </div>
           <textarea value={smsBody} onChange={(e) => setSmsBody(e.target.value)} rows={3} placeholder="Type a message or pick a template…" className="w-full rounded-md border bg-background px-3 py-2 text-sm" />
           <div className="mt-2 flex items-center justify-between gap-2">
-            <span className="text-[11.5px] text-muted-foreground">{smsBody.length}/1600{sms.isError ? ' · failed to send' : ''}</span>
+            <span className="text-[11px] text-muted-foreground">{smsBody.length}/1600{sms.isError ? ' · failed to send' : ''}</span>
             <div className="flex gap-2">
-              <button onClick={() => { setSmsOpen(false); setSmsBody(''); }} className="rounded-md border bg-card px-3 py-2 text-[13px] font-semibold hover:bg-muted">Cancel</button>
-              <button onClick={() => sms.mutate()} disabled={sms.isPending || !smsBody.trim()} className="rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground disabled:opacity-60">
+              <button onClick={() => { setSmsOpen(false); setSmsBody(''); }} className="rounded-md border bg-card px-3 py-2 text-[12.5px] font-semibold hover:bg-muted">Cancel</button>
+              <button onClick={() => sms.mutate()} disabled={sms.isPending || !smsBody.trim()} className="rounded-md bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground disabled:opacity-60">
                 {sms.isPending ? 'Sending…' : 'Send'}
               </button>
             </div>
@@ -359,11 +359,11 @@ export default function LeadDetailPage() {
               <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Address</span>
                 <input className={editInput} value={form.address ?? ''} onChange={(e) => set('address', e.target.value)} /></label>
               <div className="flex items-center gap-2 pt-1">
-                <button type="submit" disabled={edit.isPending} className="rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground disabled:opacity-60">
+                <button type="submit" disabled={edit.isPending} className="rounded-md bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground disabled:opacity-60">
                   {edit.isPending ? 'Saving…' : 'Save changes'}
                 </button>
-                <button type="button" onClick={() => setEditing(false)} className="rounded-md border bg-card px-3 py-2 text-[13px] font-semibold hover:bg-muted">Cancel</button>
-                {edit.isError && <span className="text-[12px] text-[#9e2b21]">Failed to save</span>}
+                <button type="button" onClick={() => setEditing(false)} className="rounded-md border bg-card px-3 py-2 text-[12.5px] font-semibold hover:bg-muted">Cancel</button>
+                {edit.isError && <span className="text-[11.5px] text-[#9e2b21]">Failed to save</span>}
               </div>
             </form>
           )}
@@ -456,26 +456,26 @@ export default function LeadDetailPage() {
         <div className="space-y-2.5">
           {timeline.map((t) => {
             const inbound = t.direction === 'inbound';
-            const tone = t.kind === 'call' ? '#2c5d8f' : t.kind === 'message' ? '#266929' : '#c98a18';
+            const tone = t.kind === 'call' ? '#2c5d8f' : t.kind === 'message' ? 'var(--brand)' : '#c98a18';
             const label = t.kind === 'call' ? `${inbound ? 'Inbound' : 'Outbound'} call` : t.kind === 'message' ? `${inbound ? 'Inbound' : 'Outbound'} SMS` : 'Note';
             return (
               <div key={`${t.kind}-${t.id}`} className="flex gap-3 rounded-md border px-3 py-2.5">
                 <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: tone }} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[13px] font-semibold">
+                    <span className="text-[12.5px] font-semibold">
                       {label}
                       {t.status ? <span className="ml-2 font-normal text-muted-foreground">· {t.status}</span> : ''}
                       {typeof t.durationSecs === 'number' ? <span className="ml-2 font-normal text-muted-foreground">· {t.durationSecs}s</span> : ''}
                       {t.by ? <span className="ml-2 font-normal text-muted-foreground">· {t.by}</span> : ''}
                       {t.kind === 'call' && !inbound && t.from ? <span className="ml-2 font-normal text-muted-foreground">· from <span className="font-mono">{t.from}</span></span> : ''}
                     </span>
-                    <span className="shrink-0 text-[11.5px] text-muted-foreground">{formatDateTime(t.at)}</span>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">{formatDateTime(t.at)}</span>
                   </div>
-                  {t.body && <p className="mt-1 whitespace-pre-wrap text-[13px] text-foreground">{t.body}</p>}
-                  {t.aiSummary && <p className="mt-1 text-[12.5px] text-muted-foreground"><strong>AI summary:</strong> {t.aiSummary}</p>}
-                  {t.transcript && <details className="mt-1 text-[12.5px] text-muted-foreground"><summary className="cursor-pointer">Transcript</summary><p className="mt-1 whitespace-pre-wrap">{t.transcript}</p></details>}
-                  {t.recordingUrl && <a href={t.recordingUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[12.5px] font-medium text-primary hover:underline">▶ Recording</a>}
+                  {t.body && <p className="mt-1 whitespace-pre-wrap text-[12.5px] text-foreground">{t.body}</p>}
+                  {t.aiSummary && <p className="mt-1 text-[12px] text-muted-foreground"><strong>AI summary:</strong> {t.aiSummary}</p>}
+                  {t.transcript && <details className="mt-1 text-[12px] text-muted-foreground"><summary className="cursor-pointer">Transcript</summary><p className="mt-1 whitespace-pre-wrap">{t.transcript}</p></details>}
+                  {t.recordingUrl && <a href={t.recordingUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[12px] font-medium text-primary hover:underline">▶ Recording</a>}
                 </div>
               </div>
             );

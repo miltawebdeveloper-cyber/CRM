@@ -19,7 +19,7 @@ export default function AssignedPage() {
     { key: 'pending', header: 'Pending', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (c) => c.assigned - c.leadsCompleted },
     {
       key: 'distribution', header: 'Distribution', cellClassName: 'min-w-[130px]',
-      render: (c) => { const pct = c.assigned ? Math.round((c.leadsCompleted / c.assigned) * 100) : 0; return <div className="h-2 overflow-hidden rounded-full bg-[#d8eed9]"><span className="block h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg,#2b732f,#7e9933)' }} /></div>; },
+      render: (c) => { const pct = c.assigned ? Math.round((c.leadsCompleted / c.assigned) * 100) : 0; return <div className="h-2 overflow-hidden rounded-full bg-[var(--brand-tint)]"><span className="block h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg,var(--brand-mid),var(--brand-lime-deep))' }} /></div>; },
     },
     { key: 'actions', header: '', required: true, render: () => <button onClick={() => router.push('/assignments')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border hover:bg-primary hover:text-primary-foreground"><Pencil className="h-[15px] w-[15px]" /></button> },
   ], [router]);
@@ -27,8 +27,8 @@ export default function AssignedPage() {
   return (
     <div>
       <PageHead>
-        <button onClick={() => router.push('/assignments')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted"><RefreshCw className="h-4 w-4" /> Auto-distribute</button>
-        <button onClick={() => router.push('/assignments')} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> Assign calls</button>
+        <button onClick={() => router.push('/assignments')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"><RefreshCw className="h-4 w-4" /> Auto-distribute</button>
+        <button onClick={() => router.push('/assignments')} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> Assign calls</button>
       </PageHead>
 
       <div className="mb-[18px] grid gap-[18px] md:grid-cols-2 xl:grid-cols-3">
@@ -38,12 +38,12 @@ export default function AssignedPage() {
             <div key={c.id} className="rounded-2xl border bg-card p-[18px] shadow-sm">
               <div className="mb-[14px] flex items-center gap-3">
                 <Avatar name={c.name} size="md" />
-                <div className="min-w-0 flex-1"><div className="truncate font-bold">{c.name}</div><div className="text-[12px] text-muted-foreground">Caller</div></div>
-                <span className="rounded-full bg-[#d8eed9] px-2.5 py-[3px] text-[11.5px] font-semibold text-[#266929]">{c.assigned} leads</span>
+                <div className="min-w-0 flex-1"><div className="truncate font-bold">{c.name}</div><div className="text-[11.5px] text-muted-foreground">Caller</div></div>
+                <span className="rounded-full bg-[var(--brand-tint)] px-2.5 py-[3px] text-[11px] font-semibold text-[var(--brand)]">{c.assigned} leads</span>
               </div>
-              <div className="mb-1.5 flex justify-between text-[12px]"><span className="text-muted-foreground">Progress</span><b>{pct}%</b></div>
-              <div className="h-2 overflow-hidden rounded-full bg-[#d8eed9]"><span className="block h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg,#2b732f,#7e9933)' }} /></div>
-              <div className="mt-3 flex justify-between text-[12.5px] text-muted-foreground"><span>{c.leadsCompleted} done</span><span>{c.assigned - c.leadsCompleted} left</span></div>
+              <div className="mb-1.5 flex justify-between text-[11.5px]"><span className="text-muted-foreground">Progress</span><b>{pct}%</b></div>
+              <div className="h-2 overflow-hidden rounded-full bg-[var(--brand-tint)]"><span className="block h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg,var(--brand-mid),var(--brand-lime-deep))' }} /></div>
+              <div className="mt-3 flex justify-between text-[12px] text-muted-foreground"><span>{c.leadsCompleted} done</span><span>{c.assigned - c.leadsCompleted} left</span></div>
             </div>
           );
         })}

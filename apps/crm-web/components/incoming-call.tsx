@@ -104,10 +104,10 @@ export function IncomingCallPopup() {
         aria-labelledby="incoming-call-title"
         className="w-full max-w-[380px] overflow-hidden rounded-2xl border bg-card shadow-2xl"
       >
-        <div className="flex items-center gap-2.5 bg-[#266929] px-4 py-3 text-white">
+        <div className="flex items-center gap-2.5 bg-[var(--brand)] px-4 py-3 text-white">
           <PhoneIncoming className="h-4 w-4 animate-pulse" />
           {/* Incoming call status */}
-          <span className="text-[13px] font-semibold">{status}</span>
+          <span className="text-[12.5px] font-semibold">{status}</span>
           <button
             type="button"
             aria-label="Dismiss"
@@ -120,18 +120,18 @@ export function IncomingCallPopup() {
 
         <div className="p-5">
           {/* Customer name · company · phone — the popup's core details. */}
-          <div id="incoming-call-title" className="text-[19px] font-bold leading-tight">{customerName}</div>
-          {hasContact && <div className="mt-0.5 text-[13px] font-medium text-muted-foreground">{active.lead.businessName}</div>}
-          <div className="mt-1.5 font-mono text-[15px] tracking-wide">{active.lead.phone}</div>
+          <div id="incoming-call-title" className="text-[17px] font-bold leading-tight">{customerName}</div>
+          {hasContact && <div className="mt-0.5 text-[12.5px] font-medium text-muted-foreground">{active.lead.businessName}</div>}
+          <div className="mt-1.5 font-mono text-[14px] tracking-wide">{active.lead.phone}</div>
           {(active.lead.city || active.lead.state) && (
-            <div className="mt-0.5 text-[12.5px] text-muted-foreground">
+            <div className="mt-0.5 text-[12px] text-muted-foreground">
               {[active.lead.city, active.lead.state].filter(Boolean).join(', ')}
             </div>
           )}
 
           {/* Recognition context: who handled this customer, last outcome, pending callback */}
           {(active.handledBy || active.lastOutcome || active.pendingCallback) && (
-            <div className="mt-3 space-y-1 rounded-lg bg-muted/60 px-2.5 py-2 text-[11.5px] text-muted-foreground">
+            <div className="mt-3 space-y-1 rounded-lg bg-muted/60 px-2.5 py-2 text-[11px] text-muted-foreground">
               {active.handledBy && (
                 <div className="flex items-center gap-1.5">
                   <PhoneIncoming className="h-3 w-3 shrink-0" />
@@ -159,7 +159,7 @@ export function IncomingCallPopup() {
               type="button"
               autoFocus
               onClick={attend}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-[#266929] px-3 py-2.5 text-[13px] font-semibold text-white hover:opacity-90"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-[var(--brand)] px-3 py-2.5 text-[12.5px] font-semibold text-white hover:opacity-90"
             >
               <ExternalLink className="h-3.5 w-3.5" /> Attend
             </button>
@@ -167,12 +167,12 @@ export function IncomingCallPopup() {
               type="button"
               onClick={decline}
               title="Logs the decline and closes this popup. OpenPhone provides no reject API, so the call must also be declined there."
-              className="flex items-center justify-center gap-1.5 rounded-md border border-[#e8c9bf] bg-card px-4 py-2.5 text-[13px] font-semibold text-[#9e2b21] hover:bg-[#fbeeec]"
+              className="flex items-center justify-center gap-1.5 rounded-md border border-[#e8c9bf] bg-card px-4 py-2.5 text-[12.5px] font-semibold text-[#9e2b21] hover:bg-[#fde9e6]"
             >
               <PhoneOff className="h-3.5 w-3.5" /> Decline
             </button>
           </div>
-          <p className="mt-2.5 text-[10.5px] leading-relaxed text-muted-foreground">
+          <p className="mt-2.5 text-[10px] leading-relaxed text-muted-foreground">
             Attend opens the Quo desktop app, where the call is picked up. Declining records it in the
             CRM but can&apos;t hang up the line — reject it in Quo too, or it rings out to voicemail.
             The final status, recording and outcome sync back automatically.

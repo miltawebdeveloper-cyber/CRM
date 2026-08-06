@@ -48,7 +48,7 @@ function useDismiss(open: boolean, onClose: () => void) {
 }
 
 const triggerCls =
-  'flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium text-[#163618] outline-none transition-colors hover:bg-muted/40 dark:text-foreground';
+  'flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[12.5px] font-medium text-[var(--brand-ink)] outline-none transition-colors hover:bg-muted/40 dark:text-foreground';
 const popoverCls =
   'absolute right-0 z-50 mt-2 w-[280px] max-w-[calc(100vw-2rem)] rounded-xl border bg-card p-3 shadow-lg';
 // Wider than the plain pickers to make room for the week-number gutter.
@@ -131,7 +131,7 @@ function MonthGrid({
   }, [view]);
 
   const selectCls =
-    'cursor-pointer rounded-md border-none bg-transparent px-1 py-0.5 text-[13px] font-semibold outline-none hover:bg-muted';
+    'cursor-pointer rounded-md border-none bg-transparent px-1 py-0.5 text-[12.5px] font-semibold outline-none hover:bg-muted';
   // The gutter adds a leading column; without it the grid is the plain 7-up.
   const gridCls = onPickWeek ? 'grid grid-cols-[26px_repeat(7,1fr)] gap-0.5' : 'grid grid-cols-7 gap-0.5';
   // A row's week always starts on its Sunday, even when that Sunday belongs to
@@ -167,7 +167,7 @@ function MonthGrid({
             </select>
           </div>
         ) : (
-          <div className="text-[13px] font-semibold">{view.toLocaleDateString([], { month: 'long', year: 'numeric' })}</div>
+          <div className="text-[12.5px] font-semibold">{view.toLocaleDateString([], { month: 'long', year: 'numeric' })}</div>
         )}
         <button type="button" onClick={() => setView(new Date(view.getFullYear(), view.getMonth() + 1, 1), 'nav')} className="grid h-7 w-7 shrink-0 place-items-center rounded-md hover:bg-muted" aria-label="Next month">
           <ChevronRight className="h-4 w-4" />
@@ -189,7 +189,7 @@ function MonthGrid({
                   onClick={() => onPickWeek(ws)}
                   onMouseEnter={() => onHoverWeek?.(ws)}
                   title={`Select week of ${ws.toLocaleDateString([], { month: 'short', day: 'numeric' })}`}
-                  className="grid h-8 place-items-center rounded-md text-[10.5px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  className="grid h-8 place-items-center rounded-md text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
                   {isoWeek(ws)}
                 </button>
@@ -207,7 +207,7 @@ function MonthGrid({
                     // Clearing the week too would wipe the preview it just set.
                     onMouseEnter={() => onHoverDay?.(d)}
                     className={[
-                      'grid h-8 place-items-center rounded-md text-[12.5px] transition-colors',
+                      'grid h-8 place-items-center rounded-md text-[12px] transition-colors',
                       isSelected(d)
                         ? 'bg-primary font-semibold text-primary-foreground'
                         : isInRange(d)
@@ -302,7 +302,7 @@ export function DateRangePicker({
         <div className={popoverCls} role="dialog">
           <div className="mb-2 flex flex-wrap gap-1.5">
             {PRESETS.map(([lbl, fn]) => (
-              <button key={lbl} type="button" onClick={fn} className="rounded-full border px-2.5 py-1 text-[11.5px] font-medium hover:bg-muted">
+              <button key={lbl} type="button" onClick={fn} className="rounded-full border px-2.5 py-1 text-[11px] font-medium hover:bg-muted">
                 {lbl}
               </button>
             ))}
@@ -315,7 +315,7 @@ export function DateRangePicker({
             isInRange={(d) => !!(value.from && value.to && toISO(d) > value.from && toISO(d) < value.to)}
             isToday={(d) => toISO(d) === toISO(today)}
           />
-          <div className="mt-2 flex items-center justify-between border-t pt-2 text-[12px]">
+          <div className="mt-2 flex items-center justify-between border-t pt-2 text-[11.5px]">
             <span className="text-muted-foreground">
               {value.from ? (value.to ? `${fmtShort(value.from)} – ${fmtShort(value.to)}` : `${fmtShort(value.from)} – …`) : 'Pick a start date'}
             </span>
@@ -460,7 +460,7 @@ export function DateFilter({
             isToday={(d) => toISO(d) === toISO(today)}
           />
 
-          <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2 text-[12px]">
+          <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2 text-[11.5px]">
             <span className="truncate text-muted-foreground">{hint}</span>
             <div className="flex shrink-0 items-center gap-2">
               {active && (

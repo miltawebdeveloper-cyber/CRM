@@ -12,9 +12,9 @@ const LIVE_MS = 15_000;
 /** Quo statuses: queued | sent | delivered | undelivered | received (+ our 'failed'). */
 function statusStyle(status: string | null) {
   const s = (status ?? '').toLowerCase();
-  if (s === 'delivered') return { label: 'Delivered', cls: 'bg-[#d8eed9] text-[#266929]', Icon: CheckCheck };
-  if (s === 'sent') return { label: 'Sent', cls: 'bg-[#e7f0f8] text-[#2c5d8f]', Icon: Check };
-  if (s === 'queued') return { label: 'Queued', cls: 'bg-[#fbf3e2] text-[#c98a18]', Icon: Clock };
+  if (s === 'delivered') return { label: 'Delivered', cls: 'bg-[var(--brand-tint)] text-[var(--brand)]', Icon: CheckCheck };
+  if (s === 'sent') return { label: 'Sent', cls: 'bg-[#e6effb] text-[#2c5d8f]', Icon: Check };
+  if (s === 'queued') return { label: 'Queued', cls: 'bg-[#fdf1de] text-[#c98a18]', Icon: Clock };
   if (s === 'received') return { label: 'Received', cls: 'bg-muted text-muted-foreground', Icon: Check };
   if (s === 'undelivered' || s === 'failed') return { label: s === 'failed' ? 'Failed' : 'Undelivered', cls: 'bg-[#fbe4e1] text-[#9e2b21]', Icon: AlertTriangle };
   return { label: status ?? 'Unknown', cls: 'bg-muted text-muted-foreground', Icon: Clock };
@@ -113,12 +113,12 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
     <div className="rounded-2xl border bg-card shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-[18px] py-4">
         <div>
-          <h3 className="font-display text-[15px] font-semibold">SMS</h3>
+          <h3 className="font-display text-[14px] font-semibold">SMS</h3>
           <div className="text-xs text-muted-foreground">
             {messages.length} message{messages.length === 1 ? '' : 's'} across {threads.length} conversation{threads.length === 1 ? '' : 's'} · synced from Quo
           </div>
         </div>
-        <button onClick={() => refetch()} className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] font-semibold hover:bg-muted">
+        <button onClick={() => refetch()} className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[11.5px] font-semibold hover:bg-muted">
           <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? 'animate-spin' : ''}`} /> Refresh
         </button>
       </div>
@@ -130,7 +130,7 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search message text, customer or number…"
-            className="w-full rounded-md border bg-background py-1.5 pl-8 pr-2.5 text-[13px]"
+            className="w-full rounded-md border bg-background py-1.5 pl-8 pr-2.5 text-[12.5px]"
           />
         </div>
         <div className="inline-flex rounded-md bg-muted/60 p-[2px]">
@@ -138,13 +138,13 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
             <button
               key={k}
               onClick={() => setDirection(k)}
-              className={`rounded-[5px] px-2.5 py-[3px] text-[11.5px] font-semibold transition-colors ${direction === k ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              className={`rounded-[5px] px-2.5 py-[3px] text-[11px] font-semibold transition-colors ${direction === k ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
             >
               {label}
             </button>
           ))}
         </div>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status" className="rounded-md border bg-background px-2 py-1.5 text-[12.5px]">
+        <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status" className="rounded-md border bg-background px-2 py-1.5 text-[12px]">
           <option value="">Any status</option>
           {statuses.map((s) => (
             <option key={s.status} value={s.status}>
@@ -153,7 +153,7 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
           ))}
         </select>
         {(search || direction || status) && (
-          <button onClick={() => { setSearch(''); setDirection(''); setStatus(''); }} className="text-[12px] font-semibold text-muted-foreground hover:text-foreground">
+          <button onClick={() => { setSearch(''); setDirection(''); setStatus(''); }} className="text-[11.5px] font-semibold text-muted-foreground hover:text-foreground">
             Clear
           </button>
         )}
@@ -181,16 +181,16 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
                   // Drop the draft when switching — a half-typed reply must never
                   // follow you into a different customer's conversation.
                   onClick={() => { setOpenThread(t.key); setReply(''); }}
-                  className={`mb-1.5 w-full rounded-[10px] border p-2.5 text-left transition-colors ${active?.key === t.key ? 'border-[#2b732f] bg-muted shadow-[inset_3px_0_0_#266929]' : 'hover:bg-muted/50'}`}
+                  className={`mb-1.5 w-full rounded-[10px] border p-2.5 text-left transition-colors ${active?.key === t.key ? 'border-[var(--brand-mid)] bg-muted shadow-[inset_3px_0_0_var(--brand)]' : 'hover:bg-muted/50'}`}
                 >
                   <div className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-[13px] font-semibold">{t.name}</span>
-                    <span className="shrink-0 text-[10.5px] text-muted-foreground">
+                    <span className="truncate text-[12.5px] font-semibold">{t.name}</span>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
                       {formatDateShort(t.lastAt)}
                     </span>
                   </div>
-                  <div className="truncate font-mono text-[11px] text-muted-foreground">{t.phone}</div>
-                  <div className="mt-0.5 truncate text-[11.5px] text-muted-foreground">
+                  <div className="truncate font-mono text-[10.5px] text-muted-foreground">{t.phone}</div>
+                  <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
                     {last.direction === 'outbound' ? 'You: ' : ''}{last.body}
                   </div>
                 </button>
@@ -204,13 +204,13 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
               <div className="flex items-center justify-between gap-2 border-b px-[18px] py-2.5">
                 <div className="min-w-0">
                   {active.leadId ? (
-                    <Link href={`/leads/${active.leadId}`} className="truncate text-[13.5px] font-semibold hover:underline">
+                    <Link href={`/leads/${active.leadId}`} className="truncate text-[13px] font-semibold hover:underline">
                       {active.name}
                     </Link>
                   ) : (
-                    <span className="truncate text-[13.5px] font-semibold">{active.name}</span>
+                    <span className="truncate text-[13px] font-semibold">{active.name}</span>
                   )}
-                  <div className="truncate font-mono text-[11.5px] text-muted-foreground">{active.phone}</div>
+                  <div className="truncate font-mono text-[11px] text-muted-foreground">{active.phone}</div>
                 </div>
                 {/* Consistency check: a customer should always hear from the SAME line.
                     If outbound messages went out from more than one number, flag it. */}
@@ -219,12 +219,12 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
                   return froms.length > 1 ? (
                     <span
                       title={`Sent from: ${froms.join(', ')}`}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#fbe4e1] px-2 py-[3px] text-[10.5px] font-semibold text-[#9e2b21]"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#fbe4e1] px-2 py-[3px] text-[10px] font-semibold text-[#9e2b21]"
                     >
                       <AlertTriangle className="h-3 w-3" /> Sent from {froms.length} numbers
                     </span>
                   ) : (
-                    <span className="shrink-0 text-[11.5px] text-muted-foreground">{active.messages.length} messages</span>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">{active.messages.length} messages</span>
                   );
                 })()}
               </div>
@@ -235,10 +235,10 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
                   const st = statusStyle(m.status);
                   return (
                     <div key={m.id} className={`flex flex-col ${out ? 'items-end' : 'items-start'}`}>
-                      <div className={`max-w-[85%] rounded-[14px] px-3 py-2 text-[13px] ${out ? 'rounded-br-[4px] bg-[#2b732f] text-white' : 'rounded-bl-[4px] bg-muted'}`}>
+                      <div className={`max-w-[85%] rounded-[14px] px-3 py-2 text-[12.5px] ${out ? 'rounded-br-[4px] bg-[var(--brand-mid)] text-white' : 'rounded-bl-[4px] bg-muted'}`}>
                         {m.body}
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10.5px] text-muted-foreground">
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
                         {/* Sender → recipient, so it's always clear which way it went. */}
                         <span className="font-mono">{m.from}</span>
                         <span>→</span>
@@ -279,26 +279,26 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
                         }}
                         rows={1}
                         placeholder={`Reply to ${active.name}…`}
-                        className="max-h-28 min-h-[38px] flex-1 resize-y rounded-lg border bg-background px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-primary/30"
+                        className="max-h-28 min-h-[38px] flex-1 resize-y rounded-lg border bg-background px-3 py-2 text-[12.5px] outline-none focus:ring-2 focus:ring-primary/30"
                       />
                       <button
                         onClick={submitReply}
                         disabled={!canSend}
                         aria-label="Send message"
-                        className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-lg bg-[#2b732f] text-white disabled:opacity-50"
+                        className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-lg bg-[var(--brand-mid)] text-white disabled:opacity-50"
                       >
                         {send.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                       </button>
                     </div>
                     {/* Long messages bill as multiple segments — say so before sending. */}
                     {reply.length > 160 && (
-                      <div className="mt-1 text-[10.5px] text-muted-foreground">
+                      <div className="mt-1 text-[10px] text-muted-foreground">
                         {reply.length} characters · sends as {Math.ceil(reply.length / 153)} SMS segments
                       </div>
                     )}
                   </>
                 ) : (
-                  <p className="text-[11.5px] text-muted-foreground">
+                  <p className="text-[11px] text-muted-foreground">
                     This conversation isn’t linked to a lead, so it can’t be replied to from here.
                   </p>
                 )}

@@ -48,10 +48,10 @@ export function KpiCard({ icon: Icon, iconBg, iconColor, value, label, index = 0
         <Icon className="h-[13px] w-[13px]" />
       </div>
       <div className="min-w-0">
-        <div className="font-display text-[16px] font-semibold leading-none tracking-tight">{value}</div>
+        <div className="font-display text-[18px] font-semibold leading-none tracking-tight">{value}</div>
         {/* Long captions truncate rather than wrapping, which would make this tile
             taller than the others in the row; the full text stays on the tooltip. */}
-        <div className="mt-[3px] truncate text-[10px] font-medium text-muted-foreground" title={label}>
+        <div className="mt-[3px] truncate text-[11px] font-medium text-muted-foreground" title={label}>
           {label}
         </div>
       </div>

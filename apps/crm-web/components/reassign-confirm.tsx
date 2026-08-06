@@ -43,14 +43,14 @@ export function ReassignConfirm({
           className="w-full max-w-[440px] overflow-hidden rounded-2xl border bg-card shadow-2xl"
         >
           <div className="flex items-start gap-3 px-5 pb-3 pt-5">
-            <span className="mt-[2px] grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#fbf3e2] text-[#8a5a00]">
+            <span className="mt-[2px] grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#fdf1de] text-[#8a5a00]">
               <AlertTriangle className="h-4 w-4" />
             </span>
             <div className="min-w-0">
-              <h3 id="reassign-confirm-title" className="font-display text-[15px] font-semibold">
+              <h3 id="reassign-confirm-title" className="font-display text-[14px] font-semibold">
                 {many ? `${conflicts.length} leads have already been assigned today` : 'This lead has already been assigned today'}
               </h3>
-              <p className="mt-1 text-[13px] text-muted-foreground">
+              <p className="mt-1 text-[12.5px] text-muted-foreground">
                 {many
                   ? 'They were assigned to another employee earlier today. Do you want to reassign them'
                   : 'It was assigned to another employee earlier today. Do you want to reassign it'}
@@ -64,13 +64,13 @@ export function ReassignConfirm({
               is a decision, not a report. */}
           <div className="mx-5 max-h-[168px] overflow-y-auto rounded-lg border bg-muted/30">
             {conflicts.slice(0, 8).map((c) => (
-              <div key={c.id} className="flex items-center justify-between gap-3 border-b px-3 py-1.5 text-[12px] last:border-0">
-                <span className="truncate font-mono text-[11.5px]">{c.leadId}</span>
+              <div key={c.id} className="flex items-center justify-between gap-3 border-b px-3 py-1.5 text-[11.5px] last:border-0">
+                <span className="truncate font-mono text-[11px]">{c.leadId}</span>
                 <span className="shrink-0 truncate text-muted-foreground">{c.assignedTo ?? 'unassigned'}</span>
               </div>
             ))}
             {conflicts.length > 8 && (
-              <p className="px-3 py-1.5 text-[11.5px] text-muted-foreground">
+              <p className="px-3 py-1.5 text-[11px] text-muted-foreground">
                 and {conflicts.length - 8} more…
               </p>
             )}
@@ -83,7 +83,7 @@ export function ReassignConfirm({
               type="button"
               onClick={onCancel}
               disabled={busy}
-              className="rounded-md border bg-card px-3.5 py-2 text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
+              className="rounded-md border bg-card px-3.5 py-2 text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
             >
               Cancel
             </button>
@@ -91,7 +91,7 @@ export function ReassignConfirm({
               type="button"
               onClick={onConfirm}
               disabled={busy}
-              className="rounded-md bg-primary px-3.5 py-2 text-[13px] font-semibold text-primary-foreground disabled:opacity-60"
+              className="rounded-md bg-primary px-3.5 py-2 text-[12.5px] font-semibold text-primary-foreground disabled:opacity-60"
             >
               {busy ? 'Reassigning…' : 'Yes, Reassign'}
             </button>

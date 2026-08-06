@@ -140,7 +140,7 @@ export default function ClosedLeadsPage() {
       render: (l) => (
         <div className="flex items-center gap-[10px]">
           <Avatar name={l.leadId} />
-          <span className="font-mono text-[11.5px] text-muted-foreground">{l.leadId}</span>
+          <span className="font-mono text-[11px] text-muted-foreground">{l.leadId}</span>
         </div>
       ),
     },
@@ -148,7 +148,7 @@ export default function ClosedLeadsPage() {
     { key: 'closedBy', header: 'Closed By', render: (l) => l.closedBy?.name ?? '—', searchable: true, trackable: true, searchValue: (l) => l.closedBy?.name },
     { key: 'businessName', header: 'Company Name', render: (l) => l.businessName, searchable: true, searchValue: (l) => l.businessName },
     { key: 'contactName', header: 'Contact Person', render: (l) => l.contactName ?? '—', searchable: true, searchValue: (l) => l.contactName },
-    { key: 'phone', header: 'Phone', cellClassName: 'font-mono text-[12px] text-muted-foreground', render: (l) => l.phone, searchable: true, searchValue: (l) => l.phone },
+    { key: 'phone', header: 'Phone', cellClassName: 'font-mono text-[11.5px] text-muted-foreground', render: (l) => l.phone, searchable: true, searchValue: (l) => l.phone },
     { key: 'email', header: 'Email', cellClassName: 'text-muted-foreground', render: (l) => l.email ?? '—', searchable: true, searchValue: (l) => l.email },
     { key: 'country', header: 'Country', cellClassName: 'text-muted-foreground', render: (l) => l.country ?? '—', searchable: true, searchValue: (l) => l.country },
     { key: 'state', header: 'State', cellClassName: 'text-muted-foreground', render: (l) => l.state, searchable: true, searchValue: (l) => l.state },
@@ -213,14 +213,14 @@ export default function ClosedLeadsPage() {
         <button
           onClick={() => runExport((rows) => downloadCsv('onboarding-leads', EXPORT_HEADERS, rows))}
           disabled={total === 0 || exporting}
-          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
         >
           <Download className="h-4 w-4" /> {exporting ? 'Preparing…' : 'Export CSV'}
         </button>
         <button
           onClick={() => runExport((rows) => downloadXlsx('onboarding-leads', EXPORT_HEADERS, rows))}
           disabled={total === 0 || exporting}
-          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
         >
           <Download className="h-4 w-4" /> Export Excel
         </button>
@@ -268,12 +268,12 @@ export default function ClosedLeadsPage() {
             type="button"
             onClick={() => leadsQuery.fetchNextPage()}
             disabled={isFetchingNextPage}
-            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12px] font-semibold hover:bg-muted disabled:opacity-50"
           >
             {isFetchingNextPage ? 'Loading more…' : `Load more (${(total - leads.length).toLocaleString()} left)`}
           </button>
         ) : (
-          total > 0 && <p className="text-[12px] text-muted-foreground">All {total.toLocaleString()} onboarding leads loaded.</p>
+          total > 0 && <p className="text-[11.5px] text-muted-foreground">All {total.toLocaleString()} onboarding leads loaded.</p>
         )}
       </div>
 

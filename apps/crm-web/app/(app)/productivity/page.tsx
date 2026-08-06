@@ -35,8 +35,8 @@ export default function ProductivityPage() {
       key: 'output', header: 'Output', cellClassName: 'min-w-[160px]',
       render: (r) => (
         <div className="flex items-center gap-[9px]">
-          <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#d8eed9]">
-            <span className="block h-full rounded-full" style={{ width: `${(r.conversionPct / maxConv) * 100}%`, background: 'linear-gradient(90deg,#2b732f,#7e9933)' }} />
+          <div className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--brand-tint)]">
+            <span className="block h-full rounded-full" style={{ width: `${(r.conversionPct / maxConv) * 100}%`, background: 'linear-gradient(90deg,var(--brand-mid),var(--brand-lime-deep))' }} />
           </div>
         </div>
       ),
@@ -50,10 +50,10 @@ export default function ProductivityPage() {
       </PageHead>
 
       <div className={`mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))] transition-opacity ${isFetching ? 'opacity-60' : ''}`}>
-        <KpiCard icon={Phone} iconBg="#d8eed9" iconColor="#266929" value={totalCalls} label={`Total Calls (${PERIOD_LABEL[period]})`} />
+        <KpiCard icon={Phone} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={totalCalls} label={`Total Calls (${PERIOD_LABEL[period]})`} />
         <KpiCard icon={Clock} iconBg="#e3f1ee" iconColor="#2f6f63" value={formatDuration(totalTalk)} label="Total Talk Time" />
-        <KpiCard icon={Percent} iconBg="#fbf3e2" iconColor="#c98a18" value={totalCalls ? formatDuration(Math.round(totalTalk / totalCalls)) : '0s'} label="Avg Call Time" />
-        <KpiCard icon={Star} iconBg="#e4f2e4" iconColor="#317d34" value={best?.name?.split(' ')[0] ?? '—'} label="Best Performer" />
+        <KpiCard icon={Percent} iconBg="#fdf1de" iconColor="#c98a18" value={totalCalls ? formatDuration(Math.round(totalTalk / totalCalls)) : '0s'} label="Avg Call Time" />
+        <KpiCard icon={Star} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value={best?.name?.split(' ')[0] ?? '—'} label="Best Performer" />
       </div>
 
       <DataTable

@@ -13,7 +13,7 @@ import { formatDateTime } from '@/lib/display-settings';
 function StatusPill({ status }: { status: ZoomMeetingStatus }) {
   const m = STATUS_META[status];
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold" style={{ color: m.color, background: `${m.color}1f` }}>
+    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-semibold" style={{ color: m.color, background: `${m.color}1f` }}>
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: m.color }} />
       {m.label}
     </span>
@@ -70,20 +70,20 @@ export function MeetingDetail({ id, onClose }: { id: string; onClose?: () => voi
           <div className="flex items-center gap-3">
             <Avatar name={m.lead?.businessName ?? '—'} size="lg" />
             <div>
-              <h1 className="font-display text-[20px] font-semibold">{m.lead?.businessName ?? 'Unknown client'}</h1>
-              <div className="text-[13px] text-muted-foreground">{m.title || `${m.durationMins} min Zoom meeting`}</div>
-              <div className="mt-1.5 flex items-center gap-2"><StatusPill status={m.status} /><span className="text-[12.5px] text-muted-foreground">{fmt(m.scheduledAt, m.lead?.timezone)}</span></div>
+              <h1 className="font-display text-[18px] font-semibold">{m.lead?.businessName ?? 'Unknown client'}</h1>
+              <div className="text-[12.5px] text-muted-foreground">{m.title || `${m.durationMins} min Zoom meeting`}</div>
+              <div className="mt-1.5 flex items-center gap-2"><StatusPill status={m.status} /><span className="text-[12px] text-muted-foreground">{fmt(m.scheduledAt, m.lead?.timezone)}</span></div>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {m.joinUrl && (m.status === 'in_progress' || pending) && (
-              <a href={m.joinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-md bg-[#2D8CFF] px-3 py-2 text-[13px] font-semibold text-white">
+              <a href={m.joinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-md bg-[#2D8CFF] px-3 py-2 text-[12.5px] font-semibold text-white">
                 <ExternalLink className="h-4 w-4" /> Join
               </a>
             )}
-            {pending && <button onClick={() => act(() => zoomApi.start(m.id))} className="rounded-md border px-3 py-2 text-[13px] font-semibold hover:bg-muted">Start</button>}
+            {pending && <button onClick={() => act(() => zoomApi.start(m.id))} className="rounded-md border px-3 py-2 text-[12.5px] font-semibold hover:bg-muted">Start</button>}
             {m.status !== 'completed' && m.status !== 'cancelled' && (
-              <button onClick={() => act(() => zoomApi.cancel(m.id))} className="rounded-md border border-[#e0b4ae] px-3 py-2 text-[13px] font-semibold text-[#9e2b21] hover:bg-[#fbeeec]">Cancel</button>
+              <button onClick={() => act(() => zoomApi.cancel(m.id))} className="rounded-md border border-[#f2cbc5] px-3 py-2 text-[12.5px] font-semibold text-[#9e2b21] hover:bg-[#fde9e6]">Cancel</button>
             )}
           </div>
         </div>
@@ -95,7 +95,7 @@ export function MeetingDetail({ id, onClose }: { id: string; onClose?: () => voi
             <button
               onClick={() => act(async () => { await zoomApi.update(m.id, { scheduledAt: reschedule }); setReschedule(''); })}
               disabled={!reschedule}
-              className="rounded-md border px-3 py-2 text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
+              className="rounded-md border px-3 py-2 text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
             >
               Reschedule
             </button>
@@ -115,7 +115,7 @@ export function MeetingDetail({ id, onClose }: { id: string; onClose?: () => voi
           <Row label="Organizer" value={m.organizer?.name} />
           <Row label="Participants" value={m.participants} />
         </dl>
-        {m.lead && <Link href={`/leads/${m.leadId}`} className="mt-3 inline-block text-[12.5px] font-semibold text-primary hover:underline">Open client profile →</Link>}
+        {m.lead && <Link href={`/leads/${m.leadId}`} className="mt-3 inline-block text-[12px] font-semibold text-primary hover:underline">Open client profile →</Link>}
       </section>
 
       {/* Tabs */}
@@ -154,7 +154,7 @@ function MeetingRecord({ m }: { m: ZoomMeeting }) {
         <Block label="Action items" value={m.actionItems} />
       </div>
       {!hasDetails && (
-        <p className="rounded-lg border border-dashed p-4 text-center text-[13px] text-muted-foreground">
+        <p className="rounded-lg border border-dashed p-4 text-center text-[12.5px] text-muted-foreground">
           Discussion details appear here once the meeting is completed.
         </p>
       )}
@@ -166,7 +166,7 @@ function TabBtn({ active, onClick, icon: Icon, label }: { active: boolean; onCli
   return (
     <button
       onClick={onClick}
-      className={`-mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 py-2.5 text-[12.5px] font-semibold transition-colors sm:px-4 sm:text-[13px] ${active ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+      className={`-mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 py-2.5 text-[12px] font-semibold transition-colors sm:px-4 sm:text-[12.5px] ${active ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
     >
       <Icon className="h-4 w-4 shrink-0" /> {label}
     </button>
@@ -184,7 +184,7 @@ function ActivityLog({ meetingId, tz }: { meetingId: string; tz?: string | null 
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b text-left text-[11px] uppercase tracking-[.08em] text-muted-foreground">
+          <tr className="border-b text-left text-[10.5px] uppercase tracking-[.08em] text-muted-foreground">
             <th className="px-3 py-2 font-semibold">Date &amp; time</th>
             <th className="px-3 py-2 font-semibold">User</th>
             <th className="px-3 py-2 font-semibold">Action</th>
@@ -200,7 +200,7 @@ function ActivityLog({ meetingId, tz }: { meetingId: string; tz?: string | null 
               <td className="px-3 py-2.5">{a.user?.name ?? 'System'}</td>
               <td className="px-3 py-2.5">
                 <span className="font-semibold">{ACTION_LABEL[a.action] ?? a.action}</span>
-                {a.field && <span className="ml-1 text-[12px] text-muted-foreground">({a.field})</span>}
+                {a.field && <span className="ml-1 text-[11.5px] text-muted-foreground">({a.field})</span>}
               </td>
               <td className="px-3 py-2.5 text-muted-foreground">{fmtVal(a.field, a.oldValue, tz)}</td>
               <td className="px-3 py-2.5">{fmtVal(a.field, a.newValue, tz)}</td>
@@ -227,7 +227,7 @@ function fmtVal(field: string | null, value: string | null, tz?: string | null):
 // ──────────────────────── Primitives ────────────────────────
 function Row({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <div className="flex justify-between gap-3 text-[13px]">
+    <div className="flex justify-between gap-3 text-[12.5px]">
       <span className="text-muted-foreground">{label}</span>
       <span className="text-right font-medium capitalize">{value || '—'}</span>
     </div>
@@ -237,8 +237,8 @@ function Block({ label, value }: { label: string; value: string | null | undefin
   if (!value) return null;
   return (
     <div>
-      <div className="text-[11px] font-semibold uppercase tracking-[.06em] text-muted-foreground">{label}</div>
-      <div className="whitespace-pre-line text-[13px]">{value}</div>
+      <div className="text-[10.5px] font-semibold uppercase tracking-[.06em] text-muted-foreground">{label}</div>
+      <div className="whitespace-pre-line text-[12.5px]">{value}</div>
     </div>
   );
 }

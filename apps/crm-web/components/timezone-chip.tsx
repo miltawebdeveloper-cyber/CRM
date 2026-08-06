@@ -14,13 +14,13 @@ export function TimezoneChip({ tz, className = '' }: { tz?: string | null; class
     return (
       <span
         title="No time zone set — a callback can't be scheduled for this lead until one is chosen"
-        className={`inline-flex items-center gap-1 rounded-full bg-[#fbf3e2] px-2 py-0.5 text-[11px] font-semibold text-[#8a5d0a] ${className}`}
+        className={`inline-flex items-center gap-1 rounded-full bg-[#fdf1de] px-2 py-0.5 text-[10.5px] font-semibold text-[#8a5d0a] ${className}`}
       >
         <AlertTriangle className="h-3 w-3" /> Not set
       </span>
     );
   }
   return (
-    <span className={`rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold ${className}`}>{tz}</span>
+    <span className={`rounded-full bg-muted px-2 py-0.5 text-[10.5px] font-semibold ${className}`}>{tz}</span>
   );
 }

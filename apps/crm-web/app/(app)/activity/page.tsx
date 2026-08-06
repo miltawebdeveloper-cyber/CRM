@@ -40,17 +40,17 @@ export default function ActivityPage() {
   // call duration to compute it from, so it's been replaced with a count this
   // page can actually stand behind.
   const KPIS = [
-    { icon: Phone, bg: '#d8eed9', color: '#266929', val: calls.length, lab: 'Calls Logged' },
+    { icon: Phone, bg: 'var(--brand-tint)', color: 'var(--brand)', val: calls.length, lab: 'Calls Logged' },
     { icon: Users, bg: '#e3f1ee', color: '#2f6f63', val: leadsTouched, lab: 'Leads Touched' },
-    { icon: NotebookPen, bg: '#fbf3e2', color: '#c98a18', val: activities.length, lab: 'Activities' },
-    { icon: CheckCircle2, bg: '#e4f2e4', color: '#317d34', val: positive, lab: 'Positive Outcomes' },
+    { icon: NotebookPen, bg: '#fdf1de', color: '#c98a18', val: activities.length, lab: 'Activities' },
+    { icon: CheckCircle2, bg: 'var(--brand-tint-2)', color: 'var(--brand-strong)', val: positive, lab: 'Positive Outcomes' },
   ];
 
   const columns = useMemo<ColumnDef<Activity>[]>(() => [
-    { key: 'time', header: 'Time', cellClassName: 'font-mono text-[12px] text-muted-foreground', render: (a) => formatTime(a.createdAt) },
+    { key: 'time', header: 'Time', cellClassName: 'font-mono text-[11.5px] text-muted-foreground', render: (a) => formatTime(a.createdAt) },
     { key: 'lead', header: 'Lead', required: true, render: (a) => <div className="flex items-center gap-[10px]"><Avatar name={a.lead?.businessName ?? '—'} /><span className="font-semibold">{a.lead?.businessName ?? '—'}</span></div> },
     { key: 'by', header: 'By', cellClassName: 'text-muted-foreground', render: (a) => a.user?.name ?? '—' },
-    { key: 'action', header: 'Action', render: (a) => <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">{a.action}</span> },
+    { key: 'action', header: 'Action', render: (a) => <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10.5px]">{a.action}</span> },
     { key: 'outcome', header: 'Outcome', render: (a) => (a.newValue ? <StatusPill status={a.newValue} /> : '—') },
   ], []);
 
@@ -62,7 +62,7 @@ export default function ActivityPage() {
         <button
           onClick={() => downloadCsv('activity-log', ['Time', 'Lead', 'By', 'Action', 'Outcome'], activities.map((a) => [formatDateTime(a.createdAt), a.lead?.businessName ?? '', a.user?.name ?? '', a.action, a.newValue ?? '']))}
           disabled={activities.length === 0}
-          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
         ><Download className="h-4 w-4" /> Export</button>
       </PageHead>
 

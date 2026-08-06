@@ -23,28 +23,100 @@
   --font-display: "Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
+  /* ── Type scale ──
+     One step down from Tailwind's defaults (14/12/16/18/24 px), to match the
+     px sizes the components ask for directly. The UI is dense — tables, queues,
+     pills, KPI rows — and at the stock scale it read like a document rather
+     than a dashboard: 14px body next to a 13px sibling is the kind of half-step
+     mismatch that makes a screen look unconsidered rather than roomy.
+     Line heights come down with them, or the smaller type just sits in the same
+     tall rows and nothing actually tightens. */
+  --text-xs: 11px;
+  --text-xs--line-height: 15px;
+  /* 12.5px, not 13: `text-sm` and the explicit `text-[12.5px]` are both used for
+     body copy on the same card, and half a pixel apart they read as a mistake
+     rather than as a scale. One body size, whichever way it is asked for. */
+  --text-sm: 12.5px;
+  --text-sm--line-height: 18px;
+  --text-base: 15px;
+  --text-base--line-height: 22px;
+  --text-lg: 16px;
+  --text-lg--line-height: 24px;
+  --text-2xl: 21px;
+  --text-2xl--line-height: 28px;
+
+  /* ── Surface type scale ──
+     What the shared surfaces — cards, panels, tables — are set in, written down
+     because five components had drifted into six sizes for the same three jobs:
+     a table header at 10.5px next to a card subtitle at 11px next to a summary
+     line at 13px, none of which meant anything different.
+       card / section title   14px semibold
+       card subtitle, meta    11.5px muted
+       table column header    11.5px semibold, uppercase
+       table cell, body, controls  12.5px      (the body default)
+       KPI value              18px            (its label 11px)
+       micro — ids, hints, counts  10.5px
+     Four steps, and each one earns its place. Sizes are declared here as a
+     reference for new surfaces rather than as utilities, because the components
+     state their sizes in px inline like the rest of this codebase. */
+
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 3px);
 }
 
-/* ── Milta CRM — brand green design tokens ─────────────────────────
-   Taken from the Milta logo: forest #266929 (hue 123) carries the brand, lime
-   #99ba3b (hue 76) is its highlight. Each token keeps the lightness the old
-   olive scale had — lightness is what carries contrast, so every ratio the UI
-   already passed still passes; only the hue moved onto the brand. */
+/* ── Milta CRM — brand green on a neutral canvas ───────────────────
+   The brand is still the Milta logo's forest #266929 (hue 123), with lime
+   #99ba3b (hue 76) as its highlight — every ACTION is green, and so is the
+   sidebar.
+   What changed is everything the brand sits ON. The canvas, the muted fills,
+   the borders and the ink all carried the same 123 hue, which tinted the whole
+   app green and left white cards reading as a colour of their own against it.
+   Those neutrals now sit at hue 48 with the chroma pulled right down — a warm
+   off-white you read as paper, not as pale green — so a white card separates by
+   being white and the green reads as a deliberate accent rather than the
+   background it is printed on.
+   Lightness barely moves — a point or two per token — because lightness is what
+   carries contrast, and the point of this is a hue change, not a legibility
+   change. Ink on paper stays around 17:1 and muted text on a card stays just
+   under 5:1, so everything that passed AA still passes it. */
 :root {
-  --background: 123 30% 97%;      /* bone */
-  --foreground: 123 20% 6%;       /* ink */
+  --background: 48 14% 96%;       /* paper */
+  --foreground: 48 8% 8%;         /* ink */
   --card: 0 0% 100%;
-  --card-foreground: 123 20% 6%;
+  --card-foreground: 48 8% 8%;
   --primary: 123 47% 28%;         /* brand forest — #266929 */
   --primary-foreground: 0 0% 100%;
   --accent: 39 79% 44%;           /* amber — a function (pending/attention), not brand */
-  --accent-foreground: 123 20% 6%;
-  --muted: 123 30% 95%;
-  --muted-foreground: 123 10% 40%;
-  --border: 123 22% 87%;          /* line */
+  --accent-foreground: 48 8% 8%;
+  --muted: 48 12% 95%;
+  --muted-foreground: 45 6% 42%;
+  --border: 45 11% 90%;           /* line */
   --radius: 0.7rem;
+
+  /* ── Brand family ──
+     Every brand colour in the CRM, named once. The sidebar, the primary
+     buttons, the active nav row, the soft pills and the lime highlights all
+     read from these — nothing in a component names a brand hex any more, which
+     is what makes the palette picker in Settings possible at all: it writes one
+     attribute on <html> and the whole app is repainted.
+     STATUS COLOURS ARE NOT IN HERE. Red is rejected, amber is pending, blue is
+     new, teal is connected — those mean something, and a palette that recoloured
+     them would change what the screen says rather than how it looks. They stay
+     as literals in the components that own them.
+     The default values are Forest, the Milta green, so an app with no palette
+     attribute at all looks exactly as it always has. */
+  --brand-ink: #163618;           /* sidebar, top of the gradient */
+  --brand-ink-2: #112712;         /* sidebar, bottom */
+  --brand-deep: #1d491f;          /* icon buttons on light chrome */
+  --brand: #266929;               /* THE brand colour */
+  --brand-mid: #2b732f;
+  --brand-strong: #317d34;        /* success/live: the brightest of the family */
+  --brand-lime-deep: #7e9933;     /* highlight, on dark */
+  --brand-lime: #a6c74d;
+  --brand-lime-soft: #c7d69f;     /* nav labels on the dark sidebar */
+  --brand-tint: #e7f5dc;          /* the soft pill surface */
+  --brand-tint-2: #eef7e4;        /* a step lighter again */
+  --brand-line: #dde5d2;          /* borders on tinted surfaces */
 
   /* ── Pipeline chart steps ──
      The chart steps of the pipeline hues in components/calls-shared.tsx (CAT).
@@ -72,17 +144,21 @@
 }
 
 .dark {
-  --background: 123 26% 9%;
-  --foreground: 123 25% 95%;
-  --card: 123 22% 13%;
-  --card-foreground: 123 25% 95%;
+  /* The same move, made dark: neutral surfaces at hue 48, brand green untouched
+     on top of them. A dark mode tinted 123 throughout read as a green room with
+     green furniture — nothing could be picked out as branded because everything
+     was. */
+  --background: 48 9% 9%;
+  --foreground: 48 12% 95%;
+  --card: 48 7% 13%;
+  --card-foreground: 48 12% 95%;
   --primary: 110 38% 42%;         /* brand forest, lifted toward the lime to carry on a dark surface */
-  --primary-foreground: 123 26% 9%;
+  --primary-foreground: 48 9% 9%;
   --accent: 39 70% 52%;
-  --accent-foreground: 123 26% 9%;
-  --muted: 123 16% 18%;
-  --muted-foreground: 100 18% 62%;
-  --border: 123 14% 22%;
+  --accent-foreground: 48 9% 9%;
+  --muted: 48 6% 18%;
+  --muted-foreground: 45 8% 62%;
+  --border: 45 6% 22%;
 
   /* Re-stepped for the dark card, not flipped: the light steps sit above the
      dark lightness band and would glow. Validated as its own set. */
@@ -91,6 +167,148 @@
   --viz-hot: #e46464;
   --viz-closed: #12a06e;
   --viz-working: #949aa8;
+}
+
+/* ── Palettes ──────────────────────────────────────────────────────
+   Settings → Preferences writes `data-palette` on <html>; these blocks are what
+   that attribute means. Each one restates the brand family, the primary token
+   AND the surfaces the brand sits on — the canvas, the ink, the muted fills and
+   the borders — so a palette is a whole room rather than a repainted door. Ocean
+   brand on Forest's warm paper looked like two products glued together; the
+   canvas has to carry the same hue, quietly, at a fraction of the saturation.
+   What no palette touches is the STATUS colours and the chart steps. Red is
+   rejected, amber is pending, blue is new, teal is connected, whatever the CRM
+   is painted in.
+   Every family keeps the lightness structure Forest set, token for token: ink
+   dark enough for white nav text, brand at ~30% lightness so white sits on it at
+   5.5:1 or better, canvas at 96%, muted at 95%, borders at 90%, and ink at 8%.
+   Contrast is therefore identical across palettes — only hue and saturation
+   move. `.dark` gets a lifted primary for the same reason Forest does: the mid
+   tone disappears against a dark card.
+   Forest itself is the `:root` default above, so it needs no block.
+
+   Each palette is written as three blocks, and the split is load-bearing:
+     [data-palette=x]            the brand family — the same in both modes
+     :root:not(.dark)[…]         the light surfaces
+     .dark[data-palette=x]       the dark surfaces
+   The surfaces are mode-scoped rather than sharing the first block because
+   `[data-palette=x]` and `.dark` have EQUAL specificity, so a light `--background`
+   declared there would beat the dark one purely by coming later in the file. With
+   `:not(.dark)` a palette that forgets a token falls back to the shared neutral
+   for that mode, which is plain rather than unreadable. */
+[data-palette='ocean'] {
+  --brand-ink: #122b3d;
+  --brand-ink-2: #0d2030;
+  --brand-deep: #17415c;
+  --brand: #1e5f86;
+  --brand-mid: #226e9b;
+  --brand-strong: #2b82b4;
+  --brand-lime-deep: #4a92b0;
+  --brand-lime: #7cc4e0;
+  --brand-lime-soft: #a9d6e8;
+  --brand-tint: #dcecf6;
+  --brand-tint-2: #e6f2fa;
+  --brand-line: #cfe1ee;
+}
+/* Surfaces — cool paper, the blue read at a whisper. */
+:root:not(.dark)[data-palette='ocean'] {
+  --primary: 203 63% 32%;
+  --background: 205 30% 96%;
+  --foreground: 205 14% 8%;
+  --card-foreground: 205 14% 8%;
+  --accent-foreground: 205 14% 8%;
+  --muted: 205 24% 95%;
+  --muted-foreground: 205 9% 42%;
+  --border: 205 20% 90%;
+}
+.dark[data-palette='ocean'] {
+  --primary: 200 55% 48%;
+  --background: 205 22% 9%;
+  --foreground: 205 16% 95%;
+  --card: 205 18% 13%;
+  --card-foreground: 205 16% 95%;
+  --accent-foreground: 205 22% 9%;
+  --primary-foreground: 205 22% 9%;
+  --muted: 205 12% 18%;
+  --muted-foreground: 205 11% 62%;
+  --border: 205 12% 22%;
+}
+
+[data-palette='violet'] {
+  --brand-ink: #26193d;
+  --brand-ink-2: #1b1230;
+  --brand-deep: #3d2a63;
+  --brand: #5b3fa0;
+  --brand-mid: #6a4bb5;
+  --brand-strong: #7a5ac9;
+  --brand-lime-deep: #8a6dc4;
+  --brand-lime: #b79ae8;
+  --brand-lime-soft: #cdbcee;
+  --brand-tint: #ece4fa;
+  --brand-tint-2: #f2ecfc;
+  --brand-line: #ddd2f0;
+}
+/* Surfaces — the faintest lilac, warmer than Ocean's paper. */
+:root:not(.dark)[data-palette='violet'] {
+  --primary: 257 44% 44%;
+  --background: 260 30% 97%;
+  --foreground: 260 12% 8%;
+  --card-foreground: 260 12% 8%;
+  --accent-foreground: 260 12% 8%;
+  --muted: 260 24% 96%;
+  --muted-foreground: 260 8% 43%;
+  --border: 260 22% 91%;
+}
+.dark[data-palette='violet'] {
+  --primary: 257 45% 62%;
+  --background: 260 18% 10%;
+  --foreground: 260 14% 95%;
+  --card: 260 15% 14%;
+  --card-foreground: 260 14% 95%;
+  --accent-foreground: 260 18% 10%;
+  --primary-foreground: 260 18% 10%;
+  --muted: 260 11% 19%;
+  --muted-foreground: 260 10% 63%;
+  --border: 260 11% 23%;
+}
+
+[data-palette='graphite'] {
+  --brand-ink: #1f2429;
+  --brand-ink-2: #171b1f;
+  --brand-deep: #333b43;
+  --brand: #445059;
+  --brand-mid: #4f5d67;
+  --brand-strong: #5d6d78;
+  --brand-lime-deep: #6f818e;
+  --brand-lime: #94a6b3;
+  --brand-lime-soft: #b9c6cf;
+  --brand-tint: #e6eaed;
+  --brand-tint-2: #eef1f3;
+  --brand-line: #d8dee2;
+}
+/* Surfaces — true neutral. The one palette that lets the status colours be the
+   only colour on the screen, which is the point of it. */
+:root:not(.dark)[data-palette='graphite'] {
+  --primary: 206 13% 31%;
+  --background: 210 12% 96%;
+  --foreground: 210 9% 8%;
+  --card-foreground: 210 9% 8%;
+  --accent-foreground: 210 9% 8%;
+  --muted: 210 10% 95%;
+  --muted-foreground: 210 6% 42%;
+  --border: 210 9% 90%;
+}
+.dark[data-palette='graphite'] {
+  --primary: 206 14% 56%;
+  --background: 210 10% 9%;
+  --foreground: 210 12% 95%;
+  --card: 210 8% 13%;
+  --card-foreground: 210 12% 95%;
+  --accent-foreground: 210 10% 9%;
+  --primary-foreground: 210 10% 9%;
+  --muted: 210 7% 18%;
+  --muted-foreground: 210 8% 62%;
+  --border: 210 7% 22%;
 }
 
 @layer base {
@@ -102,10 +320,19 @@
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
     font-family: var(--font-sans);
+    /* The floor for anything that never states a size of its own — inherited
+       browser 16px was a full size larger than the 12.5px the components around
+       it use, so those few spots stood out as oversized rather than as prose.
+       Set on body, not html: rem-based spacing stays anchored to the root. */
+    font-size: 13px;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
   ::selection {
-    background: hsl(110 45% 75%);
+    /* Follows the palette like everything else brand-coloured. The soft lime is
+       the lightest member of each family, which is what a selection wants:
+       dark enough to see, light enough to read the text through. */
+    background: var(--brand-lime-soft);
   }
   /* Consistent keyboard-focus ring on every interactive element. Only shows for
      keyboard/programmatic focus (:focus-visible), never on mouse clicks. */
@@ -129,7 +356,7 @@
    (`text-[13px]`, `w-[248px]`, `px-[18px]`), so there is no rem knob to turn.
 
    DESIGN WIDTH is 1500px — the narrowest viewport that fits the widest layout
-   in the CRM intact (the Call Panel's 300px queue + centre + 360px dial pad,
+   in the CRM intact (the Call Panel's 360px queue + centre + 360px dial pad,
    beside the 248px sidebar) and the width the shell already caps content at.
    Each band's factor is width ÷ 1500 taken at the band's NARROWEST point, so
    the layout fits everywhere in the band and the extra at the wide end falls

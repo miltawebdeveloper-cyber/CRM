@@ -155,7 +155,7 @@ export default function FollowupsPage() {
     },
     { key: 'company', header: 'Company', render: (f) => <div className="flex items-center gap-[10px]"><Avatar name={f.lead?.businessName ?? '—'} /><span className="font-semibold">{f.lead?.businessName ?? '—'}</span></div> },
     { key: 'note', header: 'Note', cellClassName: 'max-w-[280px] truncate text-muted-foreground', render: (f) => f.noteText },
-    { key: 'phone', header: 'Phone', cellClassName: 'font-mono text-[12px]', render: (f) => f.lead?.phone ?? '—' },
+    { key: 'phone', header: 'Phone', cellClassName: 'font-mono text-[11.5px]', render: (f) => f.lead?.phone ?? '—' },
     {
       key: 'actions',
       header: '',
@@ -182,8 +182,8 @@ export default function FollowupsPage() {
   return (
     <div>
       <PageHead>
-        <button onClick={() => router.push('/calendar')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[13px] font-semibold hover:bg-muted"><Calendar className="h-4 w-4" /> Calendar</button>
-        <button onClick={() => router.push('/calling')} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> Schedule</button>
+        <button onClick={() => router.push('/calendar')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"><Calendar className="h-4 w-4" /> Calendar</button>
+        <button onClick={() => router.push('/calling')} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> Schedule</button>
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
@@ -191,11 +191,11 @@ export default function FollowupsPage() {
             window between the scheduled time and the callback counting as
             missed. It had no card, so it was invisible until it was already
             overdue. */}
-        <KpiCard icon={Bell} iconBg="#fbf3e2" iconColor="#c98a18" value={dueNow} label="Due Now" />
-        <KpiCard icon={Clock} iconBg="#fbeeec" iconColor="#a8431f" value={dueToday} label="Due Today" />
-        <KpiCard icon={RefreshCw} iconBg="#fbf3e2" iconColor="#c98a18" value={thisWeek} label="This Week" />
-        <KpiCard icon={CheckCircle2} iconBg="#e4f2e4" iconColor="#317d34" value={fus.length} label="Total Scheduled" />
-        <KpiCard icon={AlertTriangle} iconBg="#fbeeec" iconColor="#a8431f" value={overdue} label="Overdue" />
+        <KpiCard icon={Bell} iconBg="#fdf1de" iconColor="#c98a18" value={dueNow} label="Due Now" />
+        <KpiCard icon={Clock} iconBg="#fde9e6" iconColor="#a8431f" value={dueToday} label="Due Today" />
+        <KpiCard icon={RefreshCw} iconBg="#fdf1de" iconColor="#c98a18" value={thisWeek} label="This Week" />
+        <KpiCard icon={CheckCircle2} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value={fus.length} label="Total Scheduled" />
+        <KpiCard icon={AlertTriangle} iconBg="#fde9e6" iconColor="#a8431f" value={overdue} label="Overdue" />
       </div>
 
       <DataTable

@@ -63,7 +63,7 @@ export function LeadActivityLog({ leadId, title }: { leadId: string; title?: str
     <section className="rounded-lg border bg-card p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <ShieldCheck className="h-4 w-4 text-[#266929]" /> Activity Log{title ? <span className="text-muted-foreground">— {title}</span> : null}
+          <ShieldCheck className="h-4 w-4 text-[var(--brand)]" /> Activity Log{title ? <span className="text-muted-foreground">— {title}</span> : null}
         </h2>
         <span className="shrink-0 text-xs text-muted-foreground">Complete lead lifecycle timeline · {items.length} entries</span>
       </div>
@@ -75,7 +75,7 @@ export function LeadActivityLog({ leadId, title }: { leadId: string; title?: str
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b text-left text-[11px] uppercase tracking-[.08em] text-muted-foreground">
+              <tr className="border-b text-left text-[10.5px] uppercase tracking-[.08em] text-muted-foreground">
                 <th className="px-3 py-2 font-semibold">Lead ID</th>
                 <th className="px-3 py-2 font-semibold">Date &amp; time</th>
                 <th className="px-3 py-2 font-semibold">Call Status</th>

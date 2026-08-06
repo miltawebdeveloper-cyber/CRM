@@ -28,7 +28,7 @@ export function FilterSelect({
   className?: string;
 }) {
   return (
-    <div className={`flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium text-[#163618] dark:text-foreground ${className}`}>
+    <div className={`flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[12.5px] font-medium text-[var(--brand-ink)] dark:text-foreground ${className}`}>
       <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       {/* `w-full min-w-0` is what lets the wrapper's width win over the widest
           option; without it the select refuses to shrink below its content. */}
@@ -60,7 +60,7 @@ export function SearchInput({
   className?: string;
 }) {
   return (
-    <div className={`flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium ${className}`}>
+    <div className={`flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[12.5px] font-medium ${className}`}>
       <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
       <input
         value={value}

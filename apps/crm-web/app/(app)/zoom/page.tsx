@@ -27,7 +27,7 @@ const FILTERS: { value: '' | ZoomMeetingStatus; label: string }[] = [
 function StatusPill({ status }: { status: ZoomMeetingStatus }) {
   const m = STATUS_META[status];
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold" style={{ color: m.color, background: `${m.color}1f` }}>
+    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-semibold" style={{ color: m.color, background: `${m.color}1f` }}>
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: m.color }} />
       {m.label}
     </span>
@@ -78,16 +78,16 @@ export default function ZoomPage() {
   return (
     <div>
       <PageHead>
-        <button onClick={() => setScheduleOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground">
+        <button onClick={() => setScheduleOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground">
           <Plus className="h-4 w-4" /> Schedule Meeting
         </button>
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
-        <KpiCard icon={CalendarClock} iconBg="#e7f0f8" iconColor="#2c5d8f" value={kpis.today} label="Today" />
-        <KpiCard icon={Video} iconBg="#eaf1ea" iconColor="#5a725b" value={kpis.scheduled} label="Upcoming" />
-        <KpiCard icon={PlayCircle} iconBg="#fbf3e2" iconColor="#c98a18" value={kpis.inProgress} label="In Progress" />
-        <KpiCard icon={CheckCircle2} iconBg="#e4f2e4" iconColor="#317d34" value={kpis.completed} label="Completed" />
+        <KpiCard icon={CalendarClock} iconBg="#e6effb" iconColor="#2c5d8f" value={kpis.today} label="Today" />
+        <KpiCard icon={Video} iconBg="#f1f2ee" iconColor="#6f7268" value={kpis.scheduled} label="Upcoming" />
+        <KpiCard icon={PlayCircle} iconBg="#fdf1de" iconColor="#c98a18" value={kpis.inProgress} label="In Progress" />
+        <KpiCard icon={CheckCircle2} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value={kpis.completed} label="Completed" />
       </div>
 
       {/* Toolbar */}
@@ -97,7 +97,7 @@ export default function ZoomPage() {
             <button
               key={f.value || 'all'}
               onClick={() => setStatus(f.value)}
-              className={`rounded-full border px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${status === f.value ? 'border-primary bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+              className={`rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors ${status === f.value ? 'border-primary bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
             >
               {f.label}
             </button>
@@ -116,7 +116,7 @@ export default function ZoomPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b text-left text-[11px] uppercase tracking-[.08em] text-muted-foreground">
+              <tr className="border-b text-left text-[10.5px] uppercase tracking-[.08em] text-muted-foreground">
                 <th className="px-4 py-3 font-semibold">Client</th>
                 <th className="px-4 py-3 font-semibold">Industry</th>
                 <th className="px-4 py-3 font-semibold">Scheduled</th>
@@ -139,7 +139,7 @@ export default function ZoomPage() {
                       <Avatar name={m.lead?.businessName ?? '—'} />
                       <div className="min-w-0">
                         <div className="truncate font-semibold hover:underline">{m.lead?.businessName ?? 'Unknown'}</div>
-                        <div className="truncate text-[11.5px] text-muted-foreground">{m.title || `${m.durationMins} min meeting`}</div>
+                        <div className="truncate text-[11px] text-muted-foreground">{m.title || `${m.durationMins} min meeting`}</div>
                       </div>
                     </button>
                   </td>
@@ -150,17 +150,17 @@ export default function ZoomPage() {
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-1.5">
                       {m.joinUrl && (
-                        <a href={m.joinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md bg-[#2D8CFF] px-2.5 py-1.5 text-[12px] font-semibold text-white">
+                        <a href={m.joinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md bg-[#2D8CFF] px-2.5 py-1.5 text-[11.5px] font-semibold text-white">
                           <Video className="h-3.5 w-3.5" /> Join
                         </a>
                       )}
                       {(m.status === 'scheduled' || m.status === 'rescheduled') && (
-                        <button onClick={() => act(() => zoomApi.start(m.id))} className="rounded-md border px-2.5 py-1.5 text-[12px] font-semibold hover:bg-muted">Start</button>
+                        <button onClick={() => act(() => zoomApi.start(m.id))} className="rounded-md border px-2.5 py-1.5 text-[11.5px] font-semibold hover:bg-muted">Start</button>
                       )}
                       {m.status === 'in_progress' && (
-                        <button onClick={() => setCompleteFor(m)} className="rounded-md bg-[#317d34] px-2.5 py-1.5 text-[12px] font-semibold text-white">Complete</button>
+                        <button onClick={() => setCompleteFor(m)} className="rounded-md bg-[var(--brand-strong)] px-2.5 py-1.5 text-[11.5px] font-semibold text-white">Complete</button>
                       )}
-                      <button onClick={() => setDetailId(m.id)} className="rounded-md border px-2.5 py-1.5 text-[12px] font-semibold hover:bg-muted">Details</button>
+                      <button onClick={() => setDetailId(m.id)} className="rounded-md border px-2.5 py-1.5 text-[11.5px] font-semibold hover:bg-muted">Details</button>
                     </div>
                   </td>
                 </tr>
@@ -257,7 +257,7 @@ function ScheduleModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
               <button
                 type="button"
                 onClick={() => { setSelectedLead(null); setLeadId(''); setLeadSearch(''); }}
-                className="shrink-0 text-[12px] font-semibold text-muted-foreground hover:text-foreground"
+                className="shrink-0 text-[11.5px] font-semibold text-muted-foreground hover:text-foreground"
               >
                 Change
               </button>
@@ -272,7 +272,7 @@ function ScheduleModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
               />
               <div className="mt-1.5 max-h-[168px] overflow-y-auto rounded-md border">
                 {leads.length === 0 ? (
-                  <p className="px-3 py-2.5 text-[12.5px] text-muted-foreground">
+                  <p className="px-3 py-2.5 text-[12px] text-muted-foreground">
                     {searching ? 'Searching…' : leadSearch ? 'No client matches that.' : 'No clients yet.'}
                   </p>
                 ) : leads.map((l) => (
@@ -280,7 +280,7 @@ function ScheduleModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
                     key={l.id}
                     type="button"
                     onClick={() => { setSelectedLead(l); setLeadId(l.id); }}
-                    className="block w-full truncate border-b px-3 py-2 text-left text-[13px] last:border-0 hover:bg-muted"
+                    className="block w-full truncate border-b px-3 py-2 text-left text-[12.5px] last:border-0 hover:bg-muted"
                   >
                     {l.businessName} <span className="text-muted-foreground">— {l.city}, {l.state}</span>
                   </button>
@@ -300,7 +300,7 @@ function ScheduleModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           </Field>
         </div>
         {selectedLead && when && (
-          <p className="-mt-1 text-[11.5px] text-muted-foreground">
+          <p className="-mt-1 text-[11px] text-muted-foreground">
             Saved as <span className="font-semibold text-foreground">{describeWallClock(when, selectedLead.timezone)}</span> for {selectedLead.businessName}.
           </p>
         )}
@@ -394,7 +394,7 @@ function CompleteModal({ meeting, onClose, onSaved }: { meeting: ZoomMeeting; on
       </div>
       <div className="mt-5 flex justify-end gap-2">
         <button onClick={onClose} className="rounded-md border px-4 py-2 text-sm font-semibold hover:bg-muted">Cancel</button>
-        <button onClick={save} disabled={busy} className="rounded-md bg-[#317d34] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Save & complete</button>
+        <button onClick={save} disabled={busy} className="rounded-md bg-[var(--brand-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Save & complete</button>
       </div>
     </Modal>
   );
@@ -406,7 +406,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
       <div className="w-full max-w-lg overflow-hidden rounded-2xl border bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b px-5 py-4">
-          <h3 className="font-display text-[16px] font-semibold">{title}</h3>
+          <h3 className="font-display text-[15px] font-semibold">{title}</h3>
           <button onClick={onClose} className="rounded-md p-1.5 hover:bg-muted"><X className="h-4 w-4" /></button>
         </div>
         <div className="p-5">{children}</div>
@@ -417,7 +417,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block space-y-1 text-sm">
-      <span className="text-[12px] font-medium text-muted-foreground">{label}</span>
+      <span className="text-[11.5px] font-medium text-muted-foreground">{label}</span>
       {children}
     </label>
   );

@@ -88,10 +88,10 @@ export function CallbackScheduler({
   if (!zoned) {
     return (
       <div className={`rounded-lg border border-[#e8d19a] bg-[#fdf8ec] p-3 ${className}`}>
-        <div className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-semibold text-[#8a5d0a]">
+        <div className="mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold text-[#8a5d0a]">
           <AlertTriangle className="h-4 w-4" /> This lead has no time zone
         </div>
-        <p className="mb-2.5 text-[11.5px] leading-relaxed text-[#8a5d0a]">
+        <p className="mb-2.5 text-[11px] leading-relaxed text-[#8a5d0a]">
           A callback is agreed on the customer&apos;s clock, so we need to know which one that is. Pick their time
           zone and the date and time fields will appear.
         </p>
@@ -102,7 +102,7 @@ export function CallbackScheduler({
               type="button"
               disabled={setZone.isPending}
               onClick={() => setZone.mutate(z.value)}
-              className="inline-flex items-center gap-1.5 rounded-full border-[1.5px] border-[#d9b978] bg-card px-3 py-[5px] text-[12px] font-semibold text-[#8a5d0a] hover:bg-[#f6ead0] disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-full border-[1.5px] border-[#d9b978] bg-card px-3 py-[5px] text-[11.5px] font-semibold text-[#8a5d0a] hover:bg-[#f6ead0] disabled:opacity-50"
             >
               {setZone.isPending && setZone.variables === z.value ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -161,7 +161,7 @@ export function CallbackScheduler({
             <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <div className="min-w-0">
               <div className="text-[10px] uppercase tracking-[.08em] text-muted-foreground">Lead&apos;s time</div>
-              <div className="truncate text-[12.5px] font-semibold">{describeWallClock(value, timezone)}</div>
+              <div className="truncate text-[12px] font-semibold">{describeWallClock(value, timezone)}</div>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
@@ -170,20 +170,20 @@ export function CallbackScheduler({
               <div className="text-[10px] uppercase tracking-[.08em] text-muted-foreground">
                 Your local time ({userZoneLabel()})
               </div>
-              <div className="truncate text-[12.5px] font-semibold">{formatInUserZone(instant)}</div>
+              <div className="truncate text-[12px] font-semibold">{formatInUserZone(instant)}</div>
             </div>
           </div>
         </div>
       )}
 
       {past && (
-        <p className="mt-1.5 flex items-center gap-1.5 text-[11.5px] font-semibold text-[#a8431f]">
+        <p className="mt-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-[#a8431f]">
           <AlertTriangle className="h-3.5 w-3.5" />
           That time has already passed for the lead ({describeWallClock(value, timezone)}). Pick a later one.
         </p>
       )}
 
-      <p className="mt-1.5 text-[11px] text-muted-foreground">
+      <p className="mt-1.5 text-[10.5px] text-muted-foreground">
         Times are entered in the lead&apos;s time zone —{' '}
         <span className="font-semibold text-foreground">
           {timezone} ({zoneLabel(timezone)})

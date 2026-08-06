@@ -1,9 +1,10 @@
 'use client';
 
-import { Check, Clock, Globe, Languages, Loader2 } from 'lucide-react';
+import { Check, Clock, Globe, Languages, Loader2, Palette } from 'lucide-react';
 import { useDisplaySettings } from '@/components/display-settings-provider';
 import { pushToast } from '@/lib/toast';
 import { coverage } from '@/lib/i18n';
+import { PALETTES } from '@/lib/palette';
 import {
   DISPLAY_TIMEZONES,
   LANGUAGES,
@@ -22,8 +23,13 @@ import {
  * panel is ungated and the preference is stored per user.
  */
 export function DisplayPreferences() {
-  const { timezone, language, loading, setTimezone, setLanguage } = useDisplaySettings();
+  const { timezone, language, palette, loading, setTimezone, setLanguage, setPalette } = useDisplaySettings();
   const browserGuess = guessTimezone();
+
+  const choosePalette = (id: string) => {
+    setPalette(id);
+    pushToast('success', `Palette set to ${PALETTES.find((p) => p.id === id)?.label ?? id}.`);
+  };
 
   const chooseZone = (tz: DisplayTimezone) => {
     setTimezone(tz);
@@ -37,14 +43,60 @@ export function DisplayPreferences() {
 
   return (
     <div className="max-w-[760px] space-y-[18px]">
+      {/* ── Colour palette ── */}
+      <section className="rounded-2xl border bg-card p-[18px] shadow-sm">
+        <div className="mb-1 flex items-center gap-2">
+          <Palette className="h-4 w-4 text-muted-foreground" />
+          <h3 className="font-display text-[14px] font-semibold">Colour Palette</h3>
+        </div>
+        <p className="mb-3.5 text-[12px] leading-relaxed text-muted-foreground">
+          The colour the CRM is painted in — the sidebar, the buttons, the tinted chips and the page behind them.
+          Applies the moment you pick it, and is saved to your account rather than shared, so it changes nothing for
+          anyone else.{' '}
+          <span className="text-foreground">Status colours never change:</span> red still means rejected and amber
+          still means pending, whichever palette you choose.
+        </p>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          {PALETTES.map((p) => {
+            const active = palette === p.id;
+            return (
+              <button
+                key={p.id}
+                onClick={() => choosePalette(p.id)}
+                aria-pressed={active}
+                className={`flex items-center gap-2.5 rounded-xl border-[1.5px] px-3 py-2.5 text-left transition-colors ${
+                  active ? 'border-primary bg-primary/5' : 'hover:bg-muted'
+                }`}
+              >
+                {/* Four bands — ink, brand, tint, canvas — which is what
+                    actually differs between one palette and the next. A single
+                    dot would show the brand and hide the three colours the eye
+                    spends most of its time on. */}
+                <span className="flex h-7 w-8 shrink-0 overflow-hidden rounded-[8px] border">
+                  {p.swatch.map((c) => (
+                    <span key={c} className="h-full flex-1" style={{ background: c }} />
+                  ))}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12.5px] font-semibold">{p.label}</span>
+                  <span className="block truncate text-[11px] text-muted-foreground">{p.hint}</span>
+                </span>
+                {active && <Check className="h-4 w-4 shrink-0 text-primary" />}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
       {/* ── Time zone ── */}
       <section className="rounded-2xl border bg-card p-[18px] shadow-sm">
         <div className="mb-1 flex items-center gap-2">
           <Clock className="h-4 w-4 text-muted-foreground" />
-          <h3 className="font-display text-[15px] font-semibold">Time Zone</h3>
+          <h3 className="font-display text-[14px] font-semibold">Time Zone</h3>
           {loading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
         </div>
-        <p className="mb-3.5 text-[12.5px] leading-relaxed text-muted-foreground">
+        <p className="mb-3.5 text-[12px] leading-relaxed text-muted-foreground">
           Every date and time in the CRM is shown on this clock — call logs, activity, reports and notifications.
           Saved to your account, so it follows you to any device.
         </p>
@@ -61,10 +113,10 @@ export function DisplayPreferences() {
                   active ? 'border-primary bg-primary/5' : 'hover:bg-muted'
                 }`}
               >
-                <span className="text-[17px] leading-none">{z.flag}</span>
+                <span className="text-[15.5px] leading-none">{z.flag}</span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-semibold">{z.label}</span>
-                  <span className="block truncate text-[11.5px] text-muted-foreground">
+                  <span className="block truncate text-[12.5px] font-semibold">{z.label}</span>
+                  <span className="block truncate text-[11px] text-muted-foreground">
                     {z.hint}
                     {/* Named so someone who has never chosen can see which one
                         they are already getting, rather than guessing. */}
@@ -79,7 +131,7 @@ export function DisplayPreferences() {
 
         <div className="mt-3.5 flex items-start gap-2 rounded-lg bg-muted/50 px-3 py-2.5">
           <Globe className="mt-[2px] h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <div className="text-[12px] leading-relaxed">
+          <div className="text-[11.5px] leading-relaxed">
             <div>
               Right now this reads <span className="font-semibold">{formatDateTimeWithZone(new Date())}</span>.
             </div>
@@ -98,9 +150,9 @@ export function DisplayPreferences() {
       <section className="rounded-2xl border bg-card p-[18px] shadow-sm">
         <div className="mb-1 flex items-center gap-2">
           <Languages className="h-4 w-4 text-muted-foreground" />
-          <h3 className="font-display text-[15px] font-semibold">Language</h3>
+          <h3 className="font-display text-[14px] font-semibold">Language</h3>
         </div>
-        <p className="mb-3.5 text-[12.5px] leading-relaxed text-muted-foreground">
+        <p className="mb-3.5 text-[12px] leading-relaxed text-muted-foreground">
           The language the interface is shown in. Saved to your account and applied wherever you sign in.
         </p>
 
@@ -124,15 +176,15 @@ export function DisplayPreferences() {
                 }`}
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-semibold">{l.native}</span>
-                  <span className="block truncate text-[11.5px] text-muted-foreground">
+                  <span className="block truncate text-[12.5px] font-semibold">{l.native}</span>
+                  <span className="block truncate text-[11px] text-muted-foreground">
                     {l.label}
                     {!l.ready && ` · ${pct}% translated`}
                   </span>
                 </span>
                 {active && <Check className="h-4 w-4 shrink-0 text-primary" />}
                 {!l.ready && (
-                  <span className="shrink-0 rounded-full bg-muted px-2 py-[2px] text-[10.5px] font-semibold text-muted-foreground">
+                  <span className="shrink-0 rounded-full bg-muted px-2 py-[2px] text-[10px] font-semibold text-muted-foreground">
                     Coming soon
                   </span>
                 )}

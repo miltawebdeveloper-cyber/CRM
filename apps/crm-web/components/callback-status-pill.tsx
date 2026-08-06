@@ -23,7 +23,7 @@ export function CallbackStatusPill({
   const Icon = ICON[status];
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${className}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${className}`}
       style={{ background: s.bg, color: s.fg }}
     >
       <Icon className="h-3 w-3" /> {s.label}

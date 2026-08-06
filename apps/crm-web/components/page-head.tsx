@@ -17,9 +17,9 @@ export function Avatar({ name, size = 'sm' }: { name: string; size?: 'sm' | 'md'
     .slice(0, 2)
     .map((s) => s[0]?.toUpperCase())
     .join('');
-  const dim = size === 'lg' ? 'h-11 w-11 text-[15px]' : size === 'md' ? 'h-9 w-9 text-[13px]' : 'h-[30px] w-[30px] text-[12px]';
+  const dim = size === 'lg' ? 'h-11 w-11 text-[14px]' : size === 'md' ? 'h-9 w-9 text-[12.5px]' : 'h-[30px] w-[30px] text-[11.5px]';
   return (
-    <div className={`grid ${dim} shrink-0 place-items-center rounded-full bg-[#2b732f] font-display font-semibold text-white`}>
+    <div className={`grid ${dim} shrink-0 place-items-center rounded-full bg-[var(--brand-mid)] font-display font-semibold text-white`}>
       {initials}
     </div>
   );

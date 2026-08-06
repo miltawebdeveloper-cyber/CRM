@@ -83,7 +83,7 @@ function OutcomeCell({ record, defs, canEdit }: { record: OutcomeRecord; defs: O
           // Straight to the save unless a date is still owed.
           if (slug && !(next?.schedulesCallback && !hasCallback)) save.mutate(slug);
         }}
-        className="rounded-md border bg-background px-2 py-1 text-[12.5px] font-medium outline-none focus:border-primary"
+        className="rounded-md border bg-background px-2 py-1 text-[12px] font-medium outline-none focus:border-primary"
       >
         <option value="">Select…</option>
         {defs.map((o) => <option key={o.id} value={o.slug}>{o.name}</option>)}
@@ -95,13 +95,13 @@ function OutcomeCell({ record, defs, canEdit }: { record: OutcomeRecord; defs: O
             value={when}
             onChange={(e) => setWhen(e.target.value)}
             title={`Callback time — in the lead's time zone (${record.lead?.timezone ?? 'EST'})`}
-            className="rounded-md border bg-background px-2 py-1 text-[12.5px] outline-none focus:border-primary"
+            className="rounded-md border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary"
           />
           <button
             type="button"
             disabled={!when || save.isPending}
             onClick={() => save.mutate(choice)}
-            className="rounded-md bg-primary px-2 py-1 text-[12px] font-semibold text-primary-foreground disabled:opacity-50"
+            className="rounded-md bg-primary px-2 py-1 text-[11.5px] font-semibold text-primary-foreground disabled:opacity-50"
           >
             Save
           </button>
@@ -182,7 +182,7 @@ export default function OutcomesPage() {
       header: 'Pinned',
       render: (r) => {
         const pinned = !!(r.lead?.callbackAt && !r.lead.callbackCompletedAt && new Date(r.lead.callbackAt) <= new Date());
-        return pinned ? <span className="rounded-full bg-[#fbeeec] px-2 py-0.5 text-[11px] font-semibold text-[#a8431f]">Pinned</span> : '—';
+        return pinned ? <span className="rounded-full bg-[#fde9e6] px-2 py-0.5 text-[10.5px] font-semibold text-[#a8431f]">Pinned</span> : '—';
       },
     },
     // `canEdit` closes over `me`, so the deps track the value it reads rather

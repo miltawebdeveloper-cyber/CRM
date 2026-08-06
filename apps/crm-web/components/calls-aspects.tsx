@@ -191,8 +191,8 @@ export function CallsAspects({ filters }: { filters: CallFilters }) {
     <div className="mb-[18px] rounded-2xl border bg-card p-5 shadow-sm">
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
         <div>
-          <h3 className="font-display text-[15px] font-semibold italic">{who} Call {when}</h3>
-          <p className="text-[11.5px] text-muted-foreground">
+          <h3 className="font-display text-[14px] font-semibold italic">{who} Call {when}</h3>
+          <p className="text-[11px] text-muted-foreground">
             {isManager && !userId ? 'The whole team — pick an employee above to read one rep.' : 'Calls in the selected range, broken down by aspect.'}
             {unlogged > 0 && (
               <>
@@ -213,7 +213,7 @@ export function CallsAspects({ filters }: { filters: CallFilters }) {
                 type="button"
                 onClick={() => setMeasure(m.value)}
                 aria-pressed={measure === m.value}
-                className={`whitespace-nowrap rounded-[5px] px-2.5 py-[5px] text-[11.5px] font-semibold transition-colors ${
+                className={`whitespace-nowrap rounded-[5px] px-2.5 py-[5px] text-[11px] font-semibold transition-colors ${
                   measure === m.value ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-background hover:text-foreground'
                 }`}
               >

@@ -96,13 +96,13 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="grid min-h-screen md:grid-cols-[1.05fr_.95fr]" style={{ background: '#112712' }}>
+    <main className="grid min-h-screen md:grid-cols-[1.05fr_.95fr]" style={{ background: 'var(--brand-ink-2)' }}>
       {/* Brand side */}
       <div
-        className="relative hidden flex-col justify-between overflow-hidden p-[54px_60px] text-[#eef6ef] md:flex"
+        className="relative hidden flex-col justify-between overflow-hidden p-[54px_60px] text-[#f3f5ef] md:flex"
         style={{
           background:
-            'radial-gradient(120% 90% at 0% 0%,rgba(111,135,69,.55),transparent 55%),radial-gradient(130% 100% at 100% 100%,rgba(28,35,22,.9),transparent 60%),linear-gradient(160deg,#183e1a,#112712 70%)',
+            'radial-gradient(120% 90% at 0% 0%,rgba(111,135,69,.55),transparent 55%),radial-gradient(130% 100% at 100% 100%,rgba(28,35,22,.9),transparent 60%),linear-gradient(160deg,#183e1a,var(--brand-ink-2) 70%)',
         }}
       >
         <svg className="pointer-events-none absolute inset-0 opacity-[.16]" viewBox="0 0 600 800" preserveAspectRatio="xMidYMid slice">
@@ -115,29 +115,29 @@ export default function LoginPage() {
         </svg>
 
         <div className="relative z-[2] flex items-center gap-[11px]">
-          <div className="grid h-9 w-9 place-items-center rounded-[9px]" style={{ background: 'linear-gradient(150deg,#7e9933,#1d491f)' }}>
+          <div className="grid h-9 w-9 place-items-center rounded-[9px]" style={{ background: 'linear-gradient(150deg,var(--brand-lime-deep),var(--brand-deep))' }}>
             <svg viewBox="0 0 24 24" fill="none" className="h-[21px] w-[21px]">
-              <path d="M12 2L3 6v6c0 5 3.8 8.6 9 10 5.2-1.4 9-5 9-10V6l-9-4z" fill="#d8eed9" />
-              <path d="M9.5 12l1.8 1.8 3.5-3.6" stroke="#266929" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M12 2L3 6v6c0 5 3.8 8.6 9 10 5.2-1.4 9-5 9-10V6l-9-4z" fill="var(--brand-tint)" />
+              <path d="M9.5 12l1.8 1.8 3.5-3.6" stroke="var(--brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
-          <div className="font-display text-[18px] font-semibold leading-none text-white">
-            Milta<small className="mt-[2px] block text-[9.5px] font-medium uppercase tracking-[.22em] text-[#7e9933]">Sales CRM</small>
+          <div className="font-display text-[16px] font-semibold leading-none text-white">
+            Milta<small className="mt-[2px] block text-[9.5px] font-medium uppercase tracking-[.22em] text-[var(--brand-lime-deep)]">Sales CRM</small>
           </div>
         </div>
 
         <div className="relative z-[2]">
-          <h1 className="mb-[18px] max-w-[13ch] font-display text-[40px] font-semibold leading-[1.07] tracking-tight text-white">
+          <h1 className="mb-[18px] max-w-[13ch] font-display text-[34px] font-semibold leading-[1.07] tracking-tight text-white">
             Command your pipeline. Close on every call.
           </h1>
-          <p className="max-w-[42ch] text-[15px] text-[#c7d69f]">
+          <p className="max-w-[42ch] text-[14px] text-[var(--brand-lime-soft)]">
             The calling-first CRM built for high-tempo outbound teams — lead routing, live dialer, productivity tracking, and AI coaching in one operations deck.
           </p>
           <div className="mt-[30px] flex gap-[34px]">
             {[['822K', 'Leads routed'], ['38%', 'Avg. connect'], ['4', 'Timezones']].map(([n, l]) => (
               <div key={l}>
-                <div className="font-display text-[26px] font-semibold text-white">{n}</div>
-                <div className="text-[11px] uppercase tracking-[.13em] text-[#a6c74d]">{l}</div>
+                <div className="font-display text-[23px] font-semibold text-white">{n}</div>
+                <div className="text-[10.5px] uppercase tracking-[.13em] text-[var(--brand-lime)]">{l}</div>
               </div>
             ))}
           </div>
@@ -150,18 +150,18 @@ export default function LoginPage() {
           /* ── OTP verification ── the password has been accepted but no token is
              issued until the mailed code is exchanged. */
           <form onSubmit={onVerify} className="w-full max-w-[392px]">
-            <h2 className="mb-1.5 font-display text-[26px] font-semibold tracking-tight text-[#0c120d]">Verification required</h2>
-            <p className="mb-[26px] text-sm text-[#5a725b]">
-              A 6-digit code was sent to <b className="text-[#1d491f]">{challenge.sentTo}</b>. Enter it below to finish signing in.
+            <h2 className="mb-1.5 font-display text-[23px] font-semibold tracking-tight text-[#14140f]">Verification required</h2>
+            <p className="mb-[26px] text-sm text-[#6f7268]">
+              A 6-digit code was sent to <b className="text-[var(--brand-deep)]">{challenge.sentTo}</b>. Enter it below to finish signing in.
               {challenge.trustDays > 0 && (
                 <>
-                  {' '}This browser will then be remembered for <b className="text-[#1d491f]">{challenge.trustDays} days</b> — you
+                  {' '}This browser will then be remembered for <b className="text-[var(--brand-deep)]">{challenge.trustDays} days</b> — you
                   won&apos;t be asked for a code again here, even after signing out.
                 </>
               )}
             </p>
 
-            <label className="mb-[7px] block text-xs font-semibold text-[#1d491f]">Verification code</label>
+            <label className="mb-[7px] block text-xs font-semibold text-[var(--brand-deep)]">Verification code</label>
             <input
               autoFocus
               inputMode="numeric"
@@ -170,7 +170,7 @@ export default function LoginPage() {
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
               placeholder="000000"
-              className="w-full rounded-[11px] border-[1.5px] border-[#bbd3bc] bg-[#f5faf5] px-[14px] py-3 text-center font-mono text-[22px] tracking-[.4em] text-[#0c120d] outline-none focus:border-[#2b732f] focus:bg-white focus:ring-4 focus:ring-[#d8eed9]"
+              className="w-full rounded-[11px] border-[1.5px] border-[var(--brand-line)] bg-[#f7f7f4] px-[14px] py-3 text-center font-mono text-[20px] tracking-[.4em] text-[#14140f] outline-none focus:border-[var(--brand-mid)] focus:bg-white focus:ring-4 focus:ring-[var(--brand-tint)]"
             />
 
             {error && <p className="mt-3 text-sm text-[#9e2b21]">{error}</p>}
@@ -178,24 +178,24 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading || code.length !== 6}
-              className="mt-[18px] w-full rounded-[11px] bg-[#266929] py-[13px] text-[14.5px] font-semibold text-white shadow-sm transition hover:bg-[#1d491f] disabled:opacity-60"
+              className="mt-[18px] w-full rounded-[11px] bg-[var(--brand)] py-[13px] text-[13.5px] font-semibold text-white shadow-sm transition hover:bg-[var(--brand-deep)] disabled:opacity-60"
             >
               {loading ? 'Verifying…' : 'Verify & sign in'}
             </button>
 
-            <div className="mt-[18px] flex items-center justify-between text-[13px]">
+            <div className="mt-[18px] flex items-center justify-between text-[12.5px]">
               <button
                 type="button"
                 onClick={onResend}
                 disabled={loading || cooldown > 0}
-                className="font-semibold text-[#266929] disabled:text-[#93a894]"
+                className="font-semibold text-[var(--brand)] disabled:text-[#93a894]"
               >
                 {cooldown > 0 ? `Resend code in ${cooldown}s` : 'Resend code'}
               </button>
               <button
                 type="button"
                 onClick={() => { setChallenge(null); setCode(''); setError(''); }}
-                className="text-[#5a725b] hover:underline"
+                className="text-[#6f7268] hover:underline"
               >
                 Back to sign in
               </button>
@@ -203,23 +203,23 @@ export default function LoginPage() {
           </form>
         ) : (
         <form onSubmit={onSubmit} className="w-full max-w-[392px]">
-          <h2 className="mb-1.5 font-display text-[26px] font-semibold tracking-tight text-[#0c120d]">Welcome back</h2>
-          <p className="mb-[30px] text-sm text-[#5a725b]">Sign in to your operations dashboard.</p>
+          <h2 className="mb-1.5 font-display text-[23px] font-semibold tracking-tight text-[#14140f]">Welcome back</h2>
+          <p className="mb-[30px] text-sm text-[#6f7268]">Sign in to your operations dashboard.</p>
 
           <div className="mb-[17px]">
-            <label className="mb-[7px] block text-xs font-semibold text-[#1d491f]">Work email</label>
+            <label className="mb-[7px] block text-xs font-semibold text-[var(--brand-deep)]">Work email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
               autoComplete="email"
-              className="w-full rounded-[11px] border-[1.5px] border-[#bbd3bc] bg-[#f5faf5] px-[14px] py-3 text-[#0c120d] outline-none focus:border-[#2b732f] focus:bg-white focus:ring-4 focus:ring-[#d8eed9]"
+              className="w-full rounded-[11px] border-[1.5px] border-[var(--brand-line)] bg-[#f7f7f4] px-[14px] py-3 text-[#14140f] outline-none focus:border-[var(--brand-mid)] focus:bg-white focus:ring-4 focus:ring-[var(--brand-tint)]"
             />
           </div>
 
           <div className="mb-[17px]">
-            <label className="mb-[7px] block text-xs font-semibold text-[#1d491f]">Password</label>
+            <label className="mb-[7px] block text-xs font-semibold text-[var(--brand-deep)]">Password</label>
             <div className="relative">
               <input
                 type={showPw ? 'text' : 'password'}
@@ -227,9 +227,9 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 autoComplete="current-password"
-                className="w-full rounded-[11px] border-[1.5px] border-[#bbd3bc] bg-[#f5faf5] px-[14px] py-3 pr-16 text-[#0c120d] outline-none focus:border-[#2b732f] focus:bg-white focus:ring-4 focus:ring-[#d8eed9]"
+                className="w-full rounded-[11px] border-[1.5px] border-[var(--brand-line)] bg-[#f7f7f4] px-[14px] py-3 pr-16 text-[#14140f] outline-none focus:border-[var(--brand-mid)] focus:bg-white focus:ring-4 focus:ring-[var(--brand-tint)]"
               />
-              <button type="button" onClick={() => setShowPw((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-[13px] text-[#5a725b]">
+              <button type="button" onClick={() => setShowPw((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-[12.5px] text-[#6f7268]">
                 {showPw ? 'Hide' : 'Show'}
               </button>
             </div>
@@ -237,23 +237,23 @@ export default function LoginPage() {
 
           {mfaRequired && (
             <div className="mb-[17px]">
-              <label className="mb-[7px] block text-xs font-semibold text-[#1d491f]">MFA code</label>
+              <label className="mb-[7px] block text-xs font-semibold text-[var(--brand-deep)]">MFA code</label>
               <input
                 inputMode="numeric"
                 maxLength={6}
                 value={mfaToken}
                 onChange={(e) => setMfaToken(e.target.value)}
                 placeholder="6-digit code"
-                className="w-full rounded-[11px] border-[1.5px] border-[#bbd3bc] bg-[#f5faf5] px-[14px] py-3 tracking-widest outline-none focus:border-[#2b732f] focus:bg-white"
+                className="w-full rounded-[11px] border-[1.5px] border-[var(--brand-line)] bg-[#f7f7f4] px-[14px] py-3 tracking-widest outline-none focus:border-[var(--brand-mid)] focus:bg-white"
               />
             </div>
           )}
 
-          <div className="my-[18px] flex items-center justify-between text-[13px]">
-            <label className="flex cursor-pointer items-center gap-2 text-[#5a725b]">
-              <input type="checkbox" defaultChecked className="h-4 w-4 accent-[#266929]" /> Keep me signed in
+          <div className="my-[18px] flex items-center justify-between text-[12.5px]">
+            <label className="flex cursor-pointer items-center gap-2 text-[#6f7268]">
+              <input type="checkbox" defaultChecked className="h-4 w-4 accent-[var(--brand)]" /> Keep me signed in
             </label>
-            <span className="font-semibold text-[#266929]">Forgot password?</span>
+            <span className="font-semibold text-[var(--brand)]">Forgot password?</span>
           </div>
 
           {error && <p className="mb-3 text-sm text-[#9e2b21]">{error}</p>}
@@ -261,15 +261,15 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-[11px] bg-[#266929] py-[13px] text-[14.5px] font-semibold text-white shadow-sm transition hover:bg-[#1d491f] disabled:opacity-60"
+            className="w-full rounded-[11px] bg-[var(--brand)] py-[13px] text-[13.5px] font-semibold text-white shadow-sm transition hover:bg-[var(--brand-deep)] disabled:opacity-60"
           >
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
 
           <div className="my-[22px] flex items-center gap-[14px] text-xs text-[#739175]">
-            <span className="h-px flex-1 bg-[#d7e5d7]" /> or continue with <span className="h-px flex-1 bg-[#d7e5d7]" />
+            <span className="h-px flex-1 bg-[#e4e2db]" /> or continue with <span className="h-px flex-1 bg-[#e4e2db]" />
           </div>
-          <button type="button" className="w-full rounded-[11px] border-[1.5px] border-[#bbd3bc] bg-white py-3 font-semibold text-[#163618] hover:bg-[#eef6ef]">
+          <button type="button" className="w-full rounded-[11px] border-[1.5px] border-[var(--brand-line)] bg-white py-3 font-semibold text-[var(--brand-ink)] hover:bg-[#f3f5ef]">
             Single Sign-On (SSO)
           </button>
         </form>

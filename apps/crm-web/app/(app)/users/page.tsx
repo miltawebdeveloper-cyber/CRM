@@ -15,7 +15,7 @@ import { formatDate } from '@/lib/display-settings';
 const ROLE_META: Record<string, { label: string; cls: string; desc: string; perms: string[] }> = {
   admin: { label: 'Admin', cls: 'bg-[#f7e3da] text-[#a8431f]', desc: 'Full access to all modules, data, settings, and user management.', perms: ['All modules & settings', 'User management', 'Recordings & exports', 'System configuration'] },
   team_leader: { label: 'Team Leader', cls: 'bg-[#dff0ec] text-[#2f6f63]', desc: 'Assign leads, monitor team performance, and view team reports.', perms: ['Assign & distribute leads', 'Monitor live team', 'Team reports & recordings', 'No system settings'] },
-  employee: { label: 'Sales Caller', cls: 'bg-[#d8eed9] text-[#266929]', desc: 'Work assigned leads — update status, add notes, and log calls.', perms: ['Assigned leads only', 'Make & log calls', 'Add notes & follow-ups', 'No team data access'] },
+  employee: { label: 'Sales Caller', cls: 'bg-[var(--brand-tint)] text-[var(--brand)]', desc: 'Work assigned leads — update status, add notes, and log calls.', perms: ['Assigned leads only', 'Make & log calls', 'Add notes & follow-ups', 'No team data access'] },
 };
 
 const ROLE_OPTS = [
@@ -74,19 +74,19 @@ export default function UsersPage() {
     {
       key: 'user', header: 'User', required: true, searchable: true,
       searchValue: (u) => `${u.name} ${u.email}`,
-      render: (u) => <div className="flex items-center gap-[10px]"><Avatar name={u.name} /><div><div className="font-semibold">{u.name}</div><div className="text-[11.5px] text-muted-foreground">{u.email}</div></div></div>,
+      render: (u) => <div className="flex items-center gap-[10px]"><Avatar name={u.name} /><div><div className="font-semibold">{u.name}</div><div className="text-[11px] text-muted-foreground">{u.email}</div></div></div>,
     },
-    { key: 'role', header: 'Role', trackable: true, render: (u) => <span className={`rounded-full px-2.5 py-[3px] text-[11.5px] font-bold ${ROLE_META[u.role].cls}`}>{ROLE_META[u.role].label}</span> },
-    { key: 'status', header: 'Status', trackable: true, render: (u) => <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold ${u.isActive ? 'bg-[#d8eed9] text-[#266929]' : 'bg-[#e7f0f8] text-[#2c5d8f]'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{u.isActive ? 'Active' : 'Inactive'}</span> },
+    { key: 'role', header: 'Role', trackable: true, render: (u) => <span className={`rounded-full px-2.5 py-[3px] text-[11px] font-bold ${ROLE_META[u.role].cls}`}>{ROLE_META[u.role].label}</span> },
+    { key: 'status', header: 'Status', trackable: true, render: (u) => <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-semibold ${u.isActive ? 'bg-[var(--brand-tint)] text-[var(--brand)]' : 'bg-[#e6effb] text-[#2c5d8f]'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{u.isActive ? 'Active' : 'Inactive'}</span> },
     {
       key: 'availability', header: 'Availability', trackable: true,
       render: (u) => {
         const online = (u.availability ?? 'online') === 'online';
-        return <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11.5px] font-semibold ${online ? 'bg-[#d8eed9] text-[#266929]' : 'bg-[#fbeeec] text-[#9e2b21]'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{online ? 'Online' : 'Offline'}</span>;
+        return <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-semibold ${online ? 'bg-[var(--brand-tint)] text-[var(--brand)]' : 'bg-[#fde9e6] text-[#9e2b21]'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{online ? 'Online' : 'Offline'}</span>;
       },
     },
-    { key: 'shift', header: 'Shift', trackable: true, render: (u) => u.shiftStart ? <span className="font-mono text-[12px]">{u.shiftStart}</span> : <span className="text-muted-foreground">—</span> },
-    { key: 'openphone', header: 'OpenPhone #', searchable: true, searchValue: (u) => u.openphoneNumber, render: (u) => u.openphoneNumber ? <span className="font-mono text-[12px]">{u.openphoneNumber}</span> : <span className="text-muted-foreground">—</span> },
+    { key: 'shift', header: 'Shift', trackable: true, render: (u) => u.shiftStart ? <span className="font-mono text-[11.5px]">{u.shiftStart}</span> : <span className="text-muted-foreground">—</span> },
+    { key: 'openphone', header: 'OpenPhone #', searchable: true, searchValue: (u) => u.openphoneNumber, render: (u) => u.openphoneNumber ? <span className="font-mono text-[11.5px]">{u.openphoneNumber}</span> : <span className="text-muted-foreground">—</span> },
     { key: 'created', header: 'Created', cellClassName: 'text-muted-foreground', render: (u) => formatDate(u.createdAt) },
     {
       key: 'actions', header: '', required: true, headerClassName: 'text-right', cellClassName: 'text-right',
@@ -96,12 +96,12 @@ export default function UsersPage() {
           {(() => {
             const online = (u.availability ?? 'online') === 'online';
             return (
-              <button onClick={() => availRef.current(u)} title={online ? 'Set offline (reassigns their work)' : 'Set online'} className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-muted ${online ? 'text-muted-foreground hover:text-[#9e2b21]' : 'text-[#317d34]'}`}>
+              <button onClick={() => availRef.current(u)} title={online ? 'Set offline (reassigns their work)' : 'Set online'} className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-muted ${online ? 'text-muted-foreground hover:text-[#9e2b21]' : 'text-[var(--brand-strong)]'}`}>
                 {online ? <WifiOff className="h-4 w-4" /> : <Wifi className="h-4 w-4" />}
               </button>
             );
           })()}
-          <button onClick={() => toggleRef.current(u)} title={u.isActive ? 'Deactivate' : 'Activate'} className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-muted ${u.isActive ? 'text-muted-foreground hover:text-[#9e2b21]' : 'text-[#317d34]'}`}>
+          <button onClick={() => toggleRef.current(u)} title={u.isActive ? 'Deactivate' : 'Activate'} className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-muted ${u.isActive ? 'text-muted-foreground hover:text-[#9e2b21]' : 'text-[var(--brand-strong)]'}`}>
             {u.isActive ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
           </button>
         </div>
@@ -126,22 +126,22 @@ export default function UsersPage() {
   return (
     <div>
       <PageHead>
-        <button onClick={() => setCreating(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> Add User</button>
+        <button onClick={() => setCreating(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> Add User</button>
       </PageHead>
 
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={Users} iconBg="#d8eed9" iconColor="#266929" value={users.length} label="Total Users" />
+        <KpiCard icon={Users} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={users.length} label="Total Users" />
         <KpiCard icon={Shield} iconBg="#fdecdc" iconColor="#c98a18" value={count('admin')} label="Admins" />
         <KpiCard icon={UserCheck} iconBg="#dff0ec" iconColor="#2f6f63" value={count('team_leader')} label="Team Leaders" />
-        <KpiCard icon={Phone} iconBg="#d8eed9" iconColor="#266929" value={count('employee')} label="Sales Callers" />
+        <KpiCard icon={Phone} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={count('employee')} label="Sales Callers" />
       </div>
 
       <div className="mb-5 grid gap-[18px] md:grid-cols-3">
         {Object.entries(ROLE_META).map(([r, m]) => (
           <div key={r} className="rounded-2xl border bg-card p-[18px] shadow-sm">
-            <div className="mb-2.5 flex items-center justify-between"><span className={`rounded-full px-2.5 py-[3px] text-[11.5px] font-bold ${m.cls}`}>{m.label}</span><span className="text-[12px] text-muted-foreground">{count(r)} {count(r) === 1 ? 'user' : 'users'}</span></div>
-            <div className="mb-3.5 text-[13px] text-muted-foreground">{m.desc}</div>
-            <div className="flex flex-col gap-2.5">{m.perms.map((p) => <div key={p} className="flex items-center gap-2.5 text-[13px] font-medium"><Check className="h-[15px] w-[15px] shrink-0 text-[#317d34]" />{p}</div>)}</div>
+            <div className="mb-2.5 flex items-center justify-between"><span className={`rounded-full px-2.5 py-[3px] text-[11px] font-bold ${m.cls}`}>{m.label}</span><span className="text-[11.5px] text-muted-foreground">{count(r)} {count(r) === 1 ? 'user' : 'users'}</span></div>
+            <div className="mb-3.5 text-[12.5px] text-muted-foreground">{m.desc}</div>
+            <div className="flex flex-col gap-2.5">{m.perms.map((p) => <div key={p} className="flex items-center gap-2.5 text-[12.5px] font-medium"><Check className="h-[15px] w-[15px] shrink-0 text-[var(--brand-strong)]" />{p}</div>)}</div>
           </div>
         ))}
       </div>
@@ -207,7 +207,7 @@ function UserModal({ user, onClose, onSaved }: { user: User | null; onClose: () 
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-2xl border bg-card p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="font-display text-[16px] font-semibold">{isEdit ? 'Edit User' : 'Add User'}</h3>
+          <h3 className="font-display text-[15px] font-semibold">{isEdit ? 'Edit User' : 'Add User'}</h3>
           <button onClick={onClose} className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted"><X className="h-4 w-4" /></button>
         </div>
 
@@ -242,16 +242,16 @@ function UserModal({ user, onClose, onSaved }: { user: User | null; onClose: () 
           )}
           {isEdit && (
             <label className="flex items-center gap-2.5 text-sm">
-              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 accent-[#266929]" />
+              <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 accent-[var(--brand)]" />
               <span className="font-medium">Active</span>
             </label>
           )}
 
-          {errMsg && <p className="text-[13px] text-[#9e2b21]">{errMsg}</p>}
+          {errMsg && <p className="text-[12.5px] text-[#9e2b21]">{errMsg}</p>}
 
           <div className="flex items-center justify-end gap-2 pt-1">
-            <button type="button" onClick={onClose} className="rounded-md border bg-card px-4 py-2 text-[13px] font-semibold hover:bg-muted">Cancel</button>
-            <button type="submit" disabled={save.isPending} className="rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground disabled:opacity-60">
+            <button type="button" onClick={onClose} className="rounded-md border bg-card px-4 py-2 text-[12.5px] font-semibold hover:bg-muted">Cancel</button>
+            <button type="submit" disabled={save.isPending} className="rounded-md bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground disabled:opacity-60">
               {save.isPending ? 'Saving…' : isEdit ? 'Save changes' : 'Create user'}
             </button>
           </div>

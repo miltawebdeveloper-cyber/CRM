@@ -89,7 +89,7 @@ export function LeadOutcomeCell({ lead, canEdit = true }: { lead: Lead; canEdit?
           // failing after the fact.
           if (slug && !(next?.schedulesCallback && !lead.callbackAt)) save.mutate(slug);
         }}
-        className="max-w-[180px] rounded-md border bg-background px-2 py-1 text-[12.5px] font-medium outline-none focus:border-primary"
+        className="max-w-[180px] rounded-md border bg-background px-2 py-1 text-[12px] font-medium outline-none focus:border-primary"
       >
         <option value="">Select…</option>
         {outcomes.map((o) => (
@@ -109,13 +109,13 @@ export function LeadOutcomeCell({ lead, canEdit = true }: { lead: Lead; canEdit?
                 ? `Callback time — in the lead's time zone (${lead.timezone})`
                 : "Callback time — this lead has no time zone set, so saving will be refused until one is chosen"
             }
-            className="rounded-md border bg-background px-2 py-1 text-[12.5px] outline-none focus:border-primary"
+            className="rounded-md border bg-background px-2 py-1 text-[12px] outline-none focus:border-primary"
           />
           <button
             type="button"
             disabled={!when || save.isPending}
             onClick={() => save.mutate(choice)}
-            className="rounded-md bg-primary px-2 py-1 text-[12px] font-semibold text-primary-foreground disabled:opacity-50"
+            className="rounded-md bg-primary px-2 py-1 text-[11.5px] font-semibold text-primary-foreground disabled:opacity-50"
           >
             Save
           </button>

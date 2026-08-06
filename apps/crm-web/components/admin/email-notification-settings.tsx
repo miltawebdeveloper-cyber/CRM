@@ -18,7 +18,7 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
     <button
       type="button"
       onClick={() => onChange(!on)}
-      className={`relative h-6 w-[42px] shrink-0 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-[#bbd3bc]'}`}
+      className={`relative h-6 w-[42px] shrink-0 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-[var(--brand-line)]'}`}
       aria-pressed={on}
     >
       <span className={`absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all ${on ? 'left-[21px]' : 'left-[3px]'}`} />
@@ -74,9 +74,9 @@ export function EmailNotificationSettings() {
   return (
     <div className="rounded-2xl border bg-card shadow-sm">
       <div className="flex items-center gap-2 border-b px-[18px] py-4">
-        <Mail className="h-4 w-4 text-[#266929]" />
+        <Mail className="h-4 w-4 text-[var(--brand)]" />
         <div>
-          <h3 className="font-display text-[15px] font-semibold">Email Notification Settings</h3>
+          <h3 className="font-display text-[14px] font-semibold">Email Notification Settings</h3>
           <div className="text-xs text-muted-foreground">Recipients & types for callback emails — editable without code changes</div>
         </div>
       </div>
@@ -84,10 +84,10 @@ export function EmailNotificationSettings() {
       <div className="space-y-5 p-[18px]">
         {/* Recipients */}
         <div>
-          <div className="mb-2 text-[12px] font-semibold uppercase tracking-[.06em] text-muted-foreground">Recipients</div>
+          <div className="mb-2 text-[11.5px] font-semibold uppercase tracking-[.06em] text-muted-foreground">Recipients</div>
           <div className="space-y-2">
             {recipients.map((e) => (
-              <div key={e} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-[13px]">
+              <div key={e} className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-[12.5px]">
                 <Mail className="h-3.5 w-3.5 text-muted-foreground" />
                 <span className="flex-1 font-medium">{e}</span>
                 <button type="button" onClick={() => removeEmail(e)} className="text-muted-foreground hover:text-[#9e2b21]" aria-label={`Remove ${e}`}>
@@ -96,7 +96,7 @@ export function EmailNotificationSettings() {
               </div>
             ))}
             {recipients.length === 0 && !isLoading && (
-              <p className="text-[13px] text-muted-foreground">No recipients yet. The assigned user is always notified; add managers/admins below.</p>
+              <p className="text-[12.5px] text-muted-foreground">No recipients yet. The assigned user is always notified; add managers/admins below.</p>
             )}
           </div>
 
@@ -107,23 +107,23 @@ export function EmailNotificationSettings() {
               onChange={(e) => { setNewEmail(e.target.value); setError(''); }}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addEmail(); } }}
               placeholder="manager@company.com"
-              className="min-w-[220px] flex-1 rounded-md border bg-background px-3 py-2 text-[13px] outline-none"
+              className="min-w-[220px] flex-1 rounded-md border bg-background px-3 py-2 text-[12.5px] outline-none"
             />
-            <button type="button" onClick={addEmail} className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-2 text-[13px] font-semibold hover:bg-muted/50">
+            <button type="button" onClick={addEmail} className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-2 text-[12.5px] font-semibold hover:bg-muted/50">
               <Plus className="h-3.5 w-3.5" /> Add
             </button>
           </div>
-          {error && <p className="mt-1.5 text-[12px] font-medium text-[#9e2b21]">{error}</p>}
+          {error && <p className="mt-1.5 text-[11.5px] font-medium text-[#9e2b21]">{error}</p>}
         </div>
 
         {/* Type toggles */}
         <div>
-          <div className="mb-1 text-[12px] font-semibold uppercase tracking-[.06em] text-muted-foreground">Notification Types</div>
+          <div className="mb-1 text-[11.5px] font-semibold uppercase tracking-[.06em] text-muted-foreground">Notification Types</div>
           {TYPE_LABELS.map(({ key, label, desc }) => (
             <div key={key} className="flex items-center justify-between gap-4 border-b py-3 last:border-0">
               <div>
-                <div className="text-[14px] font-semibold">{label}</div>
-                <div className="text-[12.5px] text-muted-foreground">{desc}</div>
+                <div className="text-[13px] font-semibold">{label}</div>
+                <div className="text-[12px] text-muted-foreground">{desc}</div>
               </div>
               <Toggle on={types[key]} onChange={(v) => setTypes((t) => ({ ...t, [key]: v }))} />
             </div>
@@ -135,12 +135,12 @@ export function EmailNotificationSettings() {
             type="button"
             disabled={!dirty || save.isPending}
             onClick={() => save.mutate({ recipients, types })}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[13px] font-semibold text-primary-foreground disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground disabled:opacity-50"
           >
             <Check className="h-4 w-4" /> {save.isPending ? 'Saving…' : 'Save settings'}
           </button>
-          {save.isSuccess && !dirty && <span className="text-[12.5px] font-medium text-[#317d34]">Saved.</span>}
-          {save.isError && <span className="text-[12.5px] font-medium text-[#9e2b21]">Failed to save.</span>}
+          {save.isSuccess && !dirty && <span className="text-[12px] font-medium text-[var(--brand-strong)]">Saved.</span>}
+          {save.isError && <span className="text-[12px] font-medium text-[#9e2b21]">Failed to save.</span>}
         </div>
       </div>
     </div>

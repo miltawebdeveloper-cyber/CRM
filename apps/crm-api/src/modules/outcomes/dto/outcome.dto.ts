@@ -15,7 +15,7 @@ export class CreateOutcomeDto {
   @IsString()
   slug?: string;
 
-  @ApiPropertyOptional({ example: '#6b7359' })
+  @ApiPropertyOptional({ example: '#75766a' })
   @IsOptional()
   @IsHexColor()
   color?: string;

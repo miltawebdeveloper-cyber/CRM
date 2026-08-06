@@ -14,7 +14,7 @@ import { titleForPath, subForPath } from '@/lib/nav';
 
 function IconBtn({ children, label, href, onClick }: { children: React.ReactNode; label: string; href?: string; onClick?: () => void }) {
   const cls =
-    'relative grid h-[38px] w-[38px] place-items-center rounded-[10px] text-[#1d491f] transition-colors hover:bg-muted dark:text-foreground/80';
+    'relative grid h-[38px] w-[38px] place-items-center rounded-[10px] text-[var(--brand-deep)] transition-colors hover:bg-muted dark:text-foreground/80';
   if (href)
     return (
       <Link href={href} aria-label={label} title={label} className={cls}>
@@ -60,7 +60,7 @@ export function Topbar({ email, onMenu }: { email?: string; onMenu?: () => void 
         type="button"
         onClick={onMenu}
         aria-label="Open menu"
-        className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] text-[#1d491f] transition-colors hover:bg-muted dark:text-foreground/80 lg:hidden"
+        className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] text-[var(--brand-deep)] transition-colors hover:bg-muted dark:text-foreground/80 lg:hidden"
       >
         <Menu className="h-[21px] w-[21px]" />
       </button>
@@ -71,8 +71,8 @@ export function Topbar({ email, onMenu }: { email?: string; onMenu?: () => void 
           actions off a narrow screen. */}
       {!hasTabs && (
         <div className="min-w-0">
-          <div className="truncate font-display text-[18px] font-semibold leading-tight tracking-tight">{title}</div>
-          {sub && <div className="truncate text-[11.5px] text-muted-foreground">{sub}</div>}
+          <div className="truncate font-display text-[16px] font-semibold leading-tight tracking-tight">{title}</div>
+          {sub && <div className="truncate text-[11px] text-muted-foreground">{sub}</div>}
         </div>
       )}
 
@@ -96,7 +96,7 @@ export function Topbar({ email, onMenu }: { email?: string; onMenu?: () => void 
       >
         <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="flex-1 truncate text-sm text-muted-foreground">Search leads, contacts, calls…</span>
-        <kbd className="shrink-0 rounded border bg-card px-1.5 font-mono text-[10.5px] text-muted-foreground">
+        <kbd className="shrink-0 rounded border bg-card px-1.5 font-mono text-[10px] text-muted-foreground">
           {shortcutHint}
         </kbd>
       </button>
@@ -106,7 +106,7 @@ export function Topbar({ email, onMenu }: { email?: string; onMenu?: () => void 
         type="button"
         onClick={openPalette}
         aria-label="Search"
-        className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] text-[#1d491f] transition-colors hover:bg-muted dark:text-foreground/80 md:hidden"
+        className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-[10px] text-[var(--brand-deep)] transition-colors hover:bg-muted dark:text-foreground/80 md:hidden"
       >
         <Search className="h-[19px] w-[19px]" />
       </button>

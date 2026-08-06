@@ -84,7 +84,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
       render: (c) => (
         <div>
           <div className="font-medium">{formatDate(c.startTime)}</div>
-          <div className="text-[11.5px] text-muted-foreground">{formatTime(c.startTime)}</div>
+          <div className="text-[11px] text-muted-foreground">{formatTime(c.startTime)}</div>
         </div>
       ),
     },
@@ -95,12 +95,12 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
           <Avatar name={c.lead.businessName} />
           <div>
             <div className="font-medium">{c.lead.businessName}</div>
-            {c.lead.contactName && <div className="text-[11.5px] text-muted-foreground">{c.lead.contactName}</div>}
+            {c.lead.contactName && <div className="text-[11px] text-muted-foreground">{c.lead.contactName}</div>}
           </div>
         </div>
       ) : '—',
     },
-    { key: 'phone', header: 'Phone Number', cellClassName: 'font-mono text-[12px] text-muted-foreground', searchable: true, searchValue: (c) => c.lead?.phone, render: (c) => c.lead?.phone ?? '—' },
+    { key: 'phone', header: 'Phone Number', cellClassName: 'font-mono text-[11.5px] text-muted-foreground', searchable: true, searchValue: (c) => c.lead?.phone, render: (c) => c.lead?.phone ?? '—' },
     { key: 'caller', header: 'Assigned Employee', searchable: true, trackable: true, searchValue: (c) => c.caller?.name, render: (c) => c.caller?.name ?? '—' },
     {
       key: 'direction', header: 'Direction',
@@ -113,7 +113,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
       render: (c) =>
         c.kind === 'processed' ? (
           <span
-            className="inline-flex items-center gap-1 rounded-full bg-[#eef0e8] px-2 py-[3px] text-[11px] font-semibold text-[#6b7359]"
+            className="inline-flex items-center gap-1 rounded-full bg-[#f2f2ec] px-2 py-[3px] text-[10.5px] font-semibold text-[#75766a]"
             title="Worked from the queue with no call placed — dialling was switched off"
           >
             <ClipboardCheck className="h-3 w-3" /> No call
@@ -133,7 +133,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
         return c.outcome ? <OutcomePill name={o?.name ?? c.outcome} color={o?.color} /> : <span className="text-muted-foreground">—</span>;
       },
     },
-    { key: 'leadId', header: 'Lead ID', cellClassName: 'font-mono text-[11.5px] text-muted-foreground', searchable: true, searchValue: (c) => c.lead?.leadId, render: (c) => c.lead?.leadId ?? '—' },
+    { key: 'leadId', header: 'Lead ID', cellClassName: 'font-mono text-[11px] text-muted-foreground', searchable: true, searchValue: (c) => c.lead?.leadId, render: (c) => c.lead?.leadId ?? '—' },
   ], [outcomes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const prefs = useColumnPrefs('calls-made', columns);
@@ -225,7 +225,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
           the row reflows to the space actually available, on any laptop, and
           whether the sidebar is expanded or railed. */}
       <div className="mb-4 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
-        <KpiCard icon={Phone} iconBg="#e7f0f8" iconColor="#2c5d8f" value={(stats?.total ?? 0).toLocaleString()} label="Total Calls Made" />
+        <KpiCard icon={Phone} iconBg="#e6effb" iconColor="#2c5d8f" value={(stats?.total ?? 0).toLocaleString()} label="Total Calls Made" />
         <KpiCard icon={PhoneOutgoing} iconBg="#e7eed8" iconColor="#42512f" value={(stats?.outgoing ?? 0).toLocaleString()} label="Outgoing Calls" />
         <KpiCard icon={PhoneIncoming} iconBg="#e3f1ee" iconColor="#2f6f63" value={(stats?.incoming ?? 0).toLocaleString()} label="Incoming Calls" />
         <KpiCard icon={CheckCircle2} iconBg="#e8f2e4" iconColor="#3f7a32" value={(stats?.connected ?? 0).toLocaleString()} label={`Connected · ${stats?.connectedPct ?? 0}%`} />
@@ -235,19 +235,19 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
             something narrower — inbound calls the user missed — and two tiles a
             click apart must not use one label for two different numbers. */}
         <KpiCard icon={PhoneMissed} iconBg="#fdecdc" iconColor="#c98a18" value={(stats?.missed ?? 0).toLocaleString()} label="Unanswered" />
-        <KpiCard icon={PhoneOff} iconBg="#fbeeec" iconColor="#a8431f" value={(stats?.failed ?? 0).toLocaleString()} label="Failed Calls" />
-        <KpiCard icon={Clock} iconBg="#fbf3e2" iconColor="#c98a18" value={formatDuration(stats?.totalDurationSecs ?? 0)} label="Call Duration" />
-        <KpiCard icon={Timer} iconBg="#eef0e8" iconColor="#6b7359" value={formatDuration(stats?.avgDurationSecs ?? 0)} label="Avg Call" />
+        <KpiCard icon={PhoneOff} iconBg="#fde9e6" iconColor="#a8431f" value={(stats?.failed ?? 0).toLocaleString()} label="Failed Calls" />
+        <KpiCard icon={Clock} iconBg="#fdf1de" iconColor="#c98a18" value={formatDuration(stats?.totalDurationSecs ?? 0)} label="Call Duration" />
+        <KpiCard icon={Timer} iconBg="#f2f2ec" iconColor="#75766a" value={formatDuration(stats?.avgDurationSecs ?? 0)} label="Avg Call" />
         {/* Leads worked with no call placed. Its own tile rather than part of
             Total Calls Made — the work is real and belongs in the log, but it
             wasn't dialled, and rolling it into call volume would overstate it. */}
         {(stats?.processed ?? 0) > 0 && (
           <>
-            <KpiCard icon={ClipboardCheck} iconBg="#eef0e8" iconColor="#6b7359" value={(stats?.processed ?? 0).toLocaleString()} label="Processed · no call" />
+            <KpiCard icon={ClipboardCheck} iconBg="#f2f2ec" iconColor="#75766a" value={(stats?.processed ?? 0).toLocaleString()} label="Processed · no call" />
             {/* Handling time, kept apart from talk time for the same reason the
                 counts are: it is time spent working the lead, not on the phone. */}
-            <KpiCard icon={Hourglass} iconBg="#eef0e8" iconColor="#6b7359" value={formatDuration(stats?.processingSecs ?? 0)} label="Processing Time" />
-            <KpiCard icon={Timer} iconBg="#eef0e8" iconColor="#6b7359" value={formatDuration(stats?.avgProcessingSecs ?? 0)} label="Avg per Lead" />
+            <KpiCard icon={Hourglass} iconBg="#f2f2ec" iconColor="#75766a" value={formatDuration(stats?.processingSecs ?? 0)} label="Processing Time" />
+            <KpiCard icon={Timer} iconBg="#f2f2ec" iconColor="#75766a" value={formatDuration(stats?.avgProcessingSecs ?? 0)} label="Avg per Lead" />
           </>
         )}
       </div>
@@ -260,7 +260,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
           leads reads as lost data, which is exactly how this gets reported as a
           sync bug. The panel's own Calls Completed card does count that work. */}
       {!callingEnabled && (
-        <div className="mb-[14px] flex items-start gap-2.5 rounded-xl border border-[#e8dcc0] bg-[#fbf6e9] px-4 py-3 text-[12.5px] text-[#7a5d17]">
+        <div className="mb-[14px] flex items-start gap-2.5 rounded-xl border border-[#e8dcc0] bg-[#fbf6e9] px-4 py-3 text-[12px] text-[#7a5d17]">
           <Info className="mt-[1px] h-4 w-4 shrink-0" />
           <div>
             <div className="font-semibold">Calling is switched off — leads worked from the queue show as “No call”.</div>
@@ -310,14 +310,14 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
             <button
               onClick={() => downloadCsv(exportName, EXPORT_HEADERS, exportRows())}
               disabled={filteredRecords.length === 0}
-              className="inline-flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium hover:bg-muted disabled:opacity-50"
+              className="inline-flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[12.5px] font-medium hover:bg-muted disabled:opacity-50"
             >
               <Download className="h-3.5 w-3.5 text-muted-foreground" /> Export CSV
             </button>
             <button
               onClick={() => downloadXlsx(exportName, EXPORT_HEADERS, exportRows())}
               disabled={filteredRecords.length === 0}
-              className="inline-flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[13px] font-medium hover:bg-muted disabled:opacity-50"
+              className="inline-flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[12.5px] font-medium hover:bg-muted disabled:opacity-50"
             >
               <Download className="h-3.5 w-3.5 text-muted-foreground" /> Export Excel
             </button>

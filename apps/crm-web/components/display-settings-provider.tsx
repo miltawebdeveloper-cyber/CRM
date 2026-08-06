@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { loadServerPreferences, saveServerPreference } from '@/lib/preferences';
+import { DEFAULT_PALETTE, PALETTE_KEY, applyPalette, storedPalette } from '@/lib/palette';
 import {
   DEFAULT_LANGUAGE,
   LANGUAGE_KEY,
@@ -18,10 +19,13 @@ import {
 interface DisplaySettings {
   timezone: DisplayTimezone;
   language: Language;
+  /** Which brand palette the CRM is painted in. See lib/palette.ts. */
+  palette: string;
   /** True until the saved preferences have come back from the server. */
   loading: boolean;
   setTimezone: (tz: DisplayTimezone) => void;
   setLanguage: (lang: Language) => void;
+  setPalette: (id: string) => void;
 }
 
 const Ctx = createContext<DisplaySettings | null>(null);
@@ -52,6 +56,12 @@ export function DisplaySettingsProvider({ children }: { children: ReactNode }) {
   // Bumped whenever a value changes, purely to re-render consumers.
   const [version, setVersion] = useState(0);
   const [loading, setLoading] = useState(true);
+  // Starts at the default rather than at what localStorage holds, because this
+  // renders on the server too and reading storage here would make the first
+  // client render disagree with the markup. The screen is already painted
+  // correctly by then — the boot script saw to that; this state only decides
+  // which swatch the picker shows as chosen, and the effect below corrects it.
+  const [palette, setPaletteState] = useState<string>(DEFAULT_PALETTE);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,6 +74,12 @@ export function DisplaySettingsProvider({ children }: { children: ReactNode }) {
       // opened Settings should still see their own clock, not New York's.
       const zoneChanged = setUserTimezone(prefs[TIMEZONE_KEY] ?? guessTimezone());
       const langChanged = setUserLanguage(prefs[LANGUAGE_KEY] ?? DEFAULT_LANGUAGE);
+      // The palette is already on screen — the boot script painted this
+      // browser's copy before first paint. This is the ACCOUNT catching up with
+      // it, which matters on a machine the user hasn't chosen on yet and is a
+      // no-op on the one they did. Applied without saving: writing back what we
+      // just read would PUT a preference on every page load.
+      setPaletteState(applyPalette(prefs[PALETTE_KEY] ?? storedPalette()));
       setLoading(false);
       if (zoneChanged || langChanged) setVersion((v) => v + 1);
     });
@@ -80,17 +96,27 @@ export function DisplaySettingsProvider({ children }: { children: ReactNode }) {
     saveServerPreference(LANGUAGE_KEY, lang);
   }, []);
 
+  // Repaints immediately — the attribute write is the whole change, so the new
+  // colours are on screen before the save has left the browser.
+  const setPalette = useCallback((id: string) => {
+    const applied = applyPalette(id);
+    setPaletteState(applied);
+    saveServerPreference(PALETTE_KEY, applied);
+  }, []);
+
   const value = useMemo<DisplaySettings>(
     () => ({
       timezone: getUserTimezone(),
       language: getUserLanguage(),
+      palette,
       loading,
       setTimezone,
       setLanguage,
+      setPalette,
     }),
     // `version` is the dependency that matters: the getters read module state,
     // so the memo has to be rebuilt when that state moves.
-    [version, loading, setTimezone, setLanguage],
+    [version, palette, loading, setTimezone, setLanguage, setPalette],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

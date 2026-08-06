@@ -545,7 +545,7 @@ export default function CallingPage() {
               key={k}
               type="button"
               onClick={() => setTab(k)}
-              className={`whitespace-nowrap rounded-[5px] px-2.5 py-[3px] text-[11.5px] font-semibold transition-colors ${tab === k ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-background hover:text-foreground'}`}
+              className={`whitespace-nowrap rounded-[5px] px-2.5 py-[3px] text-[11px] font-semibold transition-colors ${tab === k ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-background hover:text-foreground'}`}
             >
               {label}
             </button>
@@ -570,13 +570,13 @@ export default function CallingPage() {
           dialling off there are no call durations to average, so it reports time
           per lead worked instead — which is the number that actually moves. */}
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
-        <KpiCard icon={Target} iconBg="#d8eed9" iconColor="#266929" value={dash?.assignedLeads ?? 0} label="Assigned Leads" />
-        <KpiCard icon={CheckCircle2} iconBg="#e4f2e4" iconColor="#317d34" value={dash?.callsCompleted ?? 0} label="Calls Completed" />
-        <KpiCard icon={Clock} iconBg="#fbf3e2" iconColor="#c98a18" value={dash?.pendingLeads ?? 0} label="Pending" />
+        <KpiCard icon={Target} iconBg="var(--brand-tint)" iconColor="var(--brand)" value={dash?.assignedLeads ?? 0} label="Assigned Leads" />
+        <KpiCard icon={CheckCircle2} iconBg="var(--brand-tint-2)" iconColor="var(--brand-strong)" value={dash?.callsCompleted ?? 0} label="Calls Completed" />
+        <KpiCard icon={Clock} iconBg="#fdf1de" iconColor="#c98a18" value={dash?.pendingLeads ?? 0} label="Pending" />
         <KpiCard icon={Phone} iconBg="#e3f1ee" iconColor="#2f6f63" value={formatDuration(dash?.productiveSecs ?? 0)} label="Productive Time" />
         <KpiCard
           icon={Percent}
-          iconBg="#e7f0f8"
+          iconBg="#e6effb"
           iconColor="#2c5d8f"
           value={formatDuration(showAvgCall ? dash?.avgCallSecs ?? 0 : dash?.avgHandleSecs ?? 0)}
           label={showAvgCall ? 'Avg Call' : 'Avg / Lead'}
@@ -606,11 +606,11 @@ export default function CallingPage() {
           <div className="rounded-2xl border bg-card shadow-sm">
             <div className="border-b px-[18px] py-3.5">
               <div className="flex items-center justify-between gap-2">
-                <h3 className="font-display text-[15px] font-semibold">Your Queue</h3>
+                <h3 className="font-display text-[14px] font-semibold">Your Queue</h3>
                 {/* Counts the leads actually listed below, so it moves with the
                     zone filter and the search rather than claiming a size the
                     list doesn't show. */}
-                <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
+                <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10.5px] font-bold text-primary">
                   {searchedQueue.length} leads
                 </span>
               </div>
@@ -631,11 +631,11 @@ export default function CallingPage() {
                 <div className="min-w-0">
                   <label
                     htmlFor="queue-timezone"
-                    className="mb-1 block text-[11px] font-semibold uppercase tracking-[.06em] text-muted-foreground"
+                    className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[.06em] text-muted-foreground"
                   >
                     Time Zone
                   </label>
-                  <div className="flex items-center gap-[5px] rounded-md border bg-card px-2 py-2 text-[13px] font-medium text-[#163618] dark:text-foreground">
+                  <div className="flex items-center gap-[5px] rounded-md border bg-card px-2 py-2 text-[12.5px] font-medium text-[var(--brand-ink)] dark:text-foreground">
                     <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <select
                       id="queue-timezone"
@@ -655,11 +655,11 @@ export default function CallingPage() {
                 <div className="min-w-0">
                   <label
                     htmlFor="queue-search"
-                    className="mb-1 block text-[11px] font-semibold uppercase tracking-[.06em] text-muted-foreground"
+                    className="mb-1 block text-[10.5px] font-semibold uppercase tracking-[.06em] text-muted-foreground"
                   >
                     Contact Search
                   </label>
-                  <div className="flex items-center gap-[5px] rounded-md border bg-card px-2 py-2 text-[13px] focus-within:border-primary">
+                  <div className="flex items-center gap-[5px] rounded-md border bg-card px-2 py-2 text-[12.5px] focus-within:border-primary">
                     <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <input
                       id="queue-search"
@@ -697,7 +697,7 @@ export default function CallingPage() {
                   column width; `truncate` is the backstop for counts long enough
                   that even a quarter is too narrow, so they ellipsize rather than
                   breaking the row again. */}
-              <div className="mt-2.5 flex items-center gap-1 text-[10.5px]">
+              <div className="mt-2.5 flex items-center gap-1 text-[10px]">
                 <button
                   type="button"
                   onClick={() => setQueueFilter('all')}
@@ -722,7 +722,7 @@ export default function CallingPage() {
                 <button
                   type="button"
                   onClick={() => setQueueFilter('new_call')}
-                  className={`flex-1 min-w-0 truncate rounded-md px-1 py-1 text-center font-semibold transition-colors ${queueFilter === 'new_call' ? 'bg-[#266929] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
+                  className={`flex-1 min-w-0 truncate rounded-md px-1 py-1 text-center font-semibold transition-colors ${queueFilter === 'new_call' ? 'bg-[var(--brand)] text-white' : 'bg-muted/60 text-muted-foreground hover:bg-muted'}`}
                 >
                   New ({searchedQueue.filter((l) => getQueueItemType(l).type === 'new_call').length})
                 </button>
@@ -760,7 +760,7 @@ export default function CallingPage() {
                     key={q.id}
                     onClick={() => { if (!live && !closed) setSelectedId(q.id); }}
                     className={`mb-[9px] flex flex-col gap-1.5 rounded-[11px] border p-3 transition-colors ${
-                      isCurrent ? 'border-[#2b732f] bg-muted shadow-[inset_3px_0_0_#266929]' : 'hover:bg-muted/50'
+                      isCurrent ? 'border-[var(--brand-mid)] bg-muted shadow-[inset_3px_0_0_var(--brand)]' : 'hover:bg-muted/50'
                     } ${!live && !closed ? 'cursor-pointer' : ''} ${
                       qType.type === 'callback'
                         ? 'border-[#e8c9bf] bg-[#fdf6f4]'
@@ -771,15 +771,15 @@ export default function CallingPage() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <div className="grid h-6 w-6 shrink-0 place-items-center rounded-[7px] bg-[#d8eed9] text-[11px] font-bold text-[#266929]">
+                        <div className="grid h-6 w-6 shrink-0 place-items-center rounded-[7px] bg-[var(--brand-tint)] text-[10.5px] font-bold text-[var(--brand)]">
                           {done ? '✓' : `#${priorityIndex}`}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-[13px] font-semibold text-foreground">
+                          <div className="truncate text-[12.5px] font-semibold text-foreground">
                             {q.contactName ? q.contactName : q.businessName}
                           </div>
                           {q.contactName && (
-                            <div className="truncate text-[11px] text-muted-foreground">{q.businessName}</div>
+                            <div className="truncate text-[10.5px] text-muted-foreground">{q.businessName}</div>
                           )}
                         </div>
                       </div>
@@ -806,14 +806,14 @@ export default function CallingPage() {
                       ) : closed ? (
                         <StatusPill status={q.status} />
                       ) : (
-                        <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-[#266929]/15 px-2 py-[2px] text-[10px] font-semibold text-[#266929]">
+                        <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-[var(--brand)]/15 px-2 py-[2px] text-[10px] font-semibold text-[var(--brand)]">
                           <Phone className="h-3 w-3" />
                           New Call
                         </span>
                       )}
                     </div>
 
-                    <div className="flex items-center justify-between text-[11.5px] text-muted-foreground border-t pt-1.5">
+                    <div className="flex items-center justify-between text-[11px] text-muted-foreground border-t pt-1.5">
                       <span className="font-mono">{q.phone}</span>
                       {qType.scheduledAt ? (
                         <span className="font-medium text-foreground">
@@ -832,7 +832,7 @@ export default function CallingPage() {
 
         {/* Centre: call card + notes */}
         <div className="space-y-[18px]">
-          <div className="relative overflow-hidden rounded-[18px] p-4 text-white shadow-md" style={{ background: 'linear-gradient(165deg,#163618,#112712)' }}>
+          <div className="relative overflow-hidden rounded-[18px] p-4 text-white shadow-md" style={{ background: 'linear-gradient(165deg,var(--brand-ink),var(--brand-ink-2))' }}>
             <svg className="pointer-events-none absolute inset-0 opacity-[.13]" viewBox="0 0 600 400" preserveAspectRatio="xMidYMid slice">
               <g fill="none" stroke="#a6c15c" strokeWidth="1">
                 <path d="M-50 80 Q150 30 350 90 T780 80" /><path d="M-50 160 Q180 100 360 180 T800 160" />
@@ -845,8 +845,8 @@ export default function CallingPage() {
                   <div className="mb-2.5 flex items-start gap-[12px]">
                     <Avatar name={current.businessName} size="md" />
                     <div className="min-w-0 flex-1">
-                      <div className="font-display text-[20px] font-semibold">{current.businessName}</div>
-                      <div className="text-[13px] text-[#a6c74d]">{current.leadId}</div>
+                      <div className="font-display text-[18px] font-semibold">{current.businessName}</div>
+                      <div className="text-[12.5px] text-[var(--brand-lime)]">{current.leadId}</div>
                     </div>
                     {/* Quick message — SMS the current lead without leaving the panel. */}
                     <button
@@ -858,28 +858,28 @@ export default function CallingPage() {
                       <MessageSquare className="h-[18px] w-[18px]" />
                     </button>
                   </div>
-                  <div className="mb-1 font-mono text-[15px] tracking-[.02em] text-[#d8eed9]">{current.phone}</div>
+                  <div className="mb-1 font-mono text-[14px] tracking-[.02em] text-[var(--brand-tint)]">{current.phone}</div>
                   {/* Complete lead information — the person, their role, how to reach
                       them, and who owns the record. Only what's present is shown. */}
-                  <div className="mt-2.5 flex flex-wrap gap-x-6 gap-y-2 text-[12.5px]">
+                  <div className="mt-2.5 flex flex-wrap gap-x-6 gap-y-2 text-[12px]">
                     {current.contactName && (
-                      <span className="inline-flex items-center gap-1.5 text-[#d8eed9]"><UserRound className="h-3.5 w-3.5 text-[#a6c74d]" /> {current.contactName}</span>
+                      <span className="inline-flex items-center gap-1.5 text-[var(--brand-tint)]"><UserRound className="h-3.5 w-3.5 text-[var(--brand-lime)]" /> {current.contactName}</span>
                     )}
                     {current.contactName2 && (
-                      <span className="inline-flex items-center gap-1.5 text-[#d8eed9]"><Briefcase className="h-3.5 w-3.5 text-[#a6c74d]" /> {current.contactName2}</span>
+                      <span className="inline-flex items-center gap-1.5 text-[var(--brand-tint)]"><Briefcase className="h-3.5 w-3.5 text-[var(--brand-lime)]" /> {current.contactName2}</span>
                     )}
                     {/* What the business actually does — the line a rep opens on,
                         and the one thing they otherwise had to leave the panel to
                         look up. Sits after the contact and their role, before the
                         ways to reach them. */}
                     {current.industry && (
-                      <span className="inline-flex items-center gap-1.5 text-[#d8eed9]" title="Industry"><Factory className="h-3.5 w-3.5 text-[#a6c74d]" /> {current.industry}</span>
+                      <span className="inline-flex items-center gap-1.5 text-[var(--brand-tint)]" title="Industry"><Factory className="h-3.5 w-3.5 text-[var(--brand-lime)]" /> {current.industry}</span>
                     )}
                     {current.email && (
-                      <a href={`mailto:${current.email}`} className="inline-flex items-center gap-1.5 text-[#d8eed9] hover:underline"><Mail className="h-3.5 w-3.5 text-[#a6c74d]" /> {current.email}</a>
+                      <a href={`mailto:${current.email}`} className="inline-flex items-center gap-1.5 text-[var(--brand-tint)] hover:underline"><Mail className="h-3.5 w-3.5 text-[var(--brand-lime)]" /> {current.email}</a>
                     )}
                     {current.assignedTo && (
-                      <span className="inline-flex items-center gap-1.5 text-[#d8eed9]"><Check className="h-3.5 w-3.5 text-[#a6c74d]" /> {current.assignedTo.name}</span>
+                      <span className="inline-flex items-center gap-1.5 text-[var(--brand-tint)]"><Check className="h-3.5 w-3.5 text-[var(--brand-lime)]" /> {current.assignedTo.name}</span>
                     )}
                   </div>
                   {/* Caller identity the customer will see. During a call it's the
@@ -892,21 +892,21 @@ export default function CallingPage() {
                     // warning is actionable — nobody is dialling either way.
                     if (!callingEnabled) return null;
                     return from ? (
-                      <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[11.5px] text-[#d8eed9]">
+                      <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[11px] text-[var(--brand-tint)]">
                         <Phone className="h-3 w-3" />
                         <span>Calling as <span className="font-semibold text-white">{callerName}</span> · <span className="font-mono">{from}</span></span>
                       </div>
                     ) : (
-                      <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-[#9e2b21]/90 px-2.5 py-1 text-[11.5px] font-medium text-white">
+                      <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-[#9e2b21]/90 px-2.5 py-1 text-[11px] font-medium text-white">
                         <Phone className="h-3 w-3" />
                         No caller ID assigned — ask an admin to set your OpenPhone number before calling.
                       </div>
                     );
                   })()}
                   <div className="my-3 flex flex-wrap gap-x-5 gap-y-2">
-                    <div><div className="text-[10px] uppercase tracking-[.1em] text-[#7e9933]">Location</div><div className="mt-0.5 font-display text-[14px] font-semibold">{current.city}, {current.state}</div></div>
-                    <div><div className="text-[10px] uppercase tracking-[.1em] text-[#7e9933]">Timezone</div><div className="mt-0.5 font-display text-[14px] font-semibold">{current.timezone}</div></div>
-                    <div><div className="text-[10px] uppercase tracking-[.1em] text-[#7e9933]">Status</div><div className="mt-0.5 font-display text-[14px] font-semibold capitalize">{current.status.replace('_', ' ')}</div></div>
+                    <div><div className="text-[10px] uppercase tracking-[.1em] text-[var(--brand-lime-deep)]">Location</div><div className="mt-0.5 font-display text-[13px] font-semibold">{current.city}, {current.state}</div></div>
+                    <div><div className="text-[10px] uppercase tracking-[.1em] text-[var(--brand-lime-deep)]">Timezone</div><div className="mt-0.5 font-display text-[13px] font-semibold">{current.timezone}</div></div>
+                    <div><div className="text-[10px] uppercase tracking-[.1em] text-[var(--brand-lime-deep)]">Status</div><div className="mt-0.5 font-display text-[13px] font-semibold capitalize">{current.status.replace('_', ' ')}</div></div>
                   </div>
 
                   {/* Scheduled Zoom Meeting indicator & controls */}
@@ -915,15 +915,15 @@ export default function CallingPage() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <Video className="h-4 w-4 text-[#7dd3fc]" />
-                          <span className="text-[13.5px] font-semibold text-[#f0f9ff]">
+                          <span className="text-[13px] font-semibold text-[#f0f9ff]">
                             {current.nextZoomMeeting.title || 'Scheduled Zoom Meeting'}
                           </span>
                         </div>
-                        <span className="rounded-full bg-[#7dd3fc]/20 px-2 py-0.5 text-[10.5px] font-medium text-[#7dd3fc]">
+                        <span className="rounded-full bg-[#7dd3fc]/20 px-2 py-0.5 text-[10px] font-medium text-[#7dd3fc]">
                           {current.nextZoomMeeting.durationMins} mins
                         </span>
                       </div>
-                      <div className="mt-1.5 text-[12px] text-[#e0f2fe]">
+                      <div className="mt-1.5 text-[11.5px] text-[#e0f2fe]">
                         Scheduled: <span className="font-semibold">{formatScheduledTime(current.nextZoomMeeting.scheduledAt, current.timezone)}</span>
                       </div>
                       <div className="mt-2.5 flex items-center gap-2">
@@ -932,7 +932,7 @@ export default function CallingPage() {
                             href={current.nextZoomMeeting.joinUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 rounded-lg bg-[#0284c7] px-3 py-1.5 text-[12px] font-semibold text-white shadow hover:bg-[#0369a1]"
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-[#0284c7] px-3 py-1.5 text-[11.5px] font-semibold text-white shadow hover:bg-[#0369a1]"
                           >
                             <ExternalLink className="h-3.5 w-3.5" />
                             Join Zoom
@@ -950,7 +950,7 @@ export default function CallingPage() {
                               toast.error(apiError(err, 'Could not start Zoom meeting'));
                             }
                           }}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-white/20 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-white/30"
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-white/20 px-3 py-1.5 text-[11.5px] font-semibold text-white hover:bg-white/30"
                         >
                           <Video className="h-3.5 w-3.5" />
                           Start Meeting
@@ -965,18 +965,18 @@ export default function CallingPage() {
                   {callingEnabled && (
                   <div className="my-1.5 text-center">
                     {live ? (
-                      <div className={`font-display text-[22px] font-semibold text-[#d0e29c] ${livePhase === 'initiated' || livePhase === 'ringing' ? 'animate-pulse' : ''}`}>
+                      <div className={`font-display text-[20px] font-semibold text-[#d0e29c] ${livePhase === 'initiated' || livePhase === 'ringing' ? 'animate-pulse' : ''}`}>
                         {PHASE_LABEL[livePhase]}
                       </div>
                     ) : active ? (
                       <>
-                        <div className="text-[11px] uppercase tracking-[.1em] text-[#7e9933]">Call Duration</div>
-                        <div className="font-mono text-[34px] font-semibold text-[#d0e29c]">
+                        <div className="text-[10.5px] uppercase tracking-[.1em] text-[var(--brand-lime-deep)]">Call Duration</div>
+                        <div className="font-mono text-[30px] font-semibold text-[#d0e29c]">
                           {String(Math.floor(elapsed / 60)).padStart(2, '0')}:{String(elapsed % 60).padStart(2, '0')}
                         </div>
                       </>
                     ) : (
-                      <div className="font-mono text-[34px] font-semibold text-white/70">00:00</div>
+                      <div className="font-mono text-[30px] font-semibold text-white/70">00:00</div>
                     )}
                   </div>
                   )}
@@ -986,7 +986,7 @@ export default function CallingPage() {
                       real — and the panel says what to do instead. The calling
                       code is untouched; this is a switch, not a removal. */}
                   {!callingEnabled ? (
-                    <div className="my-2 rounded-xl bg-white/10 px-3.5 py-3 text-center text-[12.5px] leading-relaxed text-[#d8eed9]">
+                    <div className="my-2 rounded-xl bg-white/10 px-3.5 py-3 text-center text-[12px] leading-relaxed text-[var(--brand-tint)]">
                       <div className="font-semibold text-white">Calling is temporarily disabled</div>
                       <div className="mt-0.5">{disabledReason || 'Review the lead, log the outcome and save — the queue moves on as usual.'}</div>
                       {/* Say that the time is being recorded. Without this the
@@ -995,14 +995,14 @@ export default function CallingPage() {
                           something to leave them guessing about. There is
                           deliberately no ticking clock — a counter on screen turns
                           the write-up into a race. */}
-                      <div className="mt-1.5 text-[11.5px] text-[#a6c74d]">
+                      <div className="mt-1.5 text-[11px] text-[var(--brand-lime)]">
                         Time on this lead is recorded as the call duration when you save.
                       </div>
                     </div>
                   ) : (
                   <div className="flex flex-wrap justify-center gap-2.5">
                     {!live ? (
-                      <button onClick={() => startCall(true)} disabled={busy || widgetCall || (!!me && !me.openphoneNumber)} title={widgetCall ? 'Finish the dial-pad call first' : me && !me.openphoneNumber ? 'No caller ID assigned to your account' : 'Start call'} className="grid h-14 w-14 place-items-center rounded-[18px] bg-[#317d34] text-white shadow-[0_8px_20px_rgba(63,122,50,.5)] disabled:opacity-60">
+                      <button onClick={() => startCall(true)} disabled={busy || widgetCall || (!!me && !me.openphoneNumber)} title={widgetCall ? 'Finish the dial-pad call first' : me && !me.openphoneNumber ? 'No caller ID assigned to your account' : 'Start call'} className="grid h-14 w-14 place-items-center rounded-[18px] bg-[var(--brand-strong)] text-white shadow-[0_8px_20px_rgba(63,122,50,.5)] disabled:opacity-60">
                         <Phone className="h-[22px] w-[22px]" />
                       </button>
                     ) : (
@@ -1023,23 +1023,23 @@ export default function CallingPage() {
                   </div>
                   )}
                   {callingEnabled && live && (
-                    <p className="mt-2.5 text-center text-[11px] leading-relaxed text-[#a6c74d]">
+                    <p className="mt-2.5 text-center text-[10.5px] leading-relaxed text-[var(--brand-lime)]">
                       Mute, hold &amp; audio are in the Quo app — call status updates here automatically. If Quo didn&apos;t
                       come to the front, tap the arrow to send the number again.
                     </p>
                   )}
                 </>
               ) : (
-                <div className="py-10 text-center text-[#a6c74d]">No leads assigned to you.</div>
+                <div className="py-10 text-center text-[var(--brand-lime)]">No leads assigned to you.</div>
               )}
             </div>
           </div>
 
           {/* Notes */}
           <div className="rounded-2xl border bg-card shadow-sm">
-            <div className="border-b px-4 py-2.5"><h3 className="font-display text-[14px] font-semibold">Call Notes</h3><div className="text-[11px] text-muted-foreground">Saved automatically with outcome</div></div>
+            <div className="border-b px-4 py-2.5"><h3 className="font-display text-[13px] font-semibold">Call Notes</h3><div className="text-[10.5px] text-muted-foreground">Saved automatically with outcome</div></div>
             <div className="p-4">
-              <div className="mb-1.5 flex items-center gap-2 text-[11px] uppercase tracking-[.08em] text-muted-foreground">
+              <div className="mb-1.5 flex items-center gap-2 text-[10.5px] uppercase tracking-[.08em] text-muted-foreground">
                 Outcome
                 {/* The shortcuts are only worth anything if the agent knows they
                     exist, so the first nine carry their key and the hint sits
@@ -1058,7 +1058,7 @@ export default function CallingPage() {
                       key={o.id}
                       onClick={() => setOutcome(o.slug)}
                       title={key ? `${o.name} — press ${key}` : o.name}
-                      className="inline-flex items-center gap-1.5 rounded-full border-[1.5px] px-2.5 py-[4px] text-[12px] font-semibold transition-colors"
+                      className="inline-flex items-center gap-1.5 rounded-full border-[1.5px] px-2.5 py-[4px] text-[11.5px] font-semibold transition-colors"
                       style={
                         sel
                           ? { borderColor: o.color, background: o.color, color: '#fff' }
@@ -1091,7 +1091,7 @@ export default function CallingPage() {
               )}
               {schedulesZoom && (
                 <div className="mb-3 rounded-lg border border-[#bcd9ff] bg-[#f2f8ff] p-3">
-                  <div className="mb-2 flex items-center gap-1.5 text-[12.5px] font-semibold text-[#1f5fae]">
+                  <div className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold text-[#1f5fae]">
                     <Video className="h-4 w-4" /> Schedule Zoom Meeting
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
@@ -1112,7 +1112,7 @@ export default function CallingPage() {
                       <input value={zoomJoinUrl} onChange={(e) => setZoomJoinUrl(e.target.value)} placeholder="https://zoom.us/j/…" className="w-full rounded-md border bg-background px-3 py-2" />
                     </label>
                   </div>
-                  <p className="mt-1.5 text-[11px] text-[#1f5fae]">
+                  <p className="mt-1.5 text-[10.5px] text-[#1f5fae]">
                     Booked in the lead&apos;s time zone ({current?.timezone ?? 'EST'} / {leadZone}). Saved to the Zoom dashboard and pinned in the Call Panel at the scheduled time.
                   </p>
                 </div>
@@ -1136,7 +1136,7 @@ export default function CallingPage() {
                   onClick={saveAndNext}
                   disabled={!canSave}
                   title="Save and load the next lead — Ctrl+Enter"
-                  className="ml-auto inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[8px] text-[13px] font-semibold text-primary-foreground disabled:opacity-50"
+                  className="ml-auto inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[8px] text-[12.5px] font-semibold text-primary-foreground disabled:opacity-50"
                 >
                   <Check className="h-4 w-4" /> Save &amp; next lead
                   <kbd className="rounded border border-white/30 bg-white/15 px-1 font-mono text-[10px] font-normal">
@@ -1165,7 +1165,7 @@ export default function CallingPage() {
           {zoomDue.length > 0 && (
             <div className="overflow-hidden rounded-2xl border border-[#bcd9ff] bg-[#f2f8ff] shadow-sm">
               <div className="flex items-center justify-between border-b border-[#d6e8ff] px-[18px] py-3">
-                <h3 className="flex items-center gap-2 font-display text-[15px] font-semibold text-[#1f5fae]"><Video className="h-4 w-4" /> Zoom Meetings Today</h3>
+                <h3 className="flex items-center gap-2 font-display text-[14px] font-semibold text-[#1f5fae]"><Video className="h-4 w-4" /> Zoom Meetings Today</h3>
                 <Link href="/zoom" className="text-xs font-semibold text-[#2D8CFF] hover:underline">Manage</Link>
               </div>
               <div className="space-y-2 p-[14px]">
@@ -1173,8 +1173,8 @@ export default function CallingPage() {
                   <div key={m.id} className="flex items-center gap-[11px] rounded-[11px] border border-[#d6e8ff] bg-card p-3">
                     <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[9px] bg-[#e7f0fb] text-[#2D8CFF]"><Video className="h-[18px] w-[18px]" /></div>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-semibold">{m.lead?.businessName ?? 'Client'}</div>
-                      <div className="truncate text-[11.5px] text-muted-foreground">
+                      <div className="truncate text-[12.5px] font-semibold">{m.lead?.businessName ?? 'Client'}</div>
+                      <div className="truncate text-[11px] text-muted-foreground">
                         {/* The rep's own clock, not the browser's. Ideally this
                             would also name the customer's, as the Zoom form
                             does — but the due feed doesn't carry the lead's
@@ -1185,11 +1185,11 @@ export default function CallingPage() {
                       </div>
                     </div>
                     {m.joinUrl ? (
-                      <a href={m.joinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex shrink-0 items-center gap-1 rounded-md bg-[#2D8CFF] px-2.5 py-1.5 text-[12px] font-semibold text-white">
+                      <a href={m.joinUrl} target="_blank" rel="noopener noreferrer" className="inline-flex shrink-0 items-center gap-1 rounded-md bg-[#2D8CFF] px-2.5 py-1.5 text-[11.5px] font-semibold text-white">
                         <ExternalLink className="h-3.5 w-3.5" /> Join
                       </a>
                     ) : (
-                      <Link href="/zoom" className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[#bcd9ff] px-2.5 py-1.5 text-[12px] font-semibold text-[#1f5fae]">Open</Link>
+                      <Link href="/zoom" className="inline-flex shrink-0 items-center gap-1 rounded-md border border-[#bcd9ff] px-2.5 py-1.5 text-[11.5px] font-semibold text-[#1f5fae]">Open</Link>
                     )}
                   </div>
                 ))}
@@ -1198,9 +1198,9 @@ export default function CallingPage() {
           )}
 
           <div className="flex gap-[14px] rounded-2xl border bg-card p-[18px] text-center shadow-sm">
-            <div className="flex-1"><div className="font-display text-[20px] font-semibold text-primary">{dash?.callsCompleted ?? 0}</div><div className="text-[11px] text-muted-foreground">Completed</div></div>
-            <div className="flex-1 border-x"><div className="font-display text-[20px] font-semibold">{dash?.assignedLeads ?? 0}</div><div className="text-[11px] text-muted-foreground">Assigned</div></div>
-            <div className="flex-1"><div className="font-display text-[20px] font-semibold text-[#c98a18]">{formatDuration(dash?.productiveSecs ?? 0)}</div><div className="text-[11px] text-muted-foreground">Productive</div></div>
+            <div className="flex-1"><div className="font-display text-[18px] font-semibold text-primary">{dash?.callsCompleted ?? 0}</div><div className="text-[10.5px] text-muted-foreground">Completed</div></div>
+            <div className="flex-1 border-x"><div className="font-display text-[18px] font-semibold">{dash?.assignedLeads ?? 0}</div><div className="text-[10.5px] text-muted-foreground">Assigned</div></div>
+            <div className="flex-1"><div className="font-display text-[18px] font-semibold text-[#c98a18]">{formatDuration(dash?.productiveSecs ?? 0)}</div><div className="text-[10.5px] text-muted-foreground">Productive</div></div>
           </div>
         </div>
       </div>
@@ -1213,7 +1213,7 @@ export default function CallingPage() {
             <div onClick={(e) => e.stopPropagation()} className="w-full max-w-[440px] overflow-hidden rounded-2xl border bg-card shadow-2xl">
               <div className="flex items-start justify-between gap-3 border-b px-5 py-4">
                 <div className="min-w-0">
-                  <h3 className="font-display text-[15px] font-semibold">Send a message</h3>
+                  <h3 className="font-display text-[14px] font-semibold">Send a message</h3>
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {current.businessName} · <span className="font-mono">{current.phone}</span>
                   </p>
@@ -1231,11 +1231,11 @@ export default function CallingPage() {
                 />
               </div>
               <div className="flex items-center justify-end gap-2 border-t bg-muted/30 px-5 py-3">
-                <button onClick={() => setMsgOpen(false)} disabled={sendMsg.isPending} className="rounded-md border bg-card px-3.5 py-2 text-[13px] font-medium hover:bg-muted disabled:opacity-50">Cancel</button>
+                <button onClick={() => setMsgOpen(false)} disabled={sendMsg.isPending} className="rounded-md border bg-card px-3.5 py-2 text-[12.5px] font-medium hover:bg-muted disabled:opacity-50">Cancel</button>
                 <button
                   onClick={() => sendMsg.mutate()}
                   disabled={!msgBody.trim() || sendMsg.isPending}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-60"
                 >
                   {sendMsg.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                   {sendMsg.isPending ? 'Sending…' : 'Send'}

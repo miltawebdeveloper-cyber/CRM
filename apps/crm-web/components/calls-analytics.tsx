@@ -27,7 +27,7 @@ function Dial({ pct }: { pct: number }) {
         />
       </svg>
       <div className="absolute text-center">
-        <div className="font-display text-[17px] font-semibold leading-none">{Math.round(pct)}%</div>
+        <div className="font-display text-[15.5px] font-semibold leading-none">{Math.round(pct)}%</div>
         <div className="text-[9px] uppercase tracking-wider text-muted-foreground">met</div>
       </div>
     </div>
@@ -37,7 +37,7 @@ function Dial({ pct }: { pct: number }) {
 /** One row of the conversion-ratio bar chart. */
 function RatioBar({ label, pct, color }: { label: string; pct: number; color: string }) {
   return (
-    <div className="flex items-center gap-3 text-[12.5px]">
+    <div className="flex items-center gap-3 text-[12px]">
       <span className="w-[112px] shrink-0 truncate text-muted-foreground">{label}</span>
       <span className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted">
         <span className="block h-full rounded-full transition-[width]" style={{ width: `${Math.min(pct, 100)}%`, background: color }} />
@@ -62,7 +62,7 @@ function RatioBar({ label, pct, color }: { label: string; pct: number; color: st
  */
 function BookPart({ label, value, share, color }: { label: string; value: number; share: number; color: string }) {
   return (
-    <div className="flex items-center gap-2 text-[12px]">
+    <div className="flex items-center gap-2 text-[11.5px]">
       <span className="h-3 w-[3px] shrink-0 rounded-full" style={{ background: color }} />
       <span className="text-muted-foreground">{label}</span>
       <span className="ml-auto font-semibold tabular-nums">{value.toLocaleString()}</span>
@@ -81,8 +81,8 @@ function LeadBook({ assigned, completed, balance }: { assigned: number; complete
   return (
     <div>
       <div className="flex items-baseline gap-2">
-        <span className="font-display text-[30px] font-semibold leading-none">{assigned.toLocaleString()}</span>
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">leads assigned</span>
+        <span className="font-display text-[26px] font-semibold leading-none">{assigned.toLocaleString()}</span>
+        <span className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">leads assigned</span>
       </div>
 
       {/* One bar, two segments, 2px of card between them so they read as two
@@ -113,7 +113,7 @@ function Stage({ label, value, sub, color, tint, dark }: { label: string; value:
       {/* Value and its qualifier share a line — the stage is a glanceable figure,
           and a third row of text was buying height without buying meaning. */}
       <div className="mt-[2px] flex items-baseline gap-1.5">
-        <span className="font-display text-[17px] font-semibold leading-none">{value.toLocaleString()}</span>
+        <span className="font-display text-[15.5px] font-semibold leading-none">{value.toLocaleString()}</span>
         <span className="truncate text-[9.5px] leading-none opacity-70" title={sub}>{sub}</span>
       </div>
     </div>
@@ -152,11 +152,11 @@ function CardHead({ title, cat, dark, count }: {
         className="flex items-center gap-2 px-3 py-2"
         style={dark ? { background: INK, color: '#fff' } : { background: cat?.tint, color: cat?.ink }}
       >
-        <h4 className="truncate text-[11px] font-bold uppercase tracking-[.09em]">{title}</h4>
+        <h4 className="truncate text-[10.5px] font-bold uppercase tracking-[.09em]">{title}</h4>
         {count !== undefined && (
           // Lifted off the band rather than given its own colour: the band is
           // already carrying the identity, and a second colour here would compete.
-          <span className={`ml-auto shrink-0 rounded-full px-2 py-[1px] text-[11px] font-bold tabular-nums ${dark ? 'bg-white/15' : 'bg-white/70'}`}>
+          <span className={`ml-auto shrink-0 rounded-full px-2 py-[1px] text-[10.5px] font-bold tabular-nums ${dark ? 'bg-white/15' : 'bg-white/70'}`}>
             {count.toLocaleString()}
           </span>
         )}
@@ -174,19 +174,19 @@ function Breakdown({ title, cat, dark, rows, total, totalLabel = 'Total' }: {
       <CardHead title={title} cat={cat} dark={dark} count={total} />
       <div className="px-3">
         {rows.length === 0 ? (
-          <p className="py-3 text-center text-[11.5px] text-muted-foreground">No statuses in this bucket.</p>
+          <p className="py-3 text-center text-[11px] text-muted-foreground">No statuses in this bucket.</p>
         ) : rows.map((r) => (
           // -mx-1.5 px-1.5 so the hover highlight extends into the card's
           // padding instead of stopping short of the text it belongs to.
-          <div key={r.slug} className="-mx-1.5 flex items-center justify-between gap-3 rounded-md border-b px-1.5 py-1 text-[12px] transition-colors last:border-0 hover:bg-muted/60">
+          <div key={r.slug} className="-mx-1.5 flex items-center justify-between gap-3 rounded-md border-b px-1.5 py-1 text-[11.5px] transition-colors last:border-0 hover:bg-muted/60">
             <span className="truncate" style={{ color: r.count > 0 ? undefined : '#9aa08e' }}>{r.name}</span>
             <span className={`shrink-0 tabular-nums ${r.count > 0 ? 'font-semibold' : 'text-muted-foreground'}`}>{r.count}</span>
           </div>
         ))}
       </div>
-      <div className="flex items-center justify-between border-t bg-muted/40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[.07em]">
+      <div className="flex items-center justify-between border-t bg-muted/40 px-3 py-1.5 text-[10.5px] font-bold uppercase tracking-[.07em]">
         <span>{totalLabel}</span>
-        <span className="text-[12.5px] tabular-nums">{total}</span>
+        <span className="text-[12px] tabular-nums">{total}</span>
       </div>
     </div>
   );
@@ -254,7 +254,7 @@ function PipelineMix({ given, cats }: { given: number; cats?: { cold: number; wa
       <CardHead title="Pipeline Mix" dark />
 
       {total === 0 ? (
-        <p className="px-3 py-8 text-center text-[11.5px] text-muted-foreground">
+        <p className="px-3 py-8 text-center text-[11px] text-muted-foreground">
           No outcomes in this range yet, so there&apos;s no mix to show.
         </p>
       ) : (
@@ -293,7 +293,7 @@ function PipelineMix({ given, cats }: { given: number; cats?: { cold: number; wa
                 `pointer-events-none` so it never eats a slice's hover. */}
             <div className="pointer-events-none absolute inset-0 grid place-items-center">
               <div className="text-center">
-                <div className="font-display text-[22px] font-semibold leading-none">{total.toLocaleString()}</div>
+                <div className="font-display text-[20px] font-semibold leading-none">{total.toLocaleString()}</div>
                 <div className="mt-1 text-[9px] uppercase tracking-wider text-muted-foreground">given leads</div>
               </div>
             </div>
@@ -304,7 +304,7 @@ function PipelineMix({ given, cats }: { given: number; cats?: { cold: number; wa
               missing, exactly as the breakdown columns do. */}
           <div className="px-3 pb-1">
             {slices.map((s) => (
-              <div key={s.key} className="-mx-1.5 flex items-center gap-2 rounded-md border-b px-1.5 py-1 text-[12px] transition-colors last:border-0 hover:bg-muted/60">
+              <div key={s.key} className="-mx-1.5 flex items-center gap-2 rounded-md border-b px-1.5 py-1 text-[11.5px] transition-colors last:border-0 hover:bg-muted/60">
                 {/* A bar rather than a dot: it reads as a piece of the ring, and
                     at 3px it still carries the colour at legend size. */}
                 <span className="h-3 w-[3px] shrink-0 rounded-full" style={{ background: s.color }} />
@@ -346,7 +346,7 @@ function TargetEditor({ userId, onDone }: { userId: string; onDone: () => void }
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4" role="dialog" aria-modal="true" aria-label="Set call target">
       <div className="w-[380px] max-w-full rounded-2xl border bg-card p-5 shadow-lg">
-        <h3 className="mb-3 font-display text-[15px] font-semibold">Call target</h3>
+        <h3 className="mb-3 font-display text-[14px] font-semibold">Call target</h3>
         <label className="mb-3 block space-y-1 text-sm">
           <span className="font-medium">Calls per working day</span>
           <input
@@ -397,7 +397,7 @@ export function CallsAnalytics({ isManager }: { isManager: boolean }) {
     <div>
       <CallFilterBar filters={filters}>
         {isManager && userId && (
-          <button onClick={() => setEditTarget(true)} className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-2 text-[12.5px] font-semibold hover:bg-muted">
+          <button onClick={() => setEditTarget(true)} className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-2 text-[12px] font-semibold hover:bg-muted">
             <Pencil className="h-3.5 w-3.5" /> Set target
           </button>
         )}
@@ -423,17 +423,17 @@ export function CallsAnalytics({ isManager }: { isManager: boolean }) {
             {stats?.target ? (
               <div className="flex items-center gap-5">
                 <Dial pct={stats.target.metPct} />
-                <div className="min-w-0 space-y-1 text-[12.5px]">
-                  <div><b className="font-display text-[17px]">{stats.target.target.toLocaleString()}</b> <span className="text-muted-foreground">target calls</span></div>
-                  <div><b className="font-display text-[17px]">{stats.target.completed.toLocaleString()}</b> <span className="text-muted-foreground">completed</span></div>
-                  <div><b className="font-display text-[17px]">{stats.target.remaining.toLocaleString()}</b> <span className="text-muted-foreground">remaining</span></div>
+                <div className="min-w-0 space-y-1 text-[12px]">
+                  <div><b className="font-display text-[15.5px]">{stats.target.target.toLocaleString()}</b> <span className="text-muted-foreground">target calls</span></div>
+                  <div><b className="font-display text-[15.5px]">{stats.target.completed.toLocaleString()}</b> <span className="text-muted-foreground">completed</span></div>
+                  <div><b className="font-display text-[15.5px]">{stats.target.remaining.toLocaleString()}</b> <span className="text-muted-foreground">remaining</span></div>
                   {stats.target.reason && (
-                    <p className="mt-1.5 rounded-md bg-[#fbeeec] px-2.5 py-1 text-[11.5px] text-[#a8431f]">Not achieving — {stats.target.reason}</p>
+                    <p className="mt-1.5 rounded-md bg-[#fde9e6] px-2.5 py-1 text-[11px] text-[#a8431f]">Not achieving — {stats.target.reason}</p>
                   )}
                 </div>
               </div>
             ) : (
-              <p className="py-1 text-center text-[12px] text-muted-foreground">
+              <p className="py-1 text-center text-[11.5px] text-muted-foreground">
                 {dateFilter.mode === 'all'
                   ? 'Pick a date range to measure against the call target.'
                   : isManager
@@ -445,7 +445,7 @@ export function CallsAnalytics({ isManager }: { isManager: boolean }) {
         </div>
 
         <div className="rounded-2xl border bg-card p-5 shadow-sm">
-          <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">Conversion Ratios</h3>
+          <h3 className="mb-3 text-[10.5px] font-semibold uppercase tracking-widest text-muted-foreground">Conversion Ratios</h3>
           <div className="space-y-2">
             <RatioBar label="Calls made" pct={stats?.ratios.callsMade ?? 0} color="#27301d" />
             <RatioBar label="Warm calls" pct={stats?.ratios.warm ?? 0} color={CAT.warm.color} />
@@ -465,13 +465,13 @@ export function CallsAnalytics({ isManager }: { isManager: boolean }) {
         <div className="flex items-center gap-3">
           <div className="flex flex-1 items-stretch gap-1.5 overflow-x-auto">
             <Stage dark label="Given Leads" value={given} sub={stats?.target ? `of ${stats.target.target.toLocaleString()} target` : 'with an outcome'} />
-            <div className="grid shrink-0 place-items-center text-[11px] text-muted-foreground/50">→</div>
+            <div className="grid shrink-0 place-items-center text-[10.5px] text-muted-foreground/50">→</div>
             <Stage label="Cold" value={cats?.cold ?? 0} sub={`${Math.round(stats?.coldPct ?? 0)}% of leads`} color={CAT.cold.color} tint={CAT.cold.tint} />
-            <div className="grid shrink-0 place-items-center text-[11px] text-muted-foreground/50">→</div>
+            <div className="grid shrink-0 place-items-center text-[10.5px] text-muted-foreground/50">→</div>
             <Stage label="Warm" value={cats?.warm ?? 0} sub={`${Math.round(stats?.ratios.warm ?? 0)}% of leads`} color={CAT.warm.color} tint={CAT.warm.tint} />
-            <div className="grid shrink-0 place-items-center text-[11px] text-muted-foreground/50">→</div>
+            <div className="grid shrink-0 place-items-center text-[10.5px] text-muted-foreground/50">→</div>
             <Stage label="Hot" value={cats?.hot ?? 0} sub={`${Math.round(stats?.ratios.hot ?? 0)}% of leads`} color={CAT.hot.color} tint={CAT.hot.tint} />
-            <div className="grid shrink-0 place-items-center text-[11px] text-muted-foreground/50">→</div>
+            <div className="grid shrink-0 place-items-center text-[10.5px] text-muted-foreground/50">→</div>
             <Stage dark label="Closed" value={(cats?.closedPositive ?? 0) + (cats?.closedNegative ?? 0)} sub={`${cats?.closedPositive ?? 0} won · ${cats?.closedNegative ?? 0} lost`} />
           </div>
         </div>

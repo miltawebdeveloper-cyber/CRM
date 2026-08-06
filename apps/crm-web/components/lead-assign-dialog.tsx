@@ -50,7 +50,7 @@ function OwnedLeadsChoice({
 }) {
   const one = owned.length === 1;
   return (
-    <div className="mb-3 rounded-xl bg-[#fbf3e2] px-3 py-2.5 text-[12px] text-[#8a5d0a]">
+    <div className="mb-3 rounded-xl bg-[#fdf1de] px-3 py-2.5 text-[11.5px] text-[#8a5d0a]">
       <p className="font-medium">
         <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
         {one
@@ -60,7 +60,7 @@ function OwnedLeadsChoice({
 
       {/* Which ones, and whose — "which leads am I about to move" is the first
           thing asked, and a count can't answer it. */}
-      <ul className="mt-1.5 max-h-24 overflow-y-auto pl-5 font-mono text-[11px] leading-relaxed">
+      <ul className="mt-1.5 max-h-24 overflow-y-auto pl-5 font-mono text-[10.5px] leading-relaxed">
         {owned.slice(0, 12).map((l) => (
           <li key={l.id}>
             {l.leadId} — {l.assignedTo?.name}
@@ -391,7 +391,7 @@ export function LeadAssignDialog({
           {/* Header */}
           <div className="flex items-start justify-between gap-3 border-b px-5 py-4">
             <div>
-              <h3 className="font-display text-[15px] font-semibold">Distribute lead ownership</h3>
+              <h3 className="font-display text-[14px] font-semibold">Distribute lead ownership</h3>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {mode === 'range'
                   ? 'Assign every lead in a lead-id range to one employee'
@@ -410,7 +410,7 @@ export function LeadAssignDialog({
                 key={m}
                 onClick={() => setMode(m)}
                 aria-pressed={mode === m}
-                className={`rounded-md px-3 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                className={`rounded-md px-3 py-1.5 text-[12px] font-semibold transition-colors ${
                   mode === m ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-background hover:text-foreground'
                 }`}
               >
@@ -424,52 +424,52 @@ export function LeadAssignDialog({
               <>
                 {/* From → To */}
                 <div className="mb-4 rounded-xl border bg-muted/30 p-3">
-                  <span className="mb-2 inline-flex items-center gap-1.5 text-[12.5px] font-medium">
+                  <span className="mb-2 inline-flex items-center gap-1.5 text-[12px] font-medium">
                     <SlidersHorizontal className="h-3.5 w-3.5" /> Lead range
                   </span>
                   <div className="flex items-center gap-2">
                     <label className="min-w-0 flex-1">
-                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground">From lead</span>
+                      <span className="mb-1 block text-[10.5px] uppercase tracking-wide text-muted-foreground">From lead</span>
                       <input
                         value={fromLead}
                         onChange={(e) => { setFromLead(e.target.value); setAckReassign(false); }}
                         placeholder="L-2026-1"
-                        className="w-full rounded-md border bg-background px-2.5 py-1.5 font-mono text-[13px] outline-none focus:border-primary"
+                        className="w-full rounded-md border bg-background px-2.5 py-1.5 font-mono text-[12.5px] outline-none focus:border-primary"
                       />
                     </label>
                     <ArrowRight className="mt-4 h-4 w-4 shrink-0 text-muted-foreground" />
                     <label className="min-w-0 flex-1">
-                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground">To lead</span>
+                      <span className="mb-1 block text-[10.5px] uppercase tracking-wide text-muted-foreground">To lead</span>
                       <input
                         value={toLead}
                         onChange={(e) => { setToLead(e.target.value); setAckReassign(false); }}
                         placeholder="L-2026-300"
-                        className="w-full rounded-md border bg-background px-2.5 py-1.5 font-mono text-[13px] outline-none focus:border-primary"
+                        className="w-full rounded-md border bg-background px-2.5 py-1.5 font-mono text-[12.5px] outline-none focus:border-primary"
                       />
                     </label>
                   </div>
-                  <p className="mt-2 text-[11.5px] text-muted-foreground">
+                  <p className="mt-2 text-[11px] text-muted-foreground">
                     Inclusive, and independent of what&apos;s ticked in the table. Use the lead id exactly as shown in the Lead ID column (e.g. L-2026-42).
                   </p>
                 </div>
 
                 {/* What the range actually resolves to — shown before anything is assigned. */}
-                {!rangeReady && <p className="py-4 text-center text-[12.5px] text-muted-foreground">Enter both ends to preview the range.</p>}
-                {rangeReady && rangeLoading && <p className="py-4 text-center text-[12.5px] text-muted-foreground">Finding leads…</p>}
+                {!rangeReady && <p className="py-4 text-center text-[12px] text-muted-foreground">Enter both ends to preview the range.</p>}
+                {rangeReady && rangeLoading && <p className="py-4 text-center text-[12px] text-muted-foreground">Finding leads…</p>}
                 {rangeReady && !rangeLoading && rangeLeads.length === 0 && (
-                  <p className="py-4 text-center text-[12.5px] text-muted-foreground">No leads fall in that range.</p>
+                  <p className="py-4 text-center text-[12px] text-muted-foreground">No leads fall in that range.</p>
                 )}
                 {rangeReady && !rangeLoading && rangeLeads.length > 0 && (
                   <div className="mb-4 rounded-xl border p-3">
                     <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-[12.5px] font-medium">
+                      <span className="text-[12px] font-medium">
                         {rangeLeads.length} lead{rangeLeads.length === 1 ? '' : 's'} in range
                       </span>
-                      <span className="truncate font-mono text-[11.5px] text-muted-foreground">
+                      <span className="truncate font-mono text-[11px] text-muted-foreground">
                         {rangeLeads[0].leadId} → {rangeLeads[rangeLeads.length - 1].leadId}
                       </span>
                     </div>
-                    <p className="mt-1 text-[11.5px] text-muted-foreground">
+                    <p className="mt-1 text-[11px] text-muted-foreground">
                       <span className="font-semibold tabular-nums text-foreground">{rangeFree}</span> will be assigned ·{' '}
                       <span className="font-semibold tabular-nums text-foreground">{rangeOwned.length}</span> already owned
                       {rangeWillAsk.length > 0 && (
@@ -484,7 +484,7 @@ export function LeadAssignDialog({
                         ones are being left alone; once they're being transferred
                         the block below says it, about the same leads. */}
                     {rangeWillAsk.length > 0 && !transferOwned && (
-                      <p className="mt-1.5 rounded-lg bg-[#fbf3e2] px-2.5 py-2 text-[12px] text-[#8a5d0a]">
+                      <p className="mt-1.5 rounded-lg bg-[#fdf1de] px-2.5 py-2 text-[11.5px] text-[#8a5d0a]">
                         <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
                         {rangeWillAsk.length === 1 ? 'One lead in this range was' : `${rangeWillAsk.length} leads in this range were`}{' '}
                         already assigned today. You&apos;ll be asked to confirm before {rangeWillAsk.length === 1 ? 'it moves' : 'they move'} again.
@@ -504,7 +504,7 @@ export function LeadAssignDialog({
                             a range that quietly assigns fewer leads than it names
                             is how a manager ends up thinking leads went missing. */}
                         {!transferOwned && (
-                          <label className="flex cursor-pointer items-start gap-2 rounded-lg bg-[#fbeeec] px-2.5 py-2 text-[12px] font-medium text-[#a8431f]">
+                          <label className="flex cursor-pointer items-start gap-2 rounded-lg bg-[#fde9e6] px-2.5 py-2 text-[11.5px] font-medium text-[#a8431f]">
                             <input
                               type="checkbox"
                               checked={ackReassign}
@@ -520,7 +520,7 @@ export function LeadAssignDialog({
                       </div>
                     )}
                     {rangeFree === 0 && (
-                      <p className="mt-2 text-[12px] font-medium text-[#a8431f]">
+                      <p className="mt-2 text-[11.5px] font-medium text-[#a8431f]">
                         Every lead in this range is already assigned — nothing left to assign.
                       </p>
                     )}
@@ -528,7 +528,7 @@ export function LeadAssignDialog({
                 )}
 
                 {/* Range goes to exactly one employee. */}
-                <div className="mb-2 inline-flex items-center gap-1.5 text-[12.5px] font-medium">
+                <div className="mb-2 inline-flex items-center gap-1.5 text-[12px] font-medium">
                   <Users className="h-3.5 w-3.5" /> Assign all to
                 </div>
                 {isLoading && <div className="px-2 py-6 text-center text-sm text-muted-foreground">Loading…</div>}
@@ -552,8 +552,8 @@ export function LeadAssignDialog({
                     </span>
                     <Avatar name={c.name} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-medium">{c.name}</span>
-                      <span className="block truncate text-[11.5px] text-muted-foreground">
+                      <span className="block truncate text-[12.5px] font-medium">{c.name}</span>
+                      <span className="block truncate text-[11px] text-muted-foreground">
                         {c.leadCount} current lead{c.leadCount === 1 ? '' : 's'}
                       </span>
                     </span>
@@ -577,7 +577,7 @@ export function LeadAssignDialog({
                 being left alone — once they're being transferred the block above
                 is already saying this, about the same leads. */}
             {!transferOwned && poolWillAsk.length > 0 && (
-              <p className="mb-3 rounded-xl bg-[#fbf3e2] px-3 py-2.5 text-[12px] text-[#8a5d0a]">
+              <p className="mb-3 rounded-xl bg-[#fdf1de] px-3 py-2.5 text-[11.5px] text-[#8a5d0a]">
                 <AlertTriangle className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />
                 {poolWillAsk.length === 1 ? 'One lead in the pool was' : `${poolWillAsk.length} leads in the pool were`} already assigned
                 today. You&apos;ll be asked to confirm before {poolWillAsk.length === 1 ? 'it moves' : 'they move'} again.
@@ -586,11 +586,11 @@ export function LeadAssignDialog({
             {/* Rule-based, multi-select location filters */}
             <div className="mb-4 rounded-xl border bg-muted/30 p-3">
               <div className="mb-2 flex items-center justify-between">
-                <span className="inline-flex items-center gap-1.5 text-[12.5px] font-medium">
+                <span className="inline-flex items-center gap-1.5 text-[12px] font-medium">
                   <SlidersHorizontal className="h-3.5 w-3.5" /> Filter the pool
                 </span>
                 {anyFilter && (
-                  <button onClick={clearFilters} className="text-[11.5px] text-muted-foreground hover:text-foreground">
+                  <button onClick={clearFilters} className="text-[11px] text-muted-foreground hover:text-foreground">
                     Clear filters
                   </button>
                 )}
@@ -609,18 +609,18 @@ export function LeadAssignDialog({
                 <MultiSelect icon={MapPin} label="All States" options={stateOpts} selected={stateSel} onChange={setStates} placeholder="Search states…" emptyText="No states in these leads" />
                 <MultiSelect icon={Building2} label="All Cities" options={cityOpts} selected={citySel} onChange={setCitySel} placeholder="Search cities…" emptyText="No cities for the selected states" />
               </div>
-              <p className="mt-2 text-[11.5px] text-muted-foreground">
+              <p className="mt-2 text-[11px] text-muted-foreground">
                 <span className="font-semibold tabular-nums text-foreground">{pool.length}</span> of {leads.length} selected lead{leads.length > 1 ? 's' : ''} match{anyFilter ? ' these filters' : ''}
               </p>
             </div>
 
             {/* Employee selection + per-employee counts */}
             <div className="mb-2 flex items-center justify-between">
-              <span className="inline-flex items-center gap-1.5 text-[12.5px] font-medium">
+              <span className="inline-flex items-center gap-1.5 text-[12px] font-medium">
                 <Users className="h-3.5 w-3.5" /> Employees
               </span>
               {selectedCallers.length > 0 && (
-                <button onClick={splitEvenly} className="text-[11.5px] font-medium text-primary hover:underline">
+                <button onClick={splitEvenly} className="text-[11px] font-medium text-primary hover:underline">
                   Split evenly
                 </button>
               )}
@@ -643,8 +643,8 @@ export function LeadAssignDialog({
                     </span>
                     <Avatar name={c.name} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-medium">{c.name}</span>
-                      <span className="block truncate text-[11.5px] text-muted-foreground">{c.leadCount} current lead{c.leadCount === 1 ? '' : 's'}</span>
+                      <span className="block truncate text-[12.5px] font-medium">{c.name}</span>
+                      <span className="block truncate text-[11px] text-muted-foreground">{c.leadCount} current lead{c.leadCount === 1 ? '' : 's'}</span>
                     </span>
                   </button>
                   <input
@@ -656,7 +656,7 @@ export function LeadAssignDialog({
                     onFocus={() => { if (!selected) toggleCaller(c.id); }}
                     placeholder="0"
                     aria-label={`Leads for ${c.name}`}
-                    className="w-16 shrink-0 rounded-md border bg-background px-2 py-1.5 text-right text-[13px] tabular-nums outline-none focus:border-primary"
+                    className="w-16 shrink-0 rounded-md border bg-background px-2 py-1.5 text-right text-[12.5px] tabular-nums outline-none focus:border-primary"
                   />
                 </div>
               );
@@ -670,33 +670,33 @@ export function LeadAssignDialog({
           <div className="border-t px-5 py-3">
             <div className="grid grid-cols-3 gap-2 text-center">
               <div className="rounded-lg bg-muted/50 px-2 py-2">
-                <div className="text-[16px] font-semibold tabular-nums">{pool.length}</div>
-                <div className="text-[10.5px] uppercase tracking-wide text-muted-foreground">In pool</div>
+                <div className="text-[15px] font-semibold tabular-nums">{pool.length}</div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">In pool</div>
               </div>
               <div className="rounded-lg bg-muted/50 px-2 py-2">
-                <div className="text-[16px] font-semibold tabular-nums">{totalAssigned}</div>
-                <div className="text-[10.5px] uppercase tracking-wide text-muted-foreground">Assigning</div>
+                <div className="text-[15px] font-semibold tabular-nums">{totalAssigned}</div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Assigning</div>
               </div>
               <div className={`rounded-lg px-2 py-2 ${overAllocated ? 'bg-destructive/10' : 'bg-muted/50'}`}>
-                <div className={`text-[16px] font-semibold tabular-nums ${overAllocated ? 'text-destructive' : ''}`}>{Math.abs(remaining)}</div>
-                <div className="text-[10.5px] uppercase tracking-wide text-muted-foreground">{overAllocated ? 'Over by' : 'Unassigned'}</div>
+                <div className={`text-[15px] font-semibold tabular-nums ${overAllocated ? 'text-destructive' : ''}`}>{Math.abs(remaining)}</div>
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{overAllocated ? 'Over by' : 'Unassigned'}</div>
               </div>
             </div>
 
             {overAllocated && (
-              <p className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-medium text-destructive">
+              <p className="mt-2 inline-flex items-center gap-1.5 text-[11.5px] font-medium text-destructive">
                 <AlertTriangle className="h-3.5 w-3.5" /> Over-allocated by {totalAssigned - pool.length} — reduce the counts to match the pool.
               </p>
             )}
             {!overAllocated && remaining > 0 && totalAssigned > 0 && (
-              <p className="mt-2 text-[12px] text-muted-foreground">
+              <p className="mt-2 text-[11.5px] text-muted-foreground">
                 {remaining} lead{remaining === 1 ? '' : 's'} will remain unassigned.
               </p>
             )}
             {!overAllocated && totalAssigned > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {selectedCallers.filter((c) => counts[c.id] > 0).map((c) => (
-                  <span key={c.id} className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium">
+                  <span key={c.id} className="rounded-full bg-muted px-2 py-0.5 text-[10.5px] font-medium">
                     {c.name} · <span className="tabular-nums">{counts[c.id]}</span>
                   </span>
                 ))}
@@ -707,14 +707,14 @@ export function LeadAssignDialog({
 
           {/* Footer */}
           <div className="flex items-center justify-end gap-2 border-t px-5 py-3.5">
-            <button onClick={onClose} className="rounded-md border bg-card px-3 py-2 text-[13px] font-medium hover:bg-muted">
+            <button onClick={onClose} className="rounded-md border bg-card px-3 py-2 text-[12.5px] font-medium hover:bg-muted">
               Cancel
             </button>
             {mode === 'range' ? (
               <button
                 onClick={() => assignRange.mutate(false)}
                 disabled={!canAssignRange}
-                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
               >
                 {/* Counts what will actually be assigned, not what the window
                     contains — already-owned and locked-today leads are excluded
@@ -730,7 +730,7 @@ export function LeadAssignDialog({
               <button
                 onClick={() => assign.mutate(false)}
                 disabled={!canAssign}
-                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-[13px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-[12.5px] font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
               >
                 {assign.isPending ? 'Assigning…' : totalAssigned > 0 ? `Assign ${totalAssigned} lead${totalAssigned === 1 ? '' : 's'}` : 'Assign leads'}
               </button>
