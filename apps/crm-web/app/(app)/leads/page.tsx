@@ -3,8 +3,8 @@
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, Lock } from 'lucide-react';
-import { leadsApi, type CreateLeadInput, type Lead, type LeadListQuery } from '@/lib/leads';
+import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, Lock, AlertTriangle } from 'lucide-react';
+import { leadsApi, type CreateLeadInput, type DuplicateMatch, type Lead, type LeadListQuery } from '@/lib/leads';
 import { usersApi } from '@/lib/users';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { LeadAssignDialog } from '@/components/lead-assign-dialog';
@@ -299,24 +299,49 @@ export default function LeadsPage() {
     },
   });
 
+  /**
+   * Leads the API refused this one as a duplicate of.
+   *
+   * The import has warned about duplicates for a long time and this form did
+   * not, so the door with the review screen behind it was the only guarded one
+   * and hand-typed leads walked straight past. The API now answers 409 with the
+   * matches; they are shown here and the person decides, because quietly folding
+   * someone's typing into an existing record is a worse answer than asking.
+   */
+  const [dupBlock, setDupBlock] = useState<{ message: string; duplicates: DuplicateMatch[] } | null>(null);
+
   const create = useMutation({
     // Drop empty optional strings so they persist as null rather than "".
-    mutationFn: () => {
+    mutationFn: (opts: { allowDuplicate?: boolean } = {}) => {
       const cleaned = Object.fromEntries(
         Object.entries(form).map(([k, v]) => [k, typeof v === 'string' && v.trim() === '' ? undefined : v]),
       ) as CreateLeadInput;
-      return leadsApi.create({ ...cleaned, businessName: form.businessName, phone: form.phone, state: form.state, city: form.city });
+      return leadsApi.create({
+        ...cleaned,
+        businessName: form.businessName,
+        phone: form.phone,
+        state: form.state,
+        city: form.city,
+        ...(opts.allowDuplicate ? { allowDuplicate: true } : {}),
+      });
     },
     meta: { successMessage: 'Lead created' },
     onSuccess: (lead) => {
+      setDupBlock(null);
       qc.invalidateQueries({ queryKey: ['leads'] });
       router.push(`/leads/${lead.id}`);
+    },
+    onError: (err) => {
+      const res = (err as { response?: { status?: number; data?: { message?: string; duplicates?: DuplicateMatch[] } } }).response;
+      if (res?.status === 409 && res.data?.duplicates?.length) {
+        setDupBlock({ message: res.data.message ?? 'This lead already exists.', duplicates: res.data.duplicates });
+      }
     },
   });
 
   // Dismiss without submitting — also drops anything typed so the form starts
   // clean next time it's opened.
-  const closeForm = () => { setForm(EMPTY); setShowForm(false); create.reset(); };
+  const closeForm = () => { setForm(EMPTY); setShowForm(false); setDupBlock(null); create.reset(); };
 
   const columns = useMemo<ColumnDef<Lead>[]>(() => [
     // The order the leads arrived in, and the grid's default sort. Hidden by
@@ -551,7 +576,7 @@ export default function LeadsPage() {
       {/* Create form */}
       {showForm && (
         <form
-          onSubmit={(e) => { e.preventDefault(); create.mutate(); }}
+          onSubmit={(e) => { e.preventDefault(); setDupBlock(null); create.mutate({}); }}
           className="mb-[18px] grid grid-cols-1 gap-3 rounded-2xl border bg-card p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-3"
         >
           <div className="col-span-full flex items-center justify-between">
@@ -627,6 +652,51 @@ export default function LeadsPage() {
             <span className="font-medium">Comments</span>
             <textarea value={form.comments ?? ''} onChange={(e) => setForm({ ...form, comments: e.target.value })} rows={2} className="w-full rounded-md border bg-background px-3 py-2" />
           </label>
+          {/* Refused as a duplicate — the matches, then the choice. */}
+          {dupBlock && (
+            <div className="col-span-full rounded-lg border border-[#e8c68a] bg-[#fbf3e2]/60 p-3.5">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#8a5d0a]" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-semibold text-[#664304]">{dupBlock.message}</div>
+                  <ul className="mt-2 space-y-1.5">
+                    {dupBlock.duplicates.map((m) => (
+                      <li key={m.id} className="text-[12.5px]">
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-mono text-[11.5px] text-primary">{m.leadId}</span>
+                          <b>{m.businessName || 'Unnamed lead'}</b>
+                          <span className="rounded-full bg-[#f4e4c1] px-2 py-0.5 text-[10.5px] font-semibold text-[#8a5d0a]">
+                            {m.matchedOn.join(', ')}
+                          </span>
+                        </span>
+                        <span className="block font-mono text-[11.5px] text-muted-foreground">
+                          {[m.phone, m.altPhone, m.email].filter(Boolean).join(' · ')} · {m.assignedTo ?? 'Unassigned'}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => router.push(`/leads/${dupBlock.duplicates[0].id}`)}
+                      className="rounded-md border bg-card px-3 py-1.5 text-[12.5px] font-semibold hover:bg-muted"
+                    >
+                      Open {dupBlock.duplicates[0].leadId} instead
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => create.mutate({ allowDuplicate: true })}
+                      disabled={create.isPending}
+                      className="rounded-md border border-[#e0b4ae] bg-card px-3 py-1.5 text-[12.5px] font-semibold text-[#9e2b21] hover:bg-[#fdf3f1] disabled:opacity-60"
+                    >
+                      Create it anyway
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="col-span-full flex items-center gap-3">
             <button type="submit" disabled={create.isPending} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
               {create.isPending ? 'Creating…' : 'Create & open'}
@@ -634,7 +704,7 @@ export default function LeadsPage() {
             <button type="button" onClick={closeForm} disabled={create.isPending} className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-60">
               Cancel
             </button>
-            {create.isError && <span className="text-sm text-[#9e2b21]">Failed to create lead</span>}
+            {create.isError && !dupBlock && <span className="text-sm text-[#9e2b21]">Failed to create lead</span>}
           </div>
         </form>
       )}

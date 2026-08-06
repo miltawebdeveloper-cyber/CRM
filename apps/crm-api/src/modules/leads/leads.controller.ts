@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
 import { LeadsService } from './leads.service';
 import { QuoService } from '../quo/quo.service';
-import { BulkDeleteLeadsDto, CheckImportDto, CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto';
+import { BulkDeleteLeadsDto, CheckDuplicateDto, CheckImportDto, CreateLeadDto, DuplicateGroupsQueryDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 
@@ -33,12 +33,16 @@ export class LeadsController {
   }
 
   /** Pre-import duplicate scan — no writes. Returns which rows match an existing
-   *  lead (or an earlier row) by Company Name, Phone or Email. */
+   *  lead (or an earlier row) on an exact Phone or Email, and what importing the
+   *  file would create versus update. */
   @Roles(Role.admin, Role.team_leader)
   @Post('import/check')
   @HttpCode(200)
   checkImport(@Body() dto: CheckImportDto) {
-    return this.leads.checkImport(dto.rows, dto.checkFields);
+    return this.leads.checkImport(dto.rows, {
+      checkFields: dto.checkFields,
+      ignorePhoneFormatting: dto.ignorePhoneFormatting,
+    });
   }
 
   // Employees see only their assigned leads; admins/leaders see all.
@@ -61,6 +65,34 @@ export class LeadsController {
   @Get('filter-options')
   filterOptions(@Query() query: ListLeadsQueryDto, @CurrentUser() user: AuthUser) {
     return this.leads.filterOptions(query, user);
+  }
+
+  /**
+   * Duplicate groups among the leads already saved — the Duplicate Leads screen.
+   * Read-only; removing anything goes through `bulk-delete` like every other
+   * deletion, so a purge is audited the same way and obeys the same rules.
+   *
+   * Declared before `:id` for the same reason as `filter-options` above.
+   */
+  @Roles(Role.admin, Role.team_leader)
+  @Get('duplicates')
+  duplicates(@Query() query: DuplicateGroupsQueryDto) {
+    return this.leads.findDuplicateGroups(query);
+  }
+
+  /**
+   * Leads matching one record — what the New Lead form calls as the phone or
+   * email is filled in, so a duplicate is visible BEFORE the save is attempted
+   * rather than only as the 409 that `POST /leads` returns.
+   *
+   * Open to any authenticated user because creating a lead is, and a check that
+   * managers alone could run would leave everyone else's form unable to warn.
+   */
+  @Post('check-duplicate')
+  @HttpCode(200)
+  checkDuplicate(@Body() dto: CheckDuplicateDto) {
+    const { matchCompanyDomain, ...rec } = dto;
+    return this.leads.findDuplicatesFor(rec, { matchCompanyDomain });
   }
 
   @Get(':id')

@@ -1,19 +1,26 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, Check, AlertTriangle, Undo2, Filter, Loader2, Download } from 'lucide-react';
+import { Upload, Check, AlertTriangle, Undo2, Filter, Loader2, Download, GitCompare, History } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { importApi, type LeadRow, type ImportCheckResult } from '@/lib/crm';
+import { importApi, type LeadRow, type ImportCheckResult, type ImportMatchedLead } from '@/lib/crm';
 import { leadsApi } from '@/lib/leads';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageHead } from '@/components/page-head';
 import { downloadCsv } from '@/lib/export';
+import { formatDate } from '@/lib/display-settings';
 import { TIMEZONE_CODES } from '@/lib/timezone';
 
-/** Which fields the duplicate check compares on — mirrors the API's `checkFields`. */
+/**
+ * Which fields the duplicate check compares on — mirrors the API's `checkFields`.
+ *
+ * Phone and Email only, and both compared exactly. Company name used to be a
+ * third option here; a name is not a contact point, and matching on one is what
+ * put franchise branches and two unrelated firms trading under the same word in
+ * front of the user as "duplicates" to rule on.
+ */
 export interface CheckFieldsState {
-  businessName: boolean;
   phone: boolean;
   email: boolean;
 }
@@ -172,6 +179,43 @@ function buildRows(file: ParsedFile, mapping: Mapping): LeadRow[] {
   });
 }
 
+/**
+ * Columns a merge can rule on: the ones the import writes AND the review can
+ * show the CRM's side of.
+ *
+ * Lead ID and Created Date are identity, not content. "Assigned To" is left out
+ * on purpose — ownership follows its own rules on import (a lead is never taken
+ * off the employee holding it, and one assigned today is locked), so offering it
+ * as a field to pick would promise a choice the import would then overrule.
+ */
+const MERGE_FIELDS = [
+  'businessName', 'contactName', 'contactName2', 'phone', 'altPhone', 'email', 'website',
+  'socialMedia', 'country', 'state', 'city', 'timezone', 'industry', 'companySize',
+  'foundedYear', 'address', 'callStatus', 'lostReason', 'leadGenerationId', 'leadSource',
+] as const;
+const LABEL_BY_KEY = new Map(COLUMNS.map((c) => [c.key as string, c.label]));
+
+/**
+ * The fields where this row and the lead it would update actually disagree.
+ *
+ * Only differences are offered. A column the file leaves empty is never written
+ * anyway, and one that already matches has no decision in it — listing either
+ * would bury the handful of real conflicts in a wall of identical rows.
+ */
+function mergeDiff(row: LeadRow, existing: ImportMatchedLead) {
+  const r = row as unknown as Record<string, unknown>;
+  const e = existing as unknown as Record<string, unknown>;
+  const out: { key: string; label: string; fileValue: string; crmValue: string }[] = [];
+  for (const key of MERGE_FIELDS) {
+    const fileValue = String(r[key] ?? '').trim();
+    if (!fileValue) continue;
+    const crmValue = String(e[key] ?? '').trim();
+    if (crmValue.toLowerCase() === fileValue.toLowerCase()) continue;
+    out.push({ key, label: LABEL_BY_KEY.get(key) ?? key, fileValue, crmValue });
+  }
+  return out;
+}
+
 /** The exact header row the mapper auto-detects, in the sheet's own order. */
 const TEMPLATE_HEADERS = COLUMNS.map((c) => c.label);
 
@@ -252,27 +296,78 @@ export default function ImportPage() {
 
   // Duplicate detection configuration fields
   const [dupCheckFields, setDupCheckFields] = useState<CheckFieldsState>({
-    businessName: true,
     phone: true,
     email: true,
   });
 
+  /**
+   * Off by default. The exact rule is the rule; this loosens it for the files
+   * that need it — a sheet whose numbers are written in a different style to the
+   * CRM's, where an exact compare finds nothing and every row reads as new.
+   */
+  const [ignorePhoneFormatting, setIgnorePhoneFormatting] = useState(false);
+
+  /**
+   * Also off by default, and noisier than the contact-point rules: it groups two
+   * DIFFERENT people at one firm, which is frequently two legitimate leads.
+   * Useful when a file is one company's contact list; wrong for most books.
+   */
+  const [matchCompanyDomain, setMatchCompanyDomain] = useState(false);
+
   const activeCheckFields = useMemo(() => {
     const fields: string[] = [];
-    if (dupCheckFields.businessName) fields.push('businessName');
     if (dupCheckFields.phone) fields.push('phone');
     if (dupCheckFields.email) fields.push('email');
     return fields;
   }, [dupCheckFields]);
 
+  const matchOptions = useMemo(
+    () => ({ checkFields: activeCheckFields, ignorePhoneFormatting, matchCompanyDomain }),
+    [activeCheckFields, ignorePhoneFormatting, matchCompanyDomain],
+  );
+
   // Per-row decisions for duplicate rows: row index -> 'import' | 'skip'
   const [dupDecisions, setDupDecisions] = useState<Record<number, 'import' | 'skip'>>({});
 
+  /**
+   * Per-row merge choices: row index → the fields the CRM should KEEP.
+   *
+   * Only the exceptions are stored. An import already overwrites every column
+   * the file fills in, so an empty set is exactly today's behaviour and a field
+   * appears here only because someone said "keep what the CRM has". Applied by
+   * blanking that field in the row before it is sent, which is the same thing
+   * the import already does with any column a file leaves empty — it skips it.
+   */
+  const [mergeKeep, setMergeKeep] = useState<Record<number, Set<string>>>({});
+  const [mergeOpen, setMergeOpen] = useState<number | null>(null);
+
   const rows = useMemo(() => (file.headers.length ? buildRows(file, mapping) : []), [file, mapping]);
+
+  /**
+   * The rows as they will actually be sent, with every field the reviewer chose
+   * to keep from the CRM blanked out.
+   *
+   * Blanking is the whole mechanism: the import writes a column only when the
+   * row carries a value for it, so an empty field leaves whatever the lead
+   * already had. That means a merge needs no second write path and cannot drift
+   * from the import's own update rules — it IS the import's update rules, handed
+   * a narrower row.
+   */
+  const rowsToSend = useMemo(() => {
+    const touched = Object.entries(mergeKeep).filter(([, keep]) => keep.size > 0);
+    if (touched.length === 0) return rows;
+    const copy = rows.map((r) => ({ ...r }));
+    for (const [idx, keep] of touched) {
+      const row = copy[Number(idx)] as unknown as Record<string, unknown>;
+      if (!row) continue;
+      for (const field of keep) row[field] = undefined;
+    }
+    return copy;
+  }, [rows, mergeKeep]);
 
   const importMut = useMutation({
     mutationFn: (params: { skipDuplicates?: boolean; skipRowIndexes?: number[] }) =>
-      importApi.bulk(rows, params.skipDuplicates, params.skipRowIndexes, activeCheckFields),
+      importApi.bulk(rowsToSend, params.skipDuplicates, params.skipRowIndexes, matchOptions),
     // An import's "Assigned To" column hands leads straight to employees, so it
     // moves the same things a manual assignment does. Nothing was refreshed here
     // at all, which left every lead list and the Calling Panel showing the book as
@@ -289,14 +384,20 @@ export default function ImportPage() {
   const [dupResult, setDupResult] = useState<ImportCheckResult | null>(null);
 
   const check = useMutation({
-    mutationFn: () => importApi.check(rows, activeCheckFields),
+    mutationFn: () => importApi.check(rows, matchOptions),
     onSuccess: (res) => {
       if (res.duplicateRecords > 0) {
         setDupResult(res);
-        // Initialize all duplicate rows to 'skip' decision by default
+        setMergeKeep({});
+        setMergeOpen(null);
+        // Skip is the default for a row nobody has ruled on. A row that WAS
+        // ruled on before opens on that ruling instead — re-answering the same
+        // question from scratch every time the file is re-run is the work this
+        // is here to save. It is still only a default; changing it is what gets
+        // remembered next.
         const initialDecisions: Record<number, 'import' | 'skip'> = {};
         for (const d of res.duplicateRows) {
-          initialDecisions[d.index] = 'skip';
+          initialDecisions[d.index] = d.priorDecision?.decision === 'import' ? 'import' : 'skip';
         }
         setDupDecisions(initialDecisions);
       } else {
@@ -341,7 +442,18 @@ export default function ImportPage() {
     setConfirmRollback(false);
     setDupResult(null);
     setDupDecisions({});
+    setMergeKeep({});
+    setMergeOpen(null);
   }
+
+  /** Flip one field of one row between "take the file's value" and "keep the CRM's". */
+  const toggleMergeField = (index: number, field: string) =>
+    setMergeKeep((prev) => {
+      const keep = new Set(prev[index] ?? []);
+      if (keep.has(field)) keep.delete(field);
+      else keep.add(field);
+      return { ...prev, [index]: keep };
+    });
 
   const setField = (key: string, idx: number) => setMapping((m) => ({ ...m, [key]: idx }));
 
@@ -355,8 +467,18 @@ export default function ImportPage() {
     });
   }
 
+  /**
+   * Unchecking the last remaining box is refused rather than obeyed. An empty
+   * field list means "compare on everything" to the API, so turning both off
+   * would quietly compare both — a screen reading "duplicate detection is off"
+   * while it is fully on. The last checked box is disabled to say so up front.
+   */
+  const onlyOneFieldLeft = activeCheckFields.length === 1;
   const toggleCheckField = (field: keyof CheckFieldsState) => {
-    setDupCheckFields((prev) => ({ ...prev, [field]: !prev[field] }));
+    setDupCheckFields((prev) => {
+      const next = { ...prev, [field]: !prev[field] };
+      return !next.phone && !next.email ? prev : next;
+    });
     setDupResult(null);
   };
 
@@ -445,37 +567,78 @@ export default function ImportPage() {
               <Filter className="h-4 w-4 text-primary" />
               <h3 className="font-display text-[15px] font-semibold">Duplicate Validation Settings</h3>
             </div>
-            <span className="text-[12px] text-muted-foreground">Configure validation fields for duplicate detection</span>
+            <span className="text-[12px] text-muted-foreground">A row is a duplicate only on an exact Phone or Email match</span>
           </div>
           <div className="flex flex-wrap items-center gap-6 pt-1 text-[13px]">
-            <label className="flex cursor-pointer items-center gap-2 font-medium">
-              <input
-                type="checkbox"
-                checked={dupCheckFields.businessName}
-                onChange={() => toggleCheckField('businessName')}
-                className="h-4 w-4 rounded border-muted-foreground/30 accent-primary"
-              />
-              <span>Company / Business Name</span>
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 font-medium">
-              <input
-                type="checkbox"
-                checked={dupCheckFields.phone}
-                onChange={() => toggleCheckField('phone')}
-                className="h-4 w-4 rounded border-muted-foreground/30 accent-primary"
-              />
-              <span>Phone Number</span>
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 font-medium">
-              <input
-                type="checkbox"
-                checked={dupCheckFields.email}
-                onChange={() => toggleCheckField('email')}
-                className="h-4 w-4 rounded border-muted-foreground/30 accent-primary"
-              />
-              <span>Email Address</span>
-            </label>
+            {(
+              [
+                { field: 'phone' as const, label: 'Phone Number', hint: 'Compared as written, including Alt Phone' },
+                { field: 'email' as const, label: 'Email Address', hint: 'Case-insensitive; +tags and Gmail dots ignored' },
+              ]
+            ).map(({ field, label, hint }) => {
+              const locked = dupCheckFields[field] && onlyOneFieldLeft;
+              return (
+                <label
+                  key={field}
+                  title={locked ? 'At least one field has to be compared.' : hint}
+                  className={`flex items-center gap-2 font-medium ${locked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={dupCheckFields[field]}
+                    disabled={locked}
+                    onChange={() => toggleCheckField(field)}
+                    className="h-4 w-4 rounded border-muted-foreground/30 accent-primary disabled:opacity-60"
+                  />
+                  <span>{label}</span>
+                  <span className="text-[11.5px] font-normal text-muted-foreground">{hint}</span>
+                </label>
+              );
+            })}
           </div>
+          <label
+            className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-dashed bg-muted/30 px-3 py-2.5 text-[12.5px]"
+            title="Compare numbers by their last 10 digits instead of as written"
+          >
+            <input
+              type="checkbox"
+              checked={ignorePhoneFormatting}
+              disabled={!dupCheckFields.phone}
+              onChange={() => { setIgnorePhoneFormatting((v) => !v); setDupResult(null); }}
+              className="mt-0.5 h-4 w-4 rounded border-muted-foreground/30 accent-primary disabled:opacity-50"
+            />
+            <span className={dupCheckFields.phone ? '' : 'opacity-50'}>
+              <span className="font-medium">Also match numbers written differently</span>
+              <span className="block text-[11.5px] leading-relaxed text-muted-foreground">
+                Compares the last 10 digits, so <span className="font-mono">+1 (305) 555-1234</span> and{' '}
+                <span className="font-mono">3055551234</span> count as one number. Looser than an exact match — worth
+                turning on for a file whose numbers are written in a different style to the CRM&apos;s.
+              </span>
+            </span>
+          </label>
+
+          <label className="mt-2 flex cursor-pointer items-start gap-2 rounded-lg border border-dashed bg-muted/30 px-3 py-2.5 text-[12.5px]">
+            <input
+              type="checkbox"
+              checked={matchCompanyDomain}
+              onChange={() => { setMatchCompanyDomain((v) => !v); setDupResult(null); }}
+              className="mt-0.5 h-4 w-4 rounded border-muted-foreground/30 accent-primary"
+            />
+            <span>
+              <span className="font-medium">Also match the company domain</span>
+              <span className="block text-[11.5px] leading-relaxed text-muted-foreground">
+                Taken from the email and the website, so <span className="font-mono">@acmetax.com</span> and{' '}
+                <span className="font-mono">acmetax.com</span> are one firm. Noisier than the rules above — it flags two{' '}
+                <b className="font-semibold">different people</b> at one company, which is often two real leads. Gmail
+                and other mailbox providers are ignored.
+              </span>
+            </span>
+          </label>
+
+          <p className="mt-2.5 text-[11.5px] leading-relaxed text-muted-foreground">
+            Company name is not compared — two firms trading under the same word are two leads. Rows are checked
+            against both the leads already in the CRM and the earlier rows of this file.
+          </p>
         </div>
       )}
 
@@ -575,6 +738,23 @@ export default function ImportPage() {
                 <p className="text-[12.5px] text-[#8a5d0a]">
                   Review detected duplicates below. Compare imported file records with existing CRM leads, and choose bulk or individual actions before completing import.
                 </p>
+                {/* What the file would do to the book, counting every row and not
+                    just the flagged ones — a row nobody flagged can still land on
+                    an existing lead, and that was nowhere on this screen. */}
+                <p className="mt-1.5 text-[12px] text-[#8a5d0a]">
+                  Importing all {dupResult.total} rows would update{' '}
+                  <b className="tabular-nums">{dupResult.willUpdateRecords}</b> existing{' '}
+                  {dupResult.willUpdateRecords === 1 ? 'lead' : 'leads'} and create{' '}
+                  <b className="tabular-nums">{dupResult.willCreateRecords}</b> new{' '}
+                  {dupResult.willCreateRecords === 1 ? 'one' : 'ones'}.
+                </p>
+                {dupResult.decidedBefore > 0 && (
+                  <p className="mt-1 inline-flex items-center gap-1.5 text-[12px] font-medium text-[#8a5d0a]">
+                    <History className="h-3.5 w-3.5" />
+                    <b className="tabular-nums">{dupResult.decidedBefore}</b> of these were ruled on before — those rows
+                    open on that answer.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -613,13 +793,25 @@ export default function ImportPage() {
               <tbody className="divide-y">
                 {dupResult.duplicateRows.map((d) => {
                   const decision = dupDecisions[d.index] ?? 'skip';
+                  const diff = d.willUpdate ? mergeDiff(rows[d.index], d.willUpdate) : [];
+                  const kept = mergeKeep[d.index]?.size ?? 0;
                   return (
-                    <tr key={d.index} className={`transition-colors ${decision === 'import' ? 'bg-[#f4f9e8]/60' : 'bg-[#fbf3e2]/30'}`}>
+                  <Fragment key={d.index}>
+                    <tr className={`transition-colors ${decision === 'import' ? 'bg-[#f4f9e8]/60' : 'bg-[#fbf3e2]/30'}`}>
                       <td className="py-3 pr-4">
                         <div className="font-semibold text-foreground">{d.row.businessName || '—'}</div>
                         <div className="font-mono text-[11.5px] text-muted-foreground">
                           {d.row.phone || '—'} {d.row.email ? `· ${d.row.email}` : ''}
                         </div>
+                        {/* Why this row opened on the answer it did. */}
+                        {d.priorDecision && (
+                          <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10.5px] font-medium text-muted-foreground">
+                            <History className="h-3 w-3" />
+                            Last time: {d.priorDecision.decision === 'import' ? 'imported' : 'skipped'}
+                            {d.priorDecision.decidedBy ? ` by ${d.priorDecision.decidedBy}` : ''} ·{' '}
+                            {formatDate(d.priorDecision.decidedAt)}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 pr-4">
                         <span className="inline-flex rounded-full bg-[#f4e4c1] px-2.5 py-0.5 text-[11px] font-semibold text-[#8a5d0a]">
@@ -627,21 +819,40 @@ export default function ImportPage() {
                         </span>
                       </td>
                       <td className="py-3 pr-4">
-                        {d.existing ? (
-                          <div>
-                            <div className="flex items-center gap-1.5 font-semibold">
-                              <span className="font-mono text-[11.5px] text-primary">{d.existing.leadId}</span>
-                              <span>{d.existing.businessName}</span>
-                            </div>
-                            <div className="text-[11.5px] text-muted-foreground">
-                              {d.existing.phone} {d.existing.email ? `· ${d.existing.email}` : ''} · Assigned: {d.existing.assignedTo ?? 'Unassigned'}
-                            </div>
+                        {d.existing.length > 0 ? (
+                          <div className="space-y-2">
+                            {d.existing.map((ex) => (
+                              <div key={ex.leadId}>
+                                <div className="flex flex-wrap items-center gap-1.5 font-semibold">
+                                  <span className="font-mono text-[11.5px] text-primary">{ex.leadId}</span>
+                                  <span>{ex.businessName || <span className="italic text-muted-foreground">Unnamed lead</span>}</span>
+                                </div>
+                                <div className="font-mono text-[11.5px] text-muted-foreground">
+                                  {ex.phone || '—'}{ex.altPhone ? ` · ${ex.altPhone}` : ''}{ex.email ? ` · ${ex.email}` : ''}
+                                </div>
+                                <div className="text-[11.5px] text-muted-foreground">
+                                  Assigned: {ex.assignedTo ?? 'Unassigned'}
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         ) : (
                           <span className="italic text-muted-foreground">Duplicate within file (earlier row)</span>
                         )}
                       </td>
                       <td className="py-3 text-right">
+                        {/* Spelled out because "duplicate" and "creates a second
+                            lead" are different questions. A row flagged on its
+                            email whose phone matches nothing creates a NEW lead;
+                            a row matching by phone is written into the one it
+                            found. The user was deciding without either fact. */}
+                        <div className="mb-1.5 text-[11.5px] text-muted-foreground">
+                          {d.willUpdate ? (
+                            <>Import updates <span className="font-mono text-primary">{d.willUpdate.leadId}</span></>
+                          ) : (
+                            <>Import creates a <b className="font-semibold text-[#8a5d0a]">new lead</b></>
+                          )}
+                        </div>
                         <div className="inline-flex rounded-lg border bg-background p-0.5 shadow-2xs">
                           <button
                             type="button"
@@ -666,8 +877,82 @@ export default function ImportPage() {
                             Skip
                           </button>
                         </div>
+
+                        {/* The merge is only offered where it can act: a row that
+                            will CREATE a lead has nothing to merge against. */}
+                        {d.willUpdate && diff.length > 0 && (
+                          <div className="mt-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setMergeOpen(mergeOpen === d.index ? null : d.index)}
+                              className="inline-flex items-center gap-1 rounded-md border bg-background px-2.5 py-1 text-[11.5px] font-semibold hover:bg-muted"
+                            >
+                              <GitCompare className="h-3.5 w-3.5" />
+                              {mergeOpen === d.index ? 'Hide' : 'Compare'} {diff.length} difference{diff.length === 1 ? '' : 's'}
+                              {kept > 0 && <span className="text-[#266929]">· {kept} kept</span>}
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
+
+                    {mergeOpen === d.index && d.willUpdate && (
+                      <tr>
+                        <td colSpan={4} className="bg-muted/30 px-4 py-4">
+                          <div className="mb-2 text-[12px] text-muted-foreground">
+                            Importing this row writes into{' '}
+                            <span className="font-mono text-primary">{d.willUpdate.leadId}</span>{' '}
+                            <b className="text-foreground">{d.willUpdate.businessName}</b>. Every column below differs —
+                            choose which side wins. Columns the file leaves empty are never written either way.
+                          </div>
+                          <table className="w-full border-collapse text-[12px]">
+                            <thead>
+                              <tr className="border-b text-left text-[10.5px] uppercase tracking-wider text-muted-foreground">
+                                <th className="pb-1.5 pr-3 font-semibold">Field</th>
+                                <th className="pb-1.5 pr-3 font-semibold">Currently in CRM</th>
+                                <th className="pb-1.5 pr-3 font-semibold">In this file</th>
+                                <th className="pb-1.5 text-right font-semibold">Keep</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {diff.map((f) => {
+                                const keepCrm = mergeKeep[d.index]?.has(f.key) ?? false;
+                                return (
+                                  <tr key={f.key}>
+                                    <td className="py-1.5 pr-3 font-medium">{f.label}</td>
+                                    <td className={`py-1.5 pr-3 ${keepCrm ? 'font-semibold text-[#266929]' : 'text-muted-foreground line-through'}`}>
+                                      {f.crmValue || <span className="italic no-underline">empty</span>}
+                                    </td>
+                                    <td className={`py-1.5 pr-3 ${keepCrm ? 'text-muted-foreground line-through' : 'font-semibold text-[#266929]'}`}>
+                                      {f.fileValue}
+                                    </td>
+                                    <td className="py-1.5 text-right">
+                                      <div className="inline-flex rounded-md border bg-background p-0.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => keepCrm && toggleMergeField(d.index, f.key)}
+                                          className={`rounded px-2 py-1 text-[11px] font-semibold ${!keepCrm ? 'bg-[#266929] text-white' : 'text-muted-foreground hover:text-foreground'}`}
+                                        >
+                                          File
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => !keepCrm && toggleMergeField(d.index, f.key)}
+                                          className={`rounded px-2 py-1 text-[11px] font-semibold ${keepCrm ? 'bg-[#266929] text-white' : 'text-muted-foreground hover:text-foreground'}`}
+                                        >
+                                          CRM
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                   );
                 })}
               </tbody>

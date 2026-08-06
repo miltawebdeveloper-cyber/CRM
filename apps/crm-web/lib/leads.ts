@@ -235,6 +235,64 @@ const LIST_KEYS: (keyof LeadListQuery)[] = [
   'closedBy', 'page', 'pageSize', 'sortBy', 'sortDir', 'idsOnly',
 ];
 
+/** A saved lead that matches the record being created, and on what. */
+export interface DuplicateMatch {
+  id: string;
+  leadId: string;
+  businessName: string;
+  phone: string;
+  altPhone: string | null;
+  email: string | null;
+  website: string | null;
+  status: string;
+  assignedTo: string | null;
+  createdAt: string;
+  /** `Phone`, `Email`, `Company Domain`. */
+  matchedOn: string[];
+}
+
+// ── Duplicate Leads scan ──
+/** Same rule the import uses; see the API's lead-dedupe.ts. */
+export interface DuplicateScanOptions {
+  /** `phone`, `email`, or both. Empty compares both. */
+  checkFields?: string[];
+  ignorePhoneFormatting?: boolean;
+  matchCompanyDomain?: boolean;
+  limit?: number;
+}
+export interface DuplicateGroupLead {
+  id: string;
+  leadId: string;
+  businessName: string;
+  phone: string;
+  altPhone: string | null;
+  email: string | null;
+  website: string | null;
+  contactName: string | null;
+  city: string | null;
+  state: string | null;
+  status: string;
+  assignedTo: string | null;
+  createdAt: string;
+  /** How many key columns this record actually fills in. */
+  filled: number;
+}
+export interface DuplicateGroup {
+  size: number;
+  /** `Phone`, `Email`, `Company Domain` — whichever bind this group. */
+  matchedOn: string[];
+  /** Oldest first, then most complete. */
+  leads: DuplicateGroupLead[];
+}
+export interface DuplicateScanResult {
+  scanned: number;
+  totalGroups: number;
+  /** What keeping one record per group would clear. */
+  redundantLeads: number;
+  returned: number;
+  groups: DuplicateGroup[];
+}
+
 export const leadsApi = {
   // `mine` narrows the result to the caller's OWN assigned leads whatever their
   // role — managers included, who otherwise see every lead. Employees are scoped
@@ -278,7 +336,14 @@ export const leadsApi = {
   },
   get: async (id: string): Promise<Lead> => (await api.get(`/leads/${id}`)).data,
   activities: async (id: string): Promise<LeadActivity[]> => (await api.get(`/activities/lead/${id}`)).data,
-  create: async (input: CreateLeadInput): Promise<Lead> => (await api.post('/leads', input)).data,
+  /** Create a lead. Rejects with a 409 carrying `duplicates` when one already
+   *  matches on phone or email — resend with `allowDuplicate` to override. */
+  create: async (input: CreateLeadInput & { allowDuplicate?: boolean }): Promise<Lead> =>
+    (await api.post('/leads', input)).data,
+  /** Leads matching one record, for warning before a create is attempted. */
+  checkDuplicate: async (rec: {
+    phone?: string; altPhone?: string; email?: string; website?: string; excludeId?: string;
+  }): Promise<DuplicateMatch[]> => (await api.post('/leads/check-duplicate', rec)).data,
   // Managers-only edit. Any subset of fields; `status` and `caller` (reassign)
   // are accepted in addition to the create fields.
   update: async (id: string, input: UpdateLeadInput): Promise<Lead> => (await api.patch(`/leads/${id}`, input)).data,
@@ -291,6 +356,16 @@ export const leadsApi = {
   commentHistory: async (id: string): Promise<LeadComment[]> => (await api.get(`/leads/${id}/comments`)).data,
   /** Delete many leads in one transaction. Import rollback posts the import's createdIds here. */
   bulkDelete: async (ids: string[]): Promise<{ deleted: number }> => (await api.post('/leads/bulk-delete', { ids })).data,
+  /** Duplicate groups among saved leads — read-only; removal goes via bulkDelete. */
+  duplicates: async (opts: DuplicateScanOptions = {}): Promise<DuplicateScanResult> =>
+    (await api.get('/leads/duplicates', {
+      params: {
+        ...(opts.checkFields?.length ? { checkFields: opts.checkFields.join(',') } : {}),
+        ...(opts.ignorePhoneFormatting ? { ignorePhoneFormatting: 'true' } : {}),
+        ...(opts.matchCompanyDomain ? { matchCompanyDomain: 'true' } : {}),
+        ...(opts.limit ? { limit: opts.limit } : {}),
+      },
+    })).data,
   remove: async (id: string) => (await api.delete(`/leads/${id}`)).data,
   syncToQuo: async (id: string) => (await api.post(`/leads/${id}/quo-sync`)).data,
   syncAllToQuo: async (): Promise<{ total: number; synced: number; failed: number; sandbox: boolean }> =>

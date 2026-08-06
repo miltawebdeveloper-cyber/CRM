@@ -164,6 +164,19 @@ export class CreateLeadDto {
   @IsOptional()
   @IsString()
   caller?: string;
+
+  /**
+   * Create this lead even though it matches one already in the CRM.
+   *
+   * Absent, a create that duplicates an existing lead on phone or email is
+   * refused with a 409 listing the matches — the form shows them and the person
+   * decides. Only ever set from that decision; the import does not use it (it
+   * has its own review, and its rows never come through `create`).
+   */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  allowDuplicate?: boolean;
 }
 
 /**
@@ -213,8 +226,8 @@ export class ImportLeadsDto {
 
   /**
    * Leave out rows that duplicate an existing lead (or an earlier row in the file)
-   * by Company Name, Phone or Email. Set from the duplicate-warning dialog's "Skip
-   * Duplicate Leads"; "Import Anyway" sends it false/absent.
+   * on an exact Phone or Email. Set from the duplicate review's "Skip All
+   * Duplicates"; "Import All Duplicates" sends it false/absent.
    */
   @ApiPropertyOptional()
   @IsOptional()
@@ -227,11 +240,32 @@ export class ImportLeadsDto {
   @IsArray()
   skipRowIndexes?: number[];
 
-  /** Validation fields to use for duplicate check: businessName, phone, email. */
+  /** Which fields the duplicate check compares: `phone`, `email`, or both.
+   *  Absent or empty means both. Company name is not a duplicate signal. */
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
   checkFields?: string[];
+
+  /**
+   * Compare phone numbers by their last 10 digits rather than as written, so
+   * "+1 (305) 555-1234" and "3055551234" count as one number. Off by default —
+   * it is a looser rule than the exact compare and is opted into per import.
+   */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  ignorePhoneFormatting?: boolean;
+
+  /**
+   * Also compare the company's own domain, read from the email and the website.
+   * Off by default and noisier than the contact-point rules: it matches two
+   * DIFFERENT people at one firm, which is often two legitimate leads.
+   */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  matchCompanyDomain?: boolean;
 }
 
 /** Body for the pre-import duplicate check — parsed rows and optional duplicate validation fields. */
@@ -241,11 +275,100 @@ export class CheckImportDto {
   @ArrayNotEmpty()
   rows: CreateLeadDto[];
 
-  /** Validation fields to use for duplicate check: businessName, phone, email. */
+  /** Which fields the duplicate check compares: `phone`, `email`, or both.
+   *  Absent or empty means both. Company name is not a duplicate signal. */
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()
   @IsArray()
   checkFields?: string[];
+
+  /**
+   * Compare phone numbers by their last 10 digits rather than as written, so
+   * "+1 (305) 555-1234" and "3055551234" count as one number. Off by default —
+   * it is a looser rule than the exact compare and is opted into per import.
+   */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  ignorePhoneFormatting?: boolean;
+
+  /**
+   * Also compare the company's own domain, read from the email and the website.
+   * Off by default and noisier than the contact-point rules: it matches two
+   * DIFFERENT people at one firm, which is often two legitimate leads.
+   */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  matchCompanyDomain?: boolean;
+}
+
+/** Body for the single-record duplicate check the New Lead form calls. */
+export class CheckDuplicateDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  altPhone?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  website?: string;
+
+  /** Ignore one lead when checking — the record being edited is not its own duplicate. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  excludeId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  matchCompanyDomain?: boolean;
+}
+
+/**
+ * Query for the Duplicate Leads scan. Booleans arrive as query strings, so they
+ * are coerced here rather than being read as the truthy strings they'd otherwise
+ * be — `?matchCompanyDomain=false` must mean false.
+ */
+export class DuplicateGroupsQueryDto {
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.split(',').filter(Boolean) : value))
+  @IsArray()
+  checkFields?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  ignorePhoneFormatting?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  matchCompanyDomain?: boolean;
+
+  /** Groups to return, largest first. The totals cover the whole scan either way. */
+  @ApiPropertyOptional({ minimum: 1, maximum: 500, default: 100 })
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  limit?: number;
 }
 
 export class ListLeadsQueryDto {

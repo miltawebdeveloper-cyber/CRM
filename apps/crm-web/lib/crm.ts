@@ -1029,19 +1029,70 @@ export interface ImportResult {
   duplicateRecords: number;
 }
 
-/** One row flagged as a duplicate by the pre-import check. */
+/**
+ * A stored lead as the import review needs it: enough to name the record that
+ * matched, and enough to diff every column an import can write.
+ */
+export interface ImportMatchedLead {
+  leadId: string;
+  businessName: string;
+  phone: string;
+  altPhone: string | null;
+  email: string | null;
+  website: string | null;
+  assignedTo: string | null;
+  createdAt: string;
+  leadGenerationId: string | null;
+  leadSource: string | null;
+  contactName: string | null;
+  contactName2: string | null;
+  socialMedia: string | null;
+  country: string | null;
+  state: string | null;
+  city: string | null;
+  timezone: string | null;
+  industry: string | null;
+  companySize: string | null;
+  foundedYear: string | null;
+  address: string | null;
+  callStatus: string | null;
+  lostReason: string | null;
+  status: string;
+}
 export interface ImportDuplicateRow {
   index: number;
+  /** Which fields matched exactly — `Phone`, `Email`, or both. */
   matchedOn: string[];
-  /** The import row's own key fields (left side of the preview grid). */
+  /** The import row's own key fields (left side of the review grid). */
   row: { businessName: string; phone: string; email: string };
-  /** The existing CRM lead it clashed with — null when it only repeats an earlier file row. */
-  existing: { leadId: string; businessName: string; phone: string; email: string | null; assignedTo: string | null; createdAt: string } | null;
+  /**
+   * The existing CRM lead(s) this row matched — more than one when its phone and
+   * its email belong to different leads. Empty when the row only repeats an
+   * earlier row of the same file, which has no saved lead to point at.
+   */
+  existing: ImportMatchedLead[];
+  /**
+   * The lead this row would be written INTO if imported, or null if it would
+   * create a new one. Not the same question as whether it is a duplicate: a row
+   * flagged on its email can still create a second lead, and an unflagged row
+   * can quietly update an existing one. Carries the full record so the review
+   * can offer a field-by-field merge against it.
+   */
+  willUpdate: ImportMatchedLead | null;
+  /** What this row is filed under when a decision about it is remembered. */
+  decisionKey: string;
+  /** How this same row was ruled on last time, if it was. */
+  priorDecision: { decision: string; decidedAt: string; decidedBy: string | null } | null;
 }
 export interface ImportCheckResult {
   total: number;
   newRecords: number;
   duplicateRecords: number;
+  /** Create-or-update split for the whole file, duplicates and clean rows alike. */
+  willUpdateRecords: number;
+  willCreateRecords: number;
+  /** Duplicate rows that were ruled on in a previous run of this same review. */
+  decidedBefore: number;
   duplicateRows: ImportDuplicateRow[];
 }
 export interface LeadRow {
@@ -1080,13 +1131,19 @@ export interface LeadRow {
   address?: string;
   createdAt?: string;
 }
+/** How the duplicate scan should compare — sent identically to the check and the
+ *  import, so the review the user saw and the rows the import skips agree. */
+export interface ImportMatchOptions {
+  checkFields?: string[];
+  ignorePhoneFormatting?: boolean;
+}
 export const importApi = {
   /** Import. `skipDuplicates` leaves out rows matching an existing lead (or an earlier file row). */
-  bulk: async (rows: LeadRow[], skipDuplicates = false, skipRowIndexes?: number[], checkFields?: string[]): Promise<ImportResult> =>
-    (await api.post('/leads/import', { rows, skipDuplicates, skipRowIndexes, checkFields })).data,
+  bulk: async (rows: LeadRow[], skipDuplicates = false, skipRowIndexes?: number[], match: ImportMatchOptions = {}): Promise<ImportResult> =>
+    (await api.post('/leads/import', { rows, skipDuplicates, skipRowIndexes, ...match })).data,
   /** Pre-import scan — no writes. Flags rows duplicating an existing lead by selected fields. */
-  check: async (rows: LeadRow[], checkFields?: string[]): Promise<ImportCheckResult> =>
-    (await api.post('/leads/import/check', { rows, checkFields })).data,
+  check: async (rows: LeadRow[], match: ImportMatchOptions = {}): Promise<ImportCheckResult> =>
+    (await api.post('/leads/import/check', { rows, ...match })).data,
 };
 
 /** Format seconds as "5h 10m" / "2m 40s". */

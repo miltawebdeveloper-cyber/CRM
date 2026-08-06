@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AssignmentType, Timezone, LeadStatus, Role, Prisma } from '@crm/database';
 import { timezoneWhere, tzLabel } from '../../common/timezone';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto';
 import { closureCreateFields, closureFields } from './lead-closure';
+import { buildMatchKeys, decisionKey, emailDomain, type LeadMatchOptions, type MatchableRecord, type MatchSignal } from './lead-dedupe';
 import { LeadIdService } from './lead-id.service';
 
 /**
@@ -143,6 +144,13 @@ const SORTABLE: Record<string, (dir: Prisma.SortOrder) => Prisma.LeadOrderByWith
 function sortClause(key: string, dir: Prisma.SortOrder): Prisma.LeadOrderByWithRelationInput {
   return (SORTABLE[key] ?? SORTABLE.createdAt)(dir);
 }
+
+/** Fields counted when ranking which of a duplicate group's leads holds the most
+ *  data — the record a purge should suggest keeping. */
+const COMPLETENESS_FIELDS = [
+  'businessName', 'phone', 'altPhone', 'email', 'website', 'contactName',
+  'city', 'state', 'timezone', 'industry',
+] as const;
 
 @Injectable()
 export class LeadsService {
@@ -300,6 +308,25 @@ export class LeadsService {
     };
   }
   async create(dto: CreateLeadDto, userId?: string, role?: Role) {
+    /**
+     * Refuse a lead that already exists, unless the caller says to make it
+     * anyway. The import has warned about duplicates for a long time; this form
+     * did not, so the one door with a guard on it was the one that already had
+     * a review screen, and hand-typed leads walked straight past.
+     *
+     * A 409 rather than a silent merge: the caller is a person at a form who can
+     * look at the match and decide, and quietly folding their typing into an
+     * existing record is a worse answer than asking.
+     */
+    if (!dto.allowDuplicate) {
+      const clashes = await this.findDuplicatesFor(dto);
+      if (clashes.length > 0) {
+        throw new ConflictException({
+          message: `This lead matches ${clashes.length} existing ${clashes.length === 1 ? 'lead' : 'leads'} on ${[...new Set(clashes.flatMap((c) => c.matchedOn))].join(' and ')}.`,
+          duplicates: clashes,
+        });
+      }
+    }
     // IMP-006 — auto-generate lead_id if not provided (retries on collision).
     // Employees may not assign leads to anyone else: their created leads are
     // always owned by them (so the lead stays in their own visible book).
@@ -346,153 +373,256 @@ export class LeadsService {
    */
   /**
    * Flag which import rows duplicate an existing lead or an earlier row in the
-   * same file, matched on Company Name, Phone (last 10 digits) or Email — any one
-   * hit counts. Used both by the pre-import check (so the user is warned before
-   * anything is written) and by the import itself when "skip duplicates" is chosen,
-   * so the two can never disagree about what a duplicate is.
+   * same file. A row is a duplicate only when its Phone or its Email matches
+   * EXACTLY — either one on its own is enough.
+   *
+   * Company name is deliberately not compared, and nothing here scores partial
+   * or percentage similarity. Two records either share a contact point or they
+   * are two records: a name-shaped guess is what makes an import review argue
+   * with the person reading it, over franchise branches and common trading
+   * names that were never the same firm.
+   *
+   * Used both by the pre-import check (so the user is warned before anything is
+   * written) and by the import itself when "skip duplicates" is chosen, so the
+   * two can never disagree about what a duplicate is.
    */
-  async analyzeImport(rows: CreateLeadDto[], checkFields?: string[]) {
-    const checkAll = !checkFields || checkFields.length === 0;
-    const checkName = checkAll || checkFields.includes('businessName') || checkFields.includes('companyName');
-    const checkPhone = checkAll || checkFields.includes('phone');
-    const checkEmail = checkAll || checkFields.includes('email');
+  async analyzeImport(rows: CreateLeadDto[], opts: LeadMatchOptions = {}) {
+    // One definition of a match, shared with the Duplicate Leads screen. See
+    // lead-dedupe.ts — the rule does not live here.
+    const keysOf = (rec: MatchableRecord) => buildMatchKeys(rec, opts);
 
     /**
-     * Company names are compared on their trading name, not their punctuation.
-     * A book built from several lead sources spells the same firm "Acme Tax LLC",
-     * "Acme Tax, L.L.C." and "The Acme Tax Co." — an exact lowercase compare calls
-     * those three different companies and lets the same firm in three times, which
-     * is precisely the duplicate this check exists to catch. Legal suffixes are
-     * only stripped from the END of the name, so "LLC Bookkeeping Partners" keeps
-     * the word it actually trades under.
+     * The key the import's own create-or-update lookup searches on: the last 10
+     * digits of the row's phone. Kept identical to `bulkImport`'s, because the
+     * whole point of predicting the outcome is that the prediction and the write
+     * agree.
      */
-    const LEGAL_SUFFIXES = /\b(incorporated|inc|llc|llp|lllp|ltd|limited|corporation|corp|company|co|plc|pllc|pc|lp|pvt|private|gmbh|bv|nv|sa|srl|pty|ag|oy|ab|as)\b/;
-    const nameKey = (v?: string | null) => {
-      let s = (v ?? '')
-        .toLowerCase()
-        .replace(/&/g, ' and ')
-        .replace(/[^a-z0-9]+/g, ' ')
-        .trim()
-        .replace(/^the /, '')
-        // Dotted acronyms survive punctuation-stripping as loose letters
-        // ("L.L.C." → "l l c"), which would hide the suffix from the rule below.
-        // Runs of single letters are glued back into one token first.
-        .replace(/\b(?:[a-z] )+[a-z]\b/g, (m) => m.replace(/ /g, ''));
-      // Repeated so "Acme Tax Co. Ltd." reduces the same way "Acme Tax Ltd." does.
-      let prev = '';
-      while (s !== prev) {
-        prev = s;
-        s = s.replace(new RegExp(`\\s${LEGAL_SUFFIXES.source}$`), '').trim();
-      }
-      // Never reduce a name to nothing: a firm literally called "Co" should still
-      // match itself rather than collapsing into every other suffix-only name.
-      return s || (v ?? '').trim().toLowerCase();
+    const rowUpdateKey = (r: CreateLeadDto) => {
+      const d = (r.phone ?? '').replace(/\D/g, '');
+      return d ? d.slice(-10) : '';
     };
+    const wantUpdateKeys = new Set(rows.map(rowUpdateKey).filter(Boolean));
+    const updateKeyLens = new Set([...wantUpdateKeys].map((k) => k.length));
     /**
-     * Every number a record can be reached on, normalised to its last 10 digits so
-     * "+1 (305) 555-1234" and "3055551234" are one key. Alt numbers are included on
-     * BOTH sides: a sheet listing a firm's direct line while the CRM holds its
-     * switchboard as the alt number is the same firm, and matching only phone
-     * against phone walks straight past it.
+     * Every digit window a stored number could be FOUND by, which is what makes
+     * the outcome predictable in one pass instead of a query per row.
+     *
+     * That lookup is `phone contains <the row's last 10 digits>` against the RAW
+     * stored text, so windows are taken from the raw string's digit runs: a lead
+     * stored as "(305) 555-1234" yields none at all, because its digits are
+     * broken up by punctuation and no ten-digit key can ever be a substring of
+     * it. That is genuinely how the import behaves, and reproducing it is the
+     * point — a kinder rule here would predict updates that never happen.
      */
-    const phoneKeys = (...vals: (string | null | undefined)[]) => {
+    const updateWindows = (raw?: string | null) => {
       const out = new Set<string>();
-      for (const v of vals) {
-        const d = (v ?? '').replace(/\D/g, '').slice(-10);
-        if (d.length >= 7) out.add(d);
+      for (const run of (raw ?? '').match(/\d+/g) ?? []) {
+        for (const len of updateKeyLens) {
+          for (let i = 0; i + len <= run.length; i++) out.add(run.slice(i, i + len));
+        }
       }
       return out;
     };
-    /**
-     * Gmail-style dots and +tags address one inbox, so john.carter+crm@gmail.com
-     * and johncarter@gmail.com are the same person. Applied only to the providers
-     * that actually work that way — elsewhere a dot is part of the address.
-     */
-    const DOT_INSENSITIVE = new Set(['gmail.com', 'googlemail.com']);
-    const emailKey = (v?: string | null) => {
-      const s = (v ?? '').trim().toLowerCase();
-      const at = s.lastIndexOf('@');
-      if (at < 1) return s;
-      let local = s.slice(0, at);
-      const domain = s.slice(at + 1);
-      local = local.split('+')[0];
-      if (DOT_INSENSITIVE.has(domain)) local = local.replace(/\./g, '');
-      return local ? `${local}@${domain}` : s;
-    };
 
-    // Existing leads, loaded once and indexed by each match key → the lead itself,
-    // so a flagged row can carry the record it clashed with (for the preview grid),
-    // not just a boolean. Bounded so a huge book can't turn a check into an
-    // unbounded scan; beyond the cap, matches past it just aren't flagged.
-    const existing = await this.prisma.lead.findMany({
-      where: { deletedAt: null },
-      select: { leadId: true, businessName: true, phone: true, altPhone: true, email: true, createdAt: true, assignedTo: { select: { name: true } } },
-      take: 50_000,
+    // Keys this file actually asks about. Built first so the scan below can
+    // throw away every lead that answers none of them, which is what keeps the
+    // memory here proportional to the FILE rather than to the lead book.
+    const rowKeys = rows.map(keysOf);
+    const wantPhone = new Set<string>();
+    const wantEmail = new Set<string>();
+    const wantDomain = new Set<string>();
+    const wantLeadId = new Set<string>();
+    for (const [i, k] of rowKeys.entries()) {
+      for (const ph of k.phone) wantPhone.add(ph);
+      if (k.email) wantEmail.add(k.email);
+      for (const d of k.domain) wantDomain.add(d);
+      if (rows[i].leadId) wantLeadId.add(rows[i].leadId!);
+    }
+
+    /**
+     * The stored lead as the review needs it: enough to NAME the record it
+     * matched, and enough to diff every column an import can write, so a row
+     * that will update one can be merged field by field instead of the file
+     * silently winning every column it happens to fill.
+     */
+    type Match = {
+      leadId: string; businessName: string; phone: string; altPhone: string | null;
+      email: string | null; website: string | null; assignedTo: string | null; createdAt: Date;
+      leadGenerationId: string | null; leadSource: string | null; contactName: string | null;
+      contactName2: string | null; socialMedia: string | null; country: string | null;
+      state: string | null; city: string | null; timezone: string | null; industry: string | null;
+      companySize: string | null; foundedYear: string | null; address: string | null;
+      callStatus: string | null; lostReason: string | null; status: string;
+    };
+    const MATCH_SELECT = {
+      id: true, leadId: true, businessName: true, phone: true, altPhone: true, email: true,
+      website: true, createdAt: true, assignedTo: { select: { name: true } },
+      leadGenerationId: true, leadSource: true, contactName: true, contactName2: true,
+      socialMedia: true, country: true, state: true, city: true, timezone: true, industry: true,
+      companySize: true, foundedYear: true, address: true, callStatus: true, lostReason: true,
+      status: true,
+    } as const;
+    const toMatch = (l: Record<string, unknown>): Match => ({
+      leadId: l.leadId as string,
+      businessName: l.businessName as string,
+      phone: l.phone as string,
+      altPhone: (l.altPhone ?? null) as string | null,
+      email: (l.email ?? null) as string | null,
+      website: (l.website ?? null) as string | null,
+      assignedTo: ((l.assignedTo as { name?: string } | null)?.name ?? null) as string | null,
+      createdAt: l.createdAt as Date,
+      leadGenerationId: (l.leadGenerationId ?? null) as string | null,
+      leadSource: (l.leadSource ?? null) as string | null,
+      contactName: (l.contactName ?? null) as string | null,
+      contactName2: (l.contactName2 ?? null) as string | null,
+      socialMedia: (l.socialMedia ?? null) as string | null,
+      country: (l.country ?? null) as string | null,
+      state: (l.state ?? null) as string | null,
+      city: (l.city ?? null) as string | null,
+      timezone: (l.timezone ?? null) as string | null,
+      industry: (l.industry ?? null) as string | null,
+      companySize: (l.companySize ?? null) as string | null,
+      foundedYear: (l.foundedYear ?? null) as string | null,
+      address: (l.address ?? null) as string | null,
+      callStatus: (l.callStatus ?? null) as string | null,
+      lostReason: (l.lostReason ?? null) as string | null,
+      status: l.status as string,
     });
-    type Match = { leadId: string; businessName: string; phone: string; email: string | null; assignedTo: string | null; createdAt: Date };
-    const toMatch = (l: (typeof existing)[number]): Match => ({
-      leadId: l.leadId,
-      businessName: l.businessName,
-      phone: l.phone,
-      email: l.email,
-      assignedTo: l.assignedTo?.name ?? null,
-      createdAt: l.createdAt,
-    });
-    const exName = new Map<string, Match>();
     const exPhone = new Map<string, Match>();
     const exEmail = new Map<string, Match>();
-    for (const l of existing) {
-      const m = toMatch(l);
-      const nm = nameKey(l.businessName), em = emailKey(l.email);
-      if (nm && !exName.has(nm)) exName.set(nm, m);
-      for (const ph of phoneKeys(l.phone, l.altPhone)) if (!exPhone.has(ph)) exPhone.set(ph, m);
-      if (em && !exEmail.has(em)) exEmail.set(em, m);
+    const exDomain = new Map<string, Match>();
+    const exLeadId = new Map<string, Match>();
+    const exUpdate = new Map<string, Match>();
+
+    /**
+     * The lead book, walked in pages by primary key rather than pulled down in
+     * one `take: 50_000`.
+     *
+     * That cap was a silent correctness hole: past fifty thousand leads the rows
+     * beyond it simply weren't compared, so an import could be told it held no
+     * duplicates by a check that had never looked at the lead it duplicated. A
+     * cursor has no such edge. Only the leads that answer one of this file's
+     * keys are kept, so the paging bounds the memory the cap was there to bound.
+     */
+    const PAGE = 5_000;
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await this.prisma.lead.findMany({
+        where: { deletedAt: null },
+        select: MATCH_SELECT,
+        orderBy: { id: 'asc' },
+        take: PAGE,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      });
+      if (page.length === 0) break;
+
+      for (const l of page) {
+        // The company name rides along because the review has to NAME the lead
+        // it matched — it just has no say in whether they matched.
+        const m = toMatch(l);
+        const k = keysOf(l);
+        for (const ph of k.phone) {
+          if (wantPhone.has(ph) && !exPhone.has(ph)) exPhone.set(ph, m);
+        }
+        if (k.email && wantEmail.has(k.email) && !exEmail.has(k.email)) exEmail.set(k.email, m);
+        for (const d of k.domain) {
+          if (wantDomain.has(d) && !exDomain.has(d)) exDomain.set(d, m);
+        }
+        if (wantLeadId.has(l.leadId) && !exLeadId.has(l.leadId)) exLeadId.set(l.leadId, m);
+        for (const w of updateWindows(l.phone)) {
+          if (wantUpdateKeys.has(w) && !exUpdate.has(w)) exUpdate.set(w, m);
+        }
+      }
+
+      if (page.length < PAGE) break;
+      cursor = page[page.length - 1].id;
     }
 
     // Within-file repeats: a key already seen in an EARLIER row of the same upload.
-    const seenName = new Set<string>();
     const seenPhone = new Set<string>();
     const seenEmail = new Set<string>();
+    const seenDomain = new Set<string>();
     const perRow = rows.map((r, index) => {
-      const nm = nameKey(r.businessName);
-      const phs = phoneKeys(r.phone, r.altPhone);
-      const em = emailKey(r.email);
-      const on: string[] = [];
-      let existingMatch: Match | null = null;
-      if (checkName && nm && (exName.has(nm) || seenName.has(nm))) { on.push('Company Name'); existingMatch ??= exName.get(nm) ?? null; }
-      if (checkPhone) {
-        for (const ph of phs) {
-          if (exPhone.has(ph) || seenPhone.has(ph)) { on.push('Phone'); existingMatch ??= exPhone.get(ph) ?? null; break; }
-        }
+      const k = rowKeys[index];
+      const on: MatchSignal[] = [];
+      // Every DISTINCT lead this row collides with, keyed by lead id. A row can
+      // hit one lead on its phone and a different one on its email, and naming
+      // only the first has the user decide against half the picture.
+      const matches = new Map<string, Match>();
+      let phoneHit = false;
+      for (const ph of k.phone) {
+        const ex = exPhone.get(ph);
+        if (ex) matches.set(ex.leadId, ex);
+        if (ex || seenPhone.has(ph)) phoneHit = true;
       }
-      if (checkEmail && em && (exEmail.has(em) || seenEmail.has(em))) { on.push('Email'); existingMatch ??= exEmail.get(em) ?? null; }
-      if (nm) seenName.add(nm);
-      for (const ph of phs) seenPhone.add(ph);
-      if (em) seenEmail.add(em);
+      if (phoneHit) on.push('Phone');
+      if (k.email && (exEmail.has(k.email) || seenEmail.has(k.email))) {
+        on.push('Email');
+        const ex = exEmail.get(k.email);
+        if (ex) matches.set(ex.leadId, ex);
+      }
+      let domainHit = false;
+      for (const d of k.domain) {
+        const ex = exDomain.get(d);
+        if (ex) matches.set(ex.leadId, ex);
+        if (ex || seenDomain.has(d)) domainHit = true;
+      }
+      if (domainHit) on.push('Company Domain');
+      for (const ph of k.phone) seenPhone.add(ph);
+      if (k.email) seenEmail.add(k.email);
+      for (const d of k.domain) seenDomain.add(d);
+
+      /**
+       * What importing this row would actually DO, which is not the same
+       * question as whether it is a duplicate and had no answer on screen at
+       * all. A row matching an existing lead by id or phone updates that lead;
+       * anything else creates one. So a row can be flagged as a duplicate on
+       * its email and still create a SECOND lead, and a row nobody flagged can
+       * quietly update an existing one — both surprises the review can now say
+       * out loud before the user decides.
+       *
+       * Predicted against the book as it stands. Rows earlier in this same file
+       * can create leads that later rows then update, but whether they do
+       * depends on the skip decisions the user has not made yet, so this does
+       * not guess at them.
+       */
+      const uk = rowUpdateKey(r);
+      const willUpdate = (r.leadId ? exLeadId.get(r.leadId) : undefined) ?? (uk ? exUpdate.get(uk) : undefined) ?? null;
+
       return {
         index,
         duplicate: on.length > 0,
         matchedOn: on,
-        // The import row's own key fields, for the left side of the preview grid.
+        // The import row's own key fields, for the left side of the review grid.
         row: { businessName: r.businessName ?? '', phone: r.phone ?? '', email: r.email ?? '' },
-        // The CRM lead it clashed with, when the clash is against an existing lead
-        // (null when it only repeats an earlier row in the same file).
-        existing: existingMatch,
+        // The CRM lead(s) it clashed with. Empty when the row only repeats an
+        // earlier row of the same file, which has no saved lead to point at.
+        existing: [...matches.values()],
+        // The lead this row would be written INTO, or null if it would create
+        // one. Carries the full record so the review can offer a field-by-field
+        // merge against it rather than just naming it.
+        willUpdate,
+        // What this row is filed under when a decision about it is remembered.
+        decisionKey: decisionKey(r),
       };
     });
 
     const duplicateRecords = perRow.filter((r) => r.duplicate).length;
+    const willUpdateRecords = perRow.filter((r) => r.willUpdate).length;
     return {
       total: rows.length,
       duplicateRecords,
       newRecords: rows.length - duplicateRecords,
+      // Create-or-update split for the whole file, duplicates and clean rows
+      // alike — the answer to "what is this import about to do to my book".
+      willUpdateRecords,
+      willCreateRecords: rows.length - willUpdateRecords,
       rows: perRow,
     };
   }
 
   async bulkImport(dto: ImportLeadsDto, userId?: string) {
     const errors: Array<{ row: number; reason: string }> = [];
-    const seenInFile = new Set<string>();
     const callerCache = new Map<string, string | undefined>();
     let imported = 0;
     let updated = 0;
@@ -513,12 +643,22 @@ export class LeadsService {
       return callerCache.get(key);
     };
 
-    // Duplicate flags for the whole file based on checkFields
-    const analysis = await this.analyzeImport(dto.rows, dto.checkFields);
+    // Duplicate flags for the whole file, under the same settings the user was
+    // shown the review under — a rule the check and the write disagreed on is a
+    // row skipped for a reason nobody was told.
+    const analysis = await this.analyzeImport(dto.rows, {
+      checkFields: dto.checkFields,
+      ignorePhoneFormatting: dto.ignorePhoneFormatting,
+      matchCompanyDomain: dto.matchCompanyDomain,
+    });
     const dupByIndex = analysis.rows;
     const skipRowSet = new Set(dto.skipRowIndexes ?? []);
     let duplicateRecords = 0;
     let skipped = 0;
+    // What the reviewer chose about each duplicate, to be remembered once the
+    // import has actually run. Collected rather than written per row so a file
+    // of thousands costs one write instead of thousands.
+    const decisions = new Map<string, 'import' | 'skip'>();
 
     for (let i = 0; i < dto.rows.length; i++) {
       const row = dto.rows[i];
@@ -529,6 +669,8 @@ export class LeadsService {
       if (isDuplicate) {
         duplicateRecords++;
         const shouldSkip = dto.skipDuplicates || skipRowSet.has(i);
+        const dk = dupByIndex[i].decisionKey;
+        if (dk) decisions.set(dk, shouldSkip ? 'skip' : 'import');
         if (shouldSkip) {
           skipped++;
           errors.push({ row: n, reason: `Skipped duplicate (matched on ${dupByIndex[i].matchedOn.join(', ')})` });
@@ -539,17 +681,13 @@ export class LeadsService {
         errors.push({ row: n, reason: 'Skipped by user choice' });
         continue;
       }
-      // A same-file phone repeat is already a flagged duplicate above; this second
-      // guard only matters when the user imported anyway, where writing the same
-      // phone twice in one run would otherwise collide.
-      if (phoneKey && !isDuplicate) {
-        if (seenInFile.has(phoneKey)) {
-          errors.push({ row: n, reason: 'Duplicate phone within file' });
-          skipped++;
-          continue;
-        }
-        seenInFile.add(phoneKey);
-      }
+      // No second same-file phone guard here. It compared digits only, so under
+      // an exact-match rule it silently skipped rows the review screen had just
+      // reported as clean — "3055551234" dropped because an earlier row wrote
+      // "+13055551234". Two rows carrying the same number in different formats
+      // now both run, and the second is picked up by the create-or-update lookup
+      // below and applied to the lead the first one made, which is reported as
+      // an update rather than disappearing into the error list.
 
       // Only the provided (non-empty) columns; missing columns stay untouched.
       const data: Prisma.LeadUpdateInput = {};
@@ -704,6 +842,32 @@ export class LeadsService {
       }
     }
 
+    /**
+     * Remember what was ruled, so the next run of the same file does not ask
+     * again. Upserted one key at a time inside a transaction — `createMany` with
+     * skipDuplicates would keep the OLD answer for a key already on file, and a
+     * decision the user has just changed is precisely the one worth keeping.
+     *
+     * Deliberately after the import, and deliberately not fatal: a decision that
+     * fails to save costs one repeated question next time, and is not a reason
+     * to report a completed import as failed.
+     */
+    if (decisions.size > 0) {
+      try {
+        await this.prisma.$transaction(
+          [...decisions].map(([matchKey, decision]) =>
+            this.prisma.importDuplicateDecision.upsert({
+              where: { matchKey },
+              create: { matchKey, decision, decidedById: userId ?? null },
+              update: { decision, decidedById: userId ?? null, decidedAt: new Date() },
+            }),
+          ),
+        );
+      } catch {
+        // Left unlogged-through rather than thrown: see above.
+      }
+    }
+
     // NTF-003 — alert managers that a new batch landed
     if (imported > 0) {
       await this.notifications.notifyManagers(
@@ -731,16 +895,272 @@ export class LeadsService {
     };
   }
 
-  /** Pre-import scan: how many rows are new vs duplicate, and which rows. */
-  async checkImport(rows: CreateLeadDto[], checkFields?: string[]) {
-    const a = await this.analyzeImport(rows, checkFields);
+  /**
+   * Leads that duplicate ONE record, for the paths that create leads one at a
+   * time — the New Lead form, and anything else that mints a lead by hand.
+   *
+   * The import was the only door that checked. A lead typed into the form went
+   * in unchecked, so the book steadily collected exactly the duplicates the
+   * import screen exists to prevent, and someone had to find them later on the
+   * Duplicate Leads screen. Same rule as both, out of lead-dedupe.ts.
+   *
+   * Narrowed in SQL, decided in TypeScript. The address rule folds +tags and
+   * Gmail dots, and writing that a second time in SQL is how two copies drift
+   * into disagreeing about who is a duplicate — so the query narrows by EMAIL
+   * DOMAIN, which survives the folding untouched and is therefore a strict
+   * superset, and `buildMatchKeys` decides among the candidates. Indexes for
+   * both halves land in 20260806100000.
+   */
+  async findDuplicatesFor(
+    rec: MatchableRecord & { excludeId?: string },
+    opts: LeadMatchOptions = {},
+  ) {
+    const keys = buildMatchKeys(rec, opts);
+    const domains = [...keys.domain];
+    // The domain to narrow the email search by is the raw one, which exists even
+    // when the address belongs to a mailbox provider — `keys.domain` has those
+    // stripped out because they say nothing about which COMPANY someone is at.
+    const rawDomain = emailDomain(rec.email);
+
+    const phoneList = [...keys.phone];
+    if (phoneList.length === 0 && !rawDomain && domains.length === 0) return [];
+
+    const or: Prisma.LeadWhereInput[] = [];
+    if (phoneList.length) {
+      if (opts.ignorePhoneFormatting) {
+        // Looser mode compares digits, which no btree can answer — the digits
+        // trigram indexes from 20260729120000 serve this.
+        for (const p of phoneList) {
+          or.push({ phone: { contains: p } }, { altPhone: { contains: p } });
+        }
+      } else {
+        or.push({ phone: { in: phoneList } }, { altPhone: { in: phoneList } });
+      }
+    }
+    // `endsWith` on the domain, which the expression index answers.
+    for (const d of new Set([rawDomain, ...domains].filter(Boolean))) {
+      or.push({ email: { endsWith: `@${d}`, mode: 'insensitive' } });
+    }
+    if (or.length === 0) return [];
+
+    const candidates = await this.prisma.lead.findMany({
+      where: {
+        deletedAt: null,
+        ...(rec.excludeId ? { id: { not: rec.excludeId } } : {}),
+        OR: or,
+      },
+      select: {
+        id: true, leadId: true, businessName: true, phone: true, altPhone: true, email: true,
+        website: true, status: true, createdAt: true, assignedTo: { select: { name: true } },
+      },
+      // A wide net on a common domain still has to end somewhere; the narrowing
+      // above is a superset, so this only bounds how much of it is examined.
+      take: 500,
+    });
+
+    const out: Array<{
+      id: string; leadId: string; businessName: string; phone: string; altPhone: string | null;
+      email: string | null; website: string | null; status: string;
+      assignedTo: string | null; createdAt: Date; matchedOn: MatchSignal[];
+    }> = [];
+    for (const c of candidates) {
+      const ck = buildMatchKeys(c, opts);
+      const on: MatchSignal[] = [];
+      if ([...keys.phone].some((p) => ck.phone.has(p))) on.push('Phone');
+      if (keys.email && ck.email === keys.email) on.push('Email');
+      if ([...keys.domain].some((d) => ck.domain.has(d))) on.push('Company Domain');
+      if (on.length) {
+        out.push({
+          id: c.id, leadId: c.leadId, businessName: c.businessName, phone: c.phone,
+          altPhone: c.altPhone, email: c.email, website: c.website, status: c.status,
+          assignedTo: c.assignedTo?.name ?? null, createdAt: c.createdAt, matchedOn: on,
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Duplicate groups across the leads already in the CRM — the scan behind the
+   * Duplicate Leads screen.
+   *
+   * The import only ever protects the front door. Leads also arrive by hand and
+   * off inbound calls, so a book collects duplicates the import never saw, and
+   * the Admin panel has advertised a "Purge Duplicates" tool for a while with
+   * nothing behind it. Same rule as the import, out of lead-dedupe.ts.
+   *
+   * Grouping is transitive: if A shares a phone with B and B shares an email
+   * with C, all three are one group. Two leads that reach the same company are
+   * one problem to settle, not two pairs to settle twice.
+   */
+  async findDuplicateGroups(opts: LeadMatchOptions & { limit?: number } = {}) {
+    const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
+
+    type Row = {
+      id: string; leadId: string; businessName: string; phone: string; altPhone: string | null;
+      email: string | null; website: string | null; contactName: string | null; city: string | null;
+      state: string | null; timezone: string | null; industry: string | null; status: string;
+      createdAt: Date; assignedTo: { name: string } | null;
+    };
+    const leads: Row[] = [];
+
+    // Same paging as the import scan, and for the same reason: no cap that
+    // quietly stops looking part-way through the book.
+    const PAGE = 5_000;
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await this.prisma.lead.findMany({
+        where: { deletedAt: null },
+        select: {
+          id: true, leadId: true, businessName: true, phone: true, altPhone: true, email: true,
+          website: true, contactName: true, city: true, state: true, timezone: true, industry: true,
+          status: true, createdAt: true, assignedTo: { select: { name: true } },
+        },
+        orderBy: { id: 'asc' },
+        take: PAGE,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      });
+      if (page.length === 0) break;
+      leads.push(...(page as Row[]));
+      if (page.length < PAGE) break;
+      cursor = page[page.length - 1].id;
+    }
+
+    // Union-find over lead positions: every shared key merges two sets, so a
+    // chain of pairwise matches settles into one group in a single pass.
+    const parent = leads.map((_, i) => i);
+    const find = (x: number): number => {
+      while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+      return x;
+    };
+    const union = (a: number, b: number) => {
+      const ra = find(a), rb = find(b);
+      if (ra !== rb) parent[rb] = ra;
+    };
+
+    const keys = leads.map((l) => buildMatchKeys(l, opts));
+    const firstSeen = new Map<string, number>();
+    const link = (key: string, i: number) => {
+      const prev = firstSeen.get(key);
+      if (prev === undefined) firstSeen.set(key, i);
+      else union(prev, i);
+    };
+    for (const [i, k] of keys.entries()) {
+      for (const ph of k.phone) link(`p:${ph}`, i);
+      if (k.email) link(`e:${k.email}`, i);
+      for (const d of k.domain) link(`d:${d}`, i);
+    }
+
+    const byRoot = new Map<number, number[]>();
+    for (let i = 0; i < leads.length; i++) {
+      const r = find(i);
+      const bucket = byRoot.get(r);
+      if (bucket) bucket.push(i);
+      else byRoot.set(r, [i]);
+    }
+
+    const filled = (l: Row) =>
+      COMPLETENESS_FIELDS.filter((f) => String((l as unknown as Record<string, unknown>)[f] ?? '').trim() !== '').length;
+
+    const groups = [...byRoot.values()]
+      .filter((members) => members.length > 1)
+      .map((members) => {
+        // Which signals actually bind THIS group, worked out from the members
+        // rather than remembered from the union that merged them — a group of
+        // three can be held together by a phone and an email at once.
+        const signals = new Set<MatchSignal>();
+        const count = (vals: string[]) => {
+          const seen = new Set<string>();
+          for (const v of vals) { if (seen.has(v)) return true; seen.add(v); }
+          return false;
+        };
+        if (count(members.flatMap((i) => [...keys[i].phone]))) signals.add('Phone');
+        if (count(members.map((i) => keys[i].email).filter(Boolean))) signals.add('Email');
+        if (count(members.flatMap((i) => [...keys[i].domain]))) signals.add('Company Domain');
+
+        // Oldest first, then most complete: the record most likely worth keeping
+        // leads the group, but the screen never decides on the user's behalf.
+        const sorted = [...members].sort(
+          (a, b) =>
+            leads[a].createdAt.getTime() - leads[b].createdAt.getTime() ||
+            filled(leads[b]) - filled(leads[a]),
+        );
+        return {
+          size: members.length,
+          matchedOn: [...signals],
+          leads: sorted.map((i) => ({
+            id: leads[i].id,
+            leadId: leads[i].leadId,
+            businessName: leads[i].businessName,
+            phone: leads[i].phone,
+            altPhone: leads[i].altPhone,
+            email: leads[i].email,
+            website: leads[i].website,
+            contactName: leads[i].contactName,
+            city: leads[i].city,
+            state: leads[i].state,
+            status: leads[i].status,
+            assignedTo: leads[i].assignedTo?.name ?? null,
+            createdAt: leads[i].createdAt,
+            /** How many key columns this record actually fills in. */
+            filled: filled(leads[i]),
+          })),
+        };
+      })
+      .sort((a, b) => b.size - a.size || a.leads[0].leadId.localeCompare(b.leads[0].leadId));
+
+    return {
+      scanned: leads.length,
+      totalGroups: groups.length,
+      // What removing every group down to one record each would clear.
+      redundantLeads: groups.reduce((n, g) => n + g.size - 1, 0),
+      returned: Math.min(groups.length, limit),
+      groups: groups.slice(0, limit),
+    };
+  }
+
+  /** Pre-import scan: how many rows are new vs duplicate, what the import would
+   *  create vs update, and which rows need a decision. */
+  async checkImport(rows: CreateLeadDto[], opts: LeadMatchOptions = {}) {
+    const a = await this.analyzeImport(rows, opts);
+    const duplicateRows = a.rows.filter((r) => r.duplicate);
+
+    /**
+     * What was decided about these same rows last time.
+     *
+     * Reviewing a file and ruling on its duplicates was worth nothing the second
+     * time: re-running it asked every question again, with no sign the answer
+     * had already been given. Prior rulings come back with the row so the review
+     * can pre-set the toggle and say WHY it is pre-set — the user can still
+     * change it, and changing it is what gets remembered next.
+     */
+    const keys = [...new Set(duplicateRows.map((r) => r.decisionKey).filter(Boolean))];
+    const priors = keys.length
+      ? await this.prisma.importDuplicateDecision.findMany({
+          where: { matchKey: { in: keys } },
+          select: { matchKey: true, decision: true, decidedAt: true, decidedBy: { select: { name: true } } },
+        })
+      : [];
+    const priorByKey = new Map(priors.map((p) => [p.matchKey, p]));
+
     return {
       total: a.total,
       newRecords: a.newRecords,
       duplicateRecords: a.duplicateRecords,
+      willUpdateRecords: a.willUpdateRecords,
+      willCreateRecords: a.willCreateRecords,
+      decidedBefore: duplicateRows.filter((r) => priorByKey.has(r.decisionKey)).length,
       // Only the duplicate rows, so the client can highlight them without shipping
       // a flag for every single row.
-      duplicateRows: a.rows.filter((r) => r.duplicate),
+      duplicateRows: duplicateRows.map((r) => {
+        const p = priorByKey.get(r.decisionKey);
+        return {
+          ...r,
+          priorDecision: p
+            ? { decision: p.decision, decidedAt: p.decidedAt, decidedBy: p.decidedBy?.name ?? null }
+            : null,
+        };
+      }),
     };
   }
 

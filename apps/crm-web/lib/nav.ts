@@ -3,6 +3,7 @@ import {
   Activity,
   Headphones,
   Target,
+  Copy,
   CircleCheckBig,
   GitBranch,
   Clock,
@@ -60,6 +61,7 @@ export const NAV: NavGroup[] = [
     heading: 'Pipeline',
     items: [
       { label: 'Lead Management', href: '/leads', icon: Target, sub: 'Active lead database' },
+      { label: 'Duplicate Leads', href: '/duplicates', icon: Copy, sub: 'Find and clear repeated records', roles: MANAGERS },
       // Renamed from "Closed Leads": a won lead isn't finished, it moves into
       // onboarding, and the menu now says so. The route stays /closed-leads —
       // renaming it would break existing bookmarks and orphan the per-user

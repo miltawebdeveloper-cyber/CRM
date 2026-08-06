@@ -32,7 +32,11 @@ const DM: { icon: typeof Upload; t: string; d: string; href?: string }[] = [
   { icon: Upload, t: 'Import Leads', d: 'Bulk CSV / Excel upload', href: '/import' },
   { icon: Download, t: 'Export Data', d: 'Download full database' },
   { icon: Database, t: 'Backup Now', d: 'Manual database snapshot' },
-  { icon: Trash2, t: 'Purge Duplicates', d: 'AI duplicate detection' },
+  // Was labelled "AI duplicate detection" and wired to nothing — a tile that
+  // promised a feature and did not move when clicked. The screen behind it now
+  // exists, and the description says what it actually does: an exact match on
+  // phone, email or company domain, with nothing deleted until asked.
+  { icon: Trash2, t: 'Purge Duplicates', d: 'Find repeated leads', href: '/duplicates' },
 ];
 
 export default function AdminPage() {

@@ -194,6 +194,7 @@ model User {
   preferences       UserPreference[]
   zoomMeetings      ZoomMeeting[]         @relation("ZoomOrganizer")
   zoomActivities    ZoomMeetingActivity[] @relation("ZoomActivityUser")
+  duplicateDecisions ImportDuplicateDecision[]
 
   @@index([role])
   @@index([isActive])
@@ -598,6 +599,32 @@ model Activity {
   /// no-call rows force a scan of the whole activity feed.
   @@index([action, createdAt])
   @@map("activities")
+}
+
+/// What a reviewer decided about a duplicate import row, so the same question
+/// is not asked from scratch every time a file is re-run.
+///
+/// Keyed by the CONTACT POINTS of the row that was ruled on — not by the lead it
+/// matched, and not by the file it came from. The same company re-exported next
+/// month arrives as a different file, in a different row, very likely matching a
+/// different lead; it is still the same question, and last month's answer is the
+/// useful thing to carry forward.
+model ImportDuplicateDecision {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Canonical key from `decisionKey()` in lead-dedupe.ts. Unique: deciding
+  /// again overwrites, so this is always the most recent ruling rather than a
+  /// pile of them the reader has to date-sort.
+  matchKey String @unique @map("match_key")
+  /// `import` or `skip`.
+  decision String
+
+  /// Nulled rather than cascaded when the reviewer's account goes: someone
+  /// leaving must not erase the reasoning behind rows still being imported.
+  decidedById String?   @map("decided_by_id") @db.Uuid
+  decidedBy   User?     @relation(fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt   DateTime  @default(now()) @map("decided_at")
+
+  @@map("import_duplicate_decisions")
 }
 
 /// Audit/feed of work auto-reassigned when a user goes offline (or fails to
