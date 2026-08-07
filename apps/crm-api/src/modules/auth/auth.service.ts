@@ -112,6 +112,31 @@ export class AuthService {
     return this.issueTokens(id, email, role);
   }
 
+  /**
+   * How many people actively use this workspace — the figure on the sign-in
+   * screen, and the only thing an unauthenticated caller can learn here.
+   *
+   * Active only, so a deactivated leaver stops being counted the day their
+   * access is withdrawn rather than inflating the number forever.
+   *
+   * Cached for five minutes in memory. The point is not the database load — it
+   * is one indexed COUNT — but that an endpoint anybody can call should not
+   * report a live figure they could poll to watch someone being added or
+   * removed. A stale count is the honest answer to a question nobody has a
+   * right to ask precisely.
+   */
+  private workspaceStatsCache: { at: number; users: number } | null = null;
+
+  async workspaceStats() {
+    const TTL_MS = 5 * 60 * 1000;
+    const now = Date.now();
+    if (!this.workspaceStatsCache || now - this.workspaceStatsCache.at > TTL_MS) {
+      const users = await this.prisma.user.count({ where: { isActive: true } });
+      this.workspaceStatsCache = { at: now, users };
+    }
+    return { users: this.workspaceStatsCache.users };
+  }
+
   /** Current user for /auth/me — includes the caller identity (name + assigned
    *  OpenPhone number) so the UI can show "you call as …" and flag an unassigned rep. */
   async me(userId: string) {

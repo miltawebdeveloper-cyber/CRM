@@ -21,6 +21,29 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  /**
+   * How many people use this workspace, for the stat row on the brand panel.
+   *
+   * Fetched rather than hardcoded so it cannot go stale the way "4 Timezones"
+   * did. Failure is silent and the tile disappears: this is decoration on the
+   * one screen that must always work, and nobody should be kept from signing in
+   * because a count didn't load.
+   */
+  const [userCount, setUserCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get('/auth/workspace-stats')
+      .then((r) => {
+        if (!cancelled && typeof r.data?.users === 'number' && r.data.users > 0) setUserCount(r.data.users);
+      })
+      .catch(() => {
+        /* offline, or the API is down — the sign-in form is what matters here */
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   // ── Email-OTP step ──
   // The password check hands back a challenge instead of tokens; nothing is
   // granted until the code that was mailed out is exchanged here.
@@ -148,7 +171,11 @@ export default function LoginPage() {
             {[
               ['8', 'Time zones'],
               ['1', 'Operations deck'],
-              ['AI', 'Call coaching'],
+              // Null until the count lands, and the tile is simply left out
+              // rather than showing a zero: "0 Users" on a sign-in screen reads
+              // as a broken product, and this figure is decoration — it must
+              // never be a reason the page looks wrong.
+              ...(userCount === null ? [] : [[userCount.toLocaleString(), userCount === 1 ? 'User' : 'Users']]),
             ].map(([n, l]) => (
               <div key={l}>
                 <div className="font-display text-[23px] font-semibold text-white">{n}</div>

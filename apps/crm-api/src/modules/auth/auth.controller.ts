@@ -37,6 +37,27 @@ export class AuthController {
     return this.auth.refresh(dto.refreshToken);
   }
 
+  /**
+   * The one figure the sign-in screen shows about this workspace: how many
+   * people use it.
+   *
+   * Public because the page that reads it is — there is no token yet. That
+   * makes this a deliberate, and deliberately small, disclosure: a COUNT of
+   * active users and nothing else. No names, no emails, no roles, nothing that
+   * says who they are or what they can do, so it tells an attacker the size of
+   * the room and not a single door in it.
+   *
+   * Rate-limited like the other public routes, and served from a short cache in
+   * the service, so it cannot be used to watch the number move in real time —
+   * which is the only thing a count on its own could otherwise be worth.
+   */
+  @Public()
+  @Throttle({ default: { limit: 60, ttl: 15 * 60 * 1000 } })
+  @Get('workspace-stats')
+  workspaceStats() {
+    return this.auth.workspaceStats();
+  }
+
   @ApiBearerAuth()
   @Get('me')
   me(@CurrentUser('id') userId: string) {
