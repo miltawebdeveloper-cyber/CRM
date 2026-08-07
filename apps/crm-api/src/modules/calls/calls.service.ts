@@ -8,7 +8,7 @@ import { CommunicationsService } from '../communications/communications.service'
 import { CallPivotDim, CallPivotQueryDto, CallStatsQueryDto, SetCallTargetDto, StartCallDto, EndCallDto, CreateNoteDto, UpdateFollowupDto } from './dto/call.dto';
 import { closureFields } from '../leads/lead-closure';
 import { COMPLETION_ACTIONS, completedOpenLeadCounts, productiveSeconds } from './work-time';
-import { ABANDONED_STATUS, FAILED_STATUSES, MISSED_STATUSES } from './call-status';
+import { ABANDONED_STATUS, FAILED_STATUSES, MISSED_INBOUND_CALL, MISSED_STATUSES } from './call-status';
 import { formatInZone, parseFutureInZone, parseInZone, timezoneWhere, tzLabel } from '../../common/timezone';
 
 function startOfToday() {
@@ -980,6 +980,26 @@ export class CallsService {
 
     return {
       ...(callerId ? { callerId } : {}),
+      /**
+       * A missed inbound call belongs to the Missed Calls module and nowhere
+       * else.
+       *
+       * It used to appear here too — as a row in the log, in the volume tiles,
+       * in the pivot and in the filter options — which double-counted it: the
+       * same unanswered call was both an item of work waiting on the Missed
+       * Calls tab and a "call" in a rep's totals. It also dragged the connect
+       * rate down with calls nobody made: the customer rang, and the module
+       * that reports what a rep DID counted the fact that nobody picked up.
+       *
+       * Excluded here rather than in each query, because this filter is what
+       * the stats, the pivot, the records list and the filter options all build
+       * on — narrowing one of them alone is how a tile starts counting rows the
+       * list beneath it cannot show.
+       *
+       * Answered inbound calls stay. Those are real work: the rep spoke to a
+       * customer, and it is only who dialled that differs.
+       */
+      NOT: MISSED_INBOUND_CALL,
       // Filter on when the call happened, not when the row was written.
       ...(query.from || query.to
         ? {
@@ -1051,13 +1071,20 @@ export class CallsService {
       // Abandoned calls carry an end time so they stop reading as "in progress",
       // but they were never dispositioned — counting them as connected would
       // inflate the connect rate with calls nobody confirmed even happened.
-      this.prisma.call.count({ where: { ...where, endTime: { not: null }, NOT: { status: ABANDONED_STATUS } } }),
-      // Unanswered in EITHER direction — a volume breakdown of the log, where
-      // most of these are outbound calls the customer didn't pick up. Shown as
-      // "Unanswered", deliberately not as "Missed Calls": the Missed Calls tab
-      // means only inbound calls the user missed (MISSED_INBOUND_CALL), and
-      // narrowing this count to match would leave outbound no-answer in neither
-      // this bucket nor `failed`, so the breakdown would stop adding up.
+      // Both exclusions travel together in one AND. Spreading `...where` and
+      // then writing `NOT:` beside it would REPLACE the missed-inbound
+      // exclusion this filter carries rather than add to it, and the connect
+      // rate would quietly go back to counting calls nobody answered.
+      this.prisma.call.count({
+        where: { ...where, endTime: { not: null }, AND: [{ NOT: { status: ABANDONED_STATUS } }] },
+      }),
+      // Unanswered — outbound calls the customer didn't pick up, plus inbound
+      // ones the rep actively declined. Still shown as "Unanswered" rather than
+      // "Missed Calls", and now that is simply what it holds: `where` excludes
+      // missed inbound calls from this whole module, so they cannot reach this
+      // bucket however wide MISSED_STATUSES is. The breakdown still adds up,
+      // because those rows are outside `total` too — they are counted once, on
+      // the Missed Calls tab, which is the module that owns them.
       this.prisma.call.count({ where: { ...where, status: { in: MISSED_STATUSES } } }),
       this.prisma.call.count({ where: { ...where, status: { in: FAILED_STATUSES } } }),
       this.prisma.call.aggregate({ where, _sum: { durationSecs: true }, _avg: { durationSecs: true } }),

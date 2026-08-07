@@ -229,11 +229,12 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
         <KpiCard icon={PhoneOutgoing} iconBg="#e7eed8" iconColor="#42512f" value={(stats?.outgoing ?? 0).toLocaleString()} label="Outgoing Calls" />
         <KpiCard icon={PhoneIncoming} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value={(stats?.incoming ?? 0).toLocaleString()} label="Incoming Calls" />
         <KpiCard icon={CheckCircle2} iconBg="#e8f2e4" iconColor="#3f7a32" value={(stats?.connected ?? 0).toLocaleString()} label={`Connected · ${stats?.connectedPct ?? 0}%`} />
-        {/* "Unanswered", not "Missed Calls": this is a volume breakdown of the
-            log and counts BOTH directions, so most of it is outbound calls the
-            customer didn't pick up. The Missed Calls tab next door means
-            something narrower — inbound calls the user missed — and two tiles a
-            click apart must not use one label for two different numbers. */}
+        {/* "Unanswered", not "Missed Calls", and now the two cannot overlap at
+            all: a missed INBOUND call belongs to the Missed Calls tab and is
+            excluded from this whole module, so this tile is outbound calls the
+            customer didn't pick up plus inbound ones the rep declined. Two
+            tiles a click apart must not use one label for two different
+            numbers, and must not count the same call twice either. */}
         <KpiCard icon={PhoneMissed} iconBg="var(--tone-amber-bg-2)" iconColor="var(--tone-amber-fg)" value={(stats?.missed ?? 0).toLocaleString()} label="Unanswered" />
         <KpiCard icon={PhoneOff} iconBg="var(--tone-red-bg)" iconColor="var(--tone-red-fg-2)" value={(stats?.failed ?? 0).toLocaleString()} label="Failed Calls" />
         <KpiCard icon={Clock} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={formatDuration(stats?.totalDurationSecs ?? 0)} label="Call Duration" />
