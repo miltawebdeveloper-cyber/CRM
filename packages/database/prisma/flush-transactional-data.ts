@@ -3,7 +3,10 @@
 // empty-but-working CRM: everyone can still sign in, every admin setting stands,
 // and there is not a single lead, call or note left.
 //
-// WHAT SURVIVES
+// WHAT SURVIVES — never emptied by this script, in any mode, ever. The list is
+// enforced, not merely intended: a table named in both lists aborts the run
+// before anything is destroyed, and the protected counts are compared before and
+// after so the script proves it kept them rather than claiming it.
 //   users             the accounts themselves, with their password hashes
 //   employees         the 1:1 profile hanging off each user (shift zone, targets)
 //   user_preferences  per-user table column layouts
@@ -93,6 +96,31 @@ const FLUSH = [
 /** Prisma's own migration ledger. Touching it would strand the database. */
 const NEVER_TOUCH = ['_prisma_migrations'];
 
+/**
+ * KEEP is a promise, not a preference: these tables are never emptied by this
+ * script, whatever else changes around it.
+ *
+ * Everything below exists because the promise was previously held by nothing
+ * but the care of whoever edited the two lists. One table pasted into the wrong
+ * array — `users` into FLUSH, say — and the run would take every account and
+ * password with it, and report success while doing it. The checks are cheap and
+ * the failure they prevent is unrecoverable, so they run on every invocation
+ * including the dry ones.
+ */
+function assertKeepIsSafe(truncating: readonly string[]) {
+  const overlap = truncating.filter((t) => KEEP.includes(t as never));
+  if (overlap.length) {
+    throw new Error(
+      `Refusing to run: ${overlap.join(', ')} appears in both KEEP and the truncate list. ` +
+        `KEEP tables hold the accounts, the settings and the outcome list — they are never emptied here.`,
+    );
+  }
+  const protectedToo = truncating.filter((t) => NEVER_TOUCH.includes(t));
+  if (protectedToo.length) {
+    throw new Error(`Refusing to run: ${protectedToo.join(', ')} must never be truncated.`);
+  }
+}
+
 const apply = process.env.APPLY === '1';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -181,8 +209,20 @@ async function main() {
     // One statement, one transaction: either the whole database is flushed or
     // none of it is. A partial flush would leave orphaned calls and notes whose
     // leads no longer exist.
-    const list = FLUSH.filter((t) => present.includes(t)).map((t) => `"${t}"`).join(', ');
-    await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${list} RESTART IDENTITY`);
+    const targets = FLUSH.filter((t) => present.includes(t));
+
+    // Last gate before anything is destroyed, checking the ACTUAL statement
+    // rather than the intention behind it.
+    assertKeepIsSafe(targets);
+
+    // What the protected tables hold right now. Compared again afterwards, so
+    // the run can prove it kept its promise instead of asserting it: if a single
+    // account or setting went missing, that is said out loud, at the moment it
+    // happened, rather than being discovered by whoever cannot log in tomorrow.
+    const keptBefore = new Map<string, number>();
+    for (const t of KEEP) if (present.includes(t)) keptBefore.set(t, await count(t));
+
+    await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${targets.map((t) => `"${t}"`).join(', ')} RESTART IDENTITY`);
 
     console.log('Flushed. Verifying…\n');
     let leftover = 0;
@@ -192,12 +232,26 @@ async function main() {
       leftover += n;
       if (n > 0) console.log(`  !! ${t} still has ${n} row(s)`);
     }
+    const harmed: string[] = [];
     for (const t of KEEP) {
       if (!present.includes(t)) continue;
-      console.log(`  kept ${t.padEnd(24)} ${(await count(t)).toLocaleString().padStart(9)}`);
+      const now = await count(t);
+      const was = keptBefore.get(t) ?? now;
+      if (now !== was) harmed.push(`${t} ${was.toLocaleString()} → ${now.toLocaleString()}`);
+      console.log(`  kept ${t.padEnd(24)} ${now.toLocaleString().padStart(9)}${now === was ? '' : '   ** CHANGED **'}`);
+    }
+    if (harmed.length) {
+      // Nothing here can put the rows back. Saying so plainly, and failing, is
+      // the only useful thing left: a restore from the dump has to start now.
+      console.error(
+        `\nFAILED THE ONE PROMISE THIS SCRIPT MAKES: protected tables changed — ${harmed.join('; ')}.\n` +
+          `Restore from your backup before anyone signs in.`,
+      );
+      process.exitCode = 1;
+      return;
     }
     console.log(leftover === 0
-      ? '\nDone. Every listed table is empty and the kept tables are intact.'
+      ? '\nDone. Every listed table is empty, and every protected table is untouched — verified by count, not assumed.'
       : `\nWARNING: ${leftover} row(s) survived — investigate before using this database.`);
     console.log('Lead numbering restarts at L-<year>-1, since ids are derived from the leads table.');
   } finally {
