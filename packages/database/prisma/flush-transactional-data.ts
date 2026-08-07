@@ -81,6 +81,13 @@ const FLUSH = [
   'ai_training_sessions',
   'voice_coaching_reports',
   'login_otps',
+  // Remembered "import this duplicate anyway" / "skip it" rulings. They look
+  // like configuration — a person sat and decided each one — but every ruling is
+  // about a specific company RELATIVE TO the lead book being emptied. Kept
+  // through a flush, they would silently pre-answer the first import into the
+  // fresh database on behalf of records that no longer exist, and after a flush
+  // nothing is a duplicate anyway: every row is new.
+  'import_duplicate_decisions',
 ] as const;
 
 /** Prisma's own migration ledger. Touching it would strand the database. */
