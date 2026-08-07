@@ -494,6 +494,11 @@ export default function ImportPage() {
   };
 
   // Bulk Actions
+  const handleImportAllLeads = () => {
+    setDupResult(null);
+    importMut.mutate({ skipDuplicates: false });
+  };
+
   const handleImportAllDuplicates = () => {
     if (!dupResult) return;
     const decisions: Record<number, 'import' | 'skip'> = {};
@@ -785,7 +790,15 @@ export default function ImportPage() {
             </div>
 
             {/* Bulk Action Controls in Dedicated Section */}
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleImportAllLeads}
+                disabled={importing}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--brand-lime)] bg-[var(--brand-surface-2)] px-3.5 py-2 text-[12px] font-semibold text-[var(--brand-on-surface)] shadow-2xs hover:bg-[#e6f2d2] disabled:opacity-50"
+              >
+                <Check className="h-4 w-4" /> Import All Leads
+              </button>
               <button
                 type="button"
                 onClick={handleImportAllDuplicates}
