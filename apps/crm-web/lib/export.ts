@@ -1,15 +1,29 @@
 // Client-side export helpers — CSV / Excel download + print-to-PDF.
 
-import * as XLSX from 'xlsx';
 import { formatDateTime } from '@/lib/display-settings';
 
-/** Download rows as a real .xlsx workbook (opens natively in Excel). */
-export function downloadXlsx(
+/**
+ * Download rows as a real .xlsx workbook (opens natively in Excel).
+ *
+ * `xlsx` is loaded on the click, not with the module. It is 399KB — comfortably
+ * the largest thing the web app ships — and a static import at the top of this
+ * file put all of it into the route chunk of every page that imports ANYTHING
+ * from here. The dashboard was the worst of it: it takes `downloadCsv` and
+ * `printTable`, never touches Excel, and made every agent download an Excel
+ * writer to look at the first screen after signing in.
+ *
+ * Async now, so callers are `onClick={() => downloadXlsx(...)}` rather than
+ * awaiting; none of them use the return value. The import resolves in the time
+ * it takes a browser to notice the click, and after the first export it is
+ * already in memory.
+ */
+export async function downloadXlsx(
   filename: string,
   headers: string[],
   rows: (string | number | null | undefined)[][],
   sheetName = 'Sheet1',
 ) {
+  const XLSX = await import('xlsx');
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows.map((r) => r.map((c) => c ?? ''))]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName);

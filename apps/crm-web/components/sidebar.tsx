@@ -3,10 +3,11 @@
 import { Fragment } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PanelLeftClose, PanelLeftOpen, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { navForRole, type NavItem, type Role } from '@/lib/nav';
+import { prefetchRoute } from '@/lib/nav-prefetch';
 import { usePersistedState } from '@/lib/use-persisted-state';
 import { cn } from '@/lib/utils';
 
@@ -57,6 +58,7 @@ function NavLink({
   onNavigate?: () => void;
 }) {
   const Icon = item.icon;
+  const qc = useQueryClient();
   return (
     <Link
       href={item.href}
@@ -64,6 +66,12 @@ function NavLink({
       // path changing afterwards — the close belongs to the click that caused it,
       // and doing it here avoids a render pass that sets state from an effect.
       onClick={onNavigate}
+      // Start the page's data on the way while the pointer is still travelling to
+      // the click. `next/link` already does this for the route's code; this is
+      // the other half. `onFocus` so keyboard users get it too — tabbing to a row
+      // is the same intent as hovering it.
+      onMouseEnter={() => prefetchRoute(qc, item.href)}
+      onFocus={() => prefetchRoute(qc, item.href)}
       // On the rail the icon is the only label there is, so the name moves to the
       // tooltip and the accessible name. Harmless in the drawer, where the text
       // is visible and says the same thing.
