@@ -46,6 +46,16 @@ export function sameDayConfirmError(leads: { id: string; leadId: string; assigne
  *  scroll a little; small enough that opening the module is one small response. */
 const DEFAULT_PAGE_SIZE = 50;
 
+type ImportLeadMatch = {
+  id: string; leadId: string; businessName: string; phone: string; altPhone: string | null;
+  email: string | null; website: string | null; assignedTo: string | null; assignedToId: string | null;
+  createdAt: Date; leadGenerationId: string | null; leadSource: string | null; contactName: string | null;
+  contactName2: string | null; socialMedia: string | null; country: string | null; state: string | null;
+  city: string | null; timezone: string | null; industry: string | null; companySize: string | null;
+  foundedYear: string | null; address: string | null; callStatus: string | null; lostReason: string | null;
+  status: string;
+};
+
 /**
  * The columns the lead grid actually renders, plus the few the row actions need.
  *
@@ -371,6 +381,16 @@ export class LeadsService {
    * when no match exists (core fields required only then). Per-row validation
    * — a single bad row never rejects the whole file.
    */
+  private buildUpdateWindows(raw?: string | null, updateKeyLens: Set<number> = new Set()) {
+    const out = new Set<string>();
+    for (const run of (raw ?? '').match(/\d+/g) ?? []) {
+      for (const len of updateKeyLens) {
+        for (let i = 0; i + len <= run.length; i++) out.add(run.slice(i, i + len));
+      }
+    }
+    return out;
+  }
+
   /**
    * Flag which import rows duplicate an existing lead or an earlier row in the
    * same file. A row is a duplicate when its Phone or its Email matches
@@ -417,15 +437,7 @@ export class LeadsService {
      * it. That is genuinely how the import behaves, and reproducing it is the
      * point — a kinder rule here would predict updates that never happen.
      */
-    const updateWindows = (raw?: string | null) => {
-      const out = new Set<string>();
-      for (const run of (raw ?? '').match(/\d+/g) ?? []) {
-        for (const len of updateKeyLens) {
-          for (let i = 0; i + len <= run.length; i++) out.add(run.slice(i, i + len));
-        }
-      }
-      return out;
-    };
+    const updateWindows = (raw?: string | null) => this.buildUpdateWindows(raw, updateKeyLens);
 
     // Keys this file actually asks about. Built first so the scan below can
     // throw away every lead that answers none of them, which is what keeps the
@@ -451,23 +463,24 @@ export class LeadsService {
      * silently winning every column it happens to fill.
      */
     type Match = {
-      leadId: string; businessName: string; phone: string; altPhone: string | null;
-      email: string | null; website: string | null; assignedTo: string | null; createdAt: Date;
-      leadGenerationId: string | null; leadSource: string | null; contactName: string | null;
-      contactName2: string | null; socialMedia: string | null; country: string | null;
-      state: string | null; city: string | null; timezone: string | null; industry: string | null;
-      companySize: string | null; foundedYear: string | null; address: string | null;
-      callStatus: string | null; lostReason: string | null; status: string;
+      id: string; leadId: string; businessName: string; phone: string; altPhone: string | null;
+      email: string | null; website: string | null; assignedTo: string | null; assignedToId: string | null;
+      createdAt: Date; leadGenerationId: string | null; leadSource: string | null; contactName: string | null;
+      contactName2: string | null; socialMedia: string | null; country: string | null; state: string | null;
+      city: string | null; timezone: string | null; industry: string | null; companySize: string | null;
+      foundedYear: string | null; address: string | null; callStatus: string | null; lostReason: string | null;
+      status: string;
     };
     const MATCH_SELECT = {
       id: true, leadId: true, businessName: true, phone: true, altPhone: true, email: true,
-      website: true, createdAt: true, assignedTo: { select: { name: true } },
+      website: true, createdAt: true, assignedToId: true, assignedTo: { select: { name: true } },
       leadGenerationId: true, leadSource: true, contactName: true, contactName2: true,
       socialMedia: true, country: true, state: true, city: true, timezone: true, industry: true,
       companySize: true, foundedYear: true, address: true, callStatus: true, lostReason: true,
       status: true,
     } as const;
     const toMatch = (l: Record<string, unknown>): Match => ({
+      id: l.id as string,
       leadId: l.leadId as string,
       businessName: l.businessName as string,
       phone: l.phone as string,
@@ -475,6 +488,7 @@ export class LeadsService {
       email: (l.email ?? null) as string | null,
       website: (l.website ?? null) as string | null,
       assignedTo: ((l.assignedTo as { name?: string } | null)?.name ?? null) as string | null,
+      assignedToId: (l.assignedToId ?? null) as string | null,
       createdAt: l.createdAt as Date,
       leadGenerationId: (l.leadGenerationId ?? null) as string | null,
       leadSource: (l.leadSource ?? null) as string | null,
@@ -641,6 +655,8 @@ export class LeadsService {
   async bulkImport(dto: ImportLeadsDto, userId?: string) {
     const errors: Array<{ row: number; reason: string }> = [];
     const callerCache = new Map<string, string | undefined>();
+    const assignedTodayCache = new Map<string, boolean>();
+    const importLeadCache = new Map<string, ImportLeadMatch>();
     let imported = 0;
     let updated = 0;
     // Assignment outcome per row, reported alongside the create/update counts so a
@@ -658,6 +674,11 @@ export class LeadsService {
       if (!key) return undefined;
       if (!callerCache.has(key)) callerCache.set(key, await this.resolveCaller(caller));
       return callerCache.get(key);
+    };
+
+    const assignedTodayCached = async (leadId: string) => {
+      if (!assignedTodayCache.has(leadId)) assignedTodayCache.set(leadId, await this.assignedToday(leadId));
+      return assignedTodayCache.get(leadId)!;
     };
 
     // Duplicate flags for the whole file, under the same settings the user was
@@ -682,6 +703,7 @@ export class LeadsService {
       const row = dto.rows[i];
       const n = i + 1;
       const phoneKey = (row.phone ?? '').replace(/\D/g, '');
+      const last10 = phoneKey.slice(-10);
 
       const isDuplicate = dupByIndex[i]?.duplicate ?? false;
       if (isDuplicate) {
@@ -767,16 +789,40 @@ export class LeadsService {
       const assignRel = assignedToId ? { assignedTo: { connect: { id: assignedToId } } } : {};
 
       // Match an existing lead by leadId or phone (last 10 digits), if any.
-      const last10 = phoneKey.slice(-10);
-      const existing = last10 || row.leadId
-        ? await this.prisma.lead.findFirst({
-            where: {
-              deletedAt: null,
-              OR: [...(row.leadId ? [{ leadId: row.leadId }] : []), ...(last10 ? [{ phone: { contains: last10 } }] : [])],
-            },
-            select: { id: true, status: true, assignedToId: true, assignedTo: { select: { name: true } } },
-          })
-        : null;
+      let existing: ImportLeadMatch | null = null;
+      const preKnownExisting = dupByIndex[i]?.willUpdate ?? null;
+      if (preKnownExisting) {
+        existing = {
+          ...preKnownExisting,
+          assignedTo: preKnownExisting.assignedTo ?? null,
+          assignedToId: preKnownExisting.assignedToId ?? null,
+        };
+      } else if (row.leadId) {
+        const leadKey = `lead:${row.leadId}`;
+        existing = importLeadCache.get(leadKey) ?? null;
+      }
+      if (!existing && last10) {
+        const phoneKeyCache = `phone:${last10}`;
+        existing = importLeadCache.get(phoneKeyCache) ?? null;
+      }
+      if (!existing && (last10 || row.leadId)) {
+        existing = await this.prisma.lead.findFirst({
+          where: {
+            deletedAt: null,
+            OR: [...(row.leadId ? [{ leadId: row.leadId }] : []), ...(last10 ? [{ phone: { contains: last10 } }] : [])],
+          },
+          select: { id: true, leadId: true, businessName: true, phone: true, altPhone: true, email: true,
+            website: true, createdAt: true, assignedToId: true, assignedTo: { select: { name: true } },
+            leadGenerationId: true, leadSource: true, contactName: true, contactName2: true,
+            socialMedia: true, country: true, state: true, city: true, timezone: true, industry: true,
+            companySize: true, foundedYear: true, address: true, callStatus: true, lostReason: true,
+            status: true },
+        }) as ImportLeadMatch | null;
+        if (existing) {
+          const cacheKey = row.leadId ? `lead:${row.leadId}` : `phone:${last10}`;
+          importLeadCache.set(cacheKey, existing);
+        }
+      }
 
       if (existing) {
         // A lead has exactly one owner, so an import must not take one off the
@@ -786,7 +832,7 @@ export class LeadsService {
         if (ownedByOther) {
           errors.push({
             row: n,
-            reason: `Already assigned to ${existing.assignedTo?.name ?? 'another employee'} — ownership left unchanged.`,
+            reason: `Already assigned to ${existing.assignedTo ?? 'another employee'} — ownership left unchanged.`,
           });
           assignFailed++;
         } else if (assignedToId) {
@@ -801,7 +847,7 @@ export class LeadsService {
         // lead by lead, and one blanket "yes" over a whole import is exactly the
         // accident the restriction exists to prevent. The row is reported and
         // ownership left alone; reassigning is then a deliberate act in the UI.
-        const lockedToday = !ownedByOther && !!assignedToId && existing.assignedToId !== assignedToId && (await this.assignedToday(existing.id));
+        const lockedToday = !ownedByOther && !!assignedToId && existing.assignedToId !== assignedToId && (await assignedTodayCached(existing.id));
         if (lockedToday) {
           errors.push({
             row: n,
@@ -814,7 +860,7 @@ export class LeadsService {
         // An imported row that closes (or reopens) a lead is credited to the
         // row's CALLER — the rep the sheet names — never to whoever ran the
         // import.
-        const closure = closureFields(data.status as LeadStatus | undefined, existing.status, assignedToId ?? null);
+        const closure = closureFields(data.status as LeadStatus | undefined, existing.status as LeadStatus | undefined, assignedToId ?? null);
         const updatedLead = await this.prisma.lead.update({ where: { id: existing.id }, data: { ...data, ...keepOwner, ...closure } });
         if (userId) await this.log(updatedLead.id, userId, 'lead_updated', null, null, 'Imported row updated lead');
         // Record the handover so the daily restriction applies to it from here
@@ -852,6 +898,8 @@ export class LeadsService {
         if (userId) await this.log(created.id, userId, 'lead_created', null, created.status, 'Imported row created lead');
         imported++;
         createdIds.push(created.id);
+        if (row.leadId) importLeadCache.set(`lead:${row.leadId}`, { id: created.id, leadId: created.leadId, businessName: '', phone: '', altPhone: null, email: null, website: null, assignedTo: null, assignedToId: assignedToId ?? null, createdAt: new Date(), leadGenerationId: null, leadSource: null, contactName: null, contactName2: null, socialMedia: null, country: null, state: '', city: '', timezone: null, industry: null, companySize: null, foundedYear: null, address: null, callStatus: null, lostReason: null, status: created.status });
+        if (last10) importLeadCache.set(`phone:${last10}`, { id: created.id, leadId: created.leadId, businessName: '', phone: '', altPhone: null, email: null, website: null, assignedTo: null, assignedToId: assignedToId ?? null, createdAt: new Date(), leadGenerationId: null, leadSource: null, contactName: null, contactName2: null, socialMedia: null, country: null, state: '', city: '', timezone: null, industry: null, companySize: null, foundedYear: null, address: null, callStatus: null, lostReason: null, status: created.status });
         // A brand-new lead has no prior owner, so the sheet's employee always wins.
         if (assignedToId) {
           assignOk++;
