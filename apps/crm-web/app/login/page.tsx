@@ -129,15 +129,27 @@ export default function LoginPage() {
           </div>
         </div>
 
+        {/* The people who read this screen work here — they see it every morning
+            and already know what the product is. So it says what the day looks
+            like rather than selling it, and the three figures below are facts
+            about the CRM they are signing in to, not traction numbers nobody
+            can check. The ones that stood here (822K leads routed, 38% average
+            connect) were invented, and "4 Timezones" had quietly gone out of
+            date: the CRM has covered eight since Alaska and Hawaii were added. */}
         <div className="relative z-[2]">
-          <h1 className="mb-[18px] max-w-[13ch] font-display text-[34px] font-semibold leading-[1.07] tracking-tight text-white">
-            Command your pipeline. Close on every call.
+          <h1 className="mb-[18px] max-w-[15ch] font-display text-[34px] font-semibold leading-[1.07] tracking-tight text-white">
+            Everything one call needs, on one screen.
           </h1>
-          <p className="max-w-[42ch] text-[14px] text-[var(--brand-lime-soft)]">
-            The calling-first CRM built for high-tempo outbound teams — lead routing, live dialer, productivity tracking, and AI coaching in one operations deck.
+          <p className="max-w-[44ch] text-[14px] text-[var(--brand-lime-soft)]">
+            The lead, the dialer, the notes and the follow-up — in the order you work them. Milta routes the queue,
+            keeps the customer&apos;s clock, and writes the call up as you go.
           </p>
           <div className="mt-[30px] flex gap-[34px]">
-            {[['822K', 'Leads routed'], ['38%', 'Avg. connect'], ['4', 'Timezones']].map(([n, l]) => (
+            {[
+              ['8', 'Time zones'],
+              ['1', 'Operations deck'],
+              ['AI', 'Call coaching'],
+            ].map(([n, l]) => (
               <div key={l}>
                 <div className="font-display text-[23px] font-semibold text-white">{n}</div>
                 <div className="text-[10.5px] uppercase tracking-[.13em] text-[var(--brand-lime)]">{l}</div>
