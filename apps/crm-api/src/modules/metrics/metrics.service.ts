@@ -40,6 +40,35 @@ export class MetricsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
+   * Very short-lived cache for `summary`, which is the most expensive read in
+   * the product and the most repetitively asked.
+   *
+   * One call fans out to fourteen COUNTs. The dashboard polls it every fifteen
+   * seconds and refetches it on tab focus, per agent — so a room of ten people
+   * costs the leads table several hundred counts a minute, and the overwhelming
+   * majority of them recompute an answer identical to the one just given.
+   *
+   * Ten seconds is deliberately shorter than the poll it serves: every tick
+   * still does real work, so the cards keep moving at the rate they always did.
+   * What the window absorbs is the duplication around each tick — the focus
+   * refetches, the second tab, the reload — which is where the volume actually
+   * comes from.
+   *
+   * Keyed by caller AND filter because both change the answer: the scope is the
+   * caller's role, and an employee must never be served an admin's figures.
+   */
+  private readonly summaryCache = new Map<string, { at: number; data: unknown }>();
+  private static readonly SUMMARY_TTL_MS = 10_000;
+
+  /** Drops entries nobody has come back for, so the map cannot grow unbounded. */
+  private sweepSummaryCache(now: number) {
+    if (this.summaryCache.size < 200) return;
+    for (const [key, entry] of this.summaryCache) {
+      if (now - entry.at > MetricsService.SUMMARY_TTL_MS) this.summaryCache.delete(key);
+    }
+  }
+
+  /**
    * Build the leads WHERE clause from the dashboard filter (FLT-008), scoped to
    * the caller.
    *
@@ -133,6 +162,29 @@ export class MetricsService {
    * worse than a row that is honestly about a smaller set.
    */
   async summary(q: MetricsQueryDto, user?: { id: string; role: Role }) {
+    const now = Date.now();
+    // Entries sorted, so the same filter arriving with its keys in a different
+    // order cannot split into two cache entries — and undefined dropped, so an
+    // absent field and an explicitly-empty one agree.
+    const filter = JSON.stringify(
+      Object.entries({ ...q })
+        .filter(([, v]) => v !== undefined)
+        .sort(([a], [b]) => a.localeCompare(b)),
+    );
+    const key = `${user?.id ?? 'anon'}|${user?.role ?? ''}|${filter}`;
+
+    const hit = this.summaryCache.get(key);
+    if (hit && now - hit.at < MetricsService.SUMMARY_TTL_MS) {
+      return hit.data as Awaited<ReturnType<typeof this.computeSummary>>;
+    }
+
+    const data = await this.computeSummary(q, user);
+    this.sweepSummaryCache(now);
+    this.summaryCache.set(key, { at: now, data });
+    return data;
+  }
+
+  private async computeSummary(q: MetricsQueryDto, user?: { id: string; role: Role }) {
     const isEmployee = user?.role === Role.employee;
     // Already carries the employee scope — see `leadWhere`.
     const leadWhere = this.leadWhere(q, user);

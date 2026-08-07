@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { api, tokenStore } from '@/lib/api';
 
 /** Pull the API's message out of an axios error. */
@@ -13,6 +14,7 @@ function msgOf(err: unknown, fallback: string): string {
 
 export default function LoginPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -70,6 +72,17 @@ export default function LoginPage() {
 
   function finish(data: { accessToken: string; refreshToken: string }) {
     tokenStore.set(data.accessToken, data.refreshToken);
+    // Nothing cached under the previous session follows this one into the app.
+    //
+    // Today every route that reaches this page is a full navigation — logout in
+    // the topbar, the 401 bounce in the API client — and both drop the cache on
+    // the way, so this is belt and braces. But that is a promise held by two
+    // call sites remembering to use `window.location`, and the failure it
+    // guards against is the worst kind: `router.push` from anywhere into
+    // `/login` would leave the last user's `me`, their role and their rows in
+    // memory for the next person to sign in and see. Clearing it here makes the
+    // guarantee belong to the login itself.
+    queryClient.clear();
     router.push('/dashboard');
   }
 

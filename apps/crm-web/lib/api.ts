@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
-const ACCESS_KEY = 'crm.accessToken';
+export const ACCESS_KEY = 'crm.accessToken';
 const REFRESH_KEY = 'crm.refreshToken';
 
 export const tokenStore = {
@@ -30,7 +30,7 @@ function decodeBase64Url(segment: string): string {
 }
 
 /** The account a JWT belongs to, or null when it can't be read. */
-function subjectOf(token: string | null | undefined): string | null {
+export function subjectOf(token: string | null | undefined): string | null {
   if (!token) return null;
   try {
     const body = token.split('.')[1] ?? '';

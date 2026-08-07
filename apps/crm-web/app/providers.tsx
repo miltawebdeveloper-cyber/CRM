@@ -36,6 +36,31 @@ export function Providers({ children }: { children: ReactNode }) {
   const [client] = useState(
     () =>
       new QueryClient({
+        defaultOptions: {
+          queries: {
+            /**
+             * Data was treated as stale the moment it arrived, so every mount
+             * and every window focus went back to the network — moving between
+             * two pages and back re-fetched rows that were seconds old, and a
+             * tab regaining focus refetched all of them at once.
+             *
+             * Half a minute of trust instead. It costs nothing in freshness
+             * where it matters: the live views drive themselves on
+             * `refetchInterval`, which ignores this, and the 27 files that
+             * `invalidateQueries` after a mutation still refetch immediately —
+             * invalidation marks data stale regardless of this setting. What it
+             * removes is the re-fetching of things nobody changed.
+             */
+            staleTime: 30_000,
+            /**
+             * Off by default because the one query that genuinely wants it —
+             * the dashboard summary — asks for it explicitly. Every other query
+             * was paying for a refetch storm on tab focus without ever having
+             * requested one.
+             */
+            refetchOnWindowFocus: false,
+          },
+        },
         mutationCache: new MutationCache({
           onSuccess: (_data, _vars, _ctx, mutation) => {
             const msg = mutation.meta?.successMessage;

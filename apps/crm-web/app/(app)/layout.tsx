@@ -10,6 +10,7 @@ import { Topbar } from '@/components/topbar';
 import { IncomingCallPopup } from '@/components/incoming-call';
 import { CallbackReminders } from '@/components/callback-reminder';
 import { CommandPalette } from '@/components/command-palette';
+import { SessionGuard } from '@/components/session-guard';
 import { CallProvider } from '@/components/call-provider';
 import { PageTabsProvider } from '@/components/page-tabs';
 import { DisplaySettingsProvider } from '@/components/display-settings-provider';
@@ -89,6 +90,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </main>
         </div>
+        {/* Watches for another tab signing in as someone else. Renders nothing;
+            it exists so this tab can never keep showing one account while
+            acting as another. */}
+        <SessionGuard />
         <IncomingCallPopup />
         {/* Callback reminders. Mounted in the shell so a due callback reaches the
             rep wherever they are in the CRM, not only on the pages that list
