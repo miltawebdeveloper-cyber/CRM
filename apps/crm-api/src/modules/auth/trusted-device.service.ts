@@ -206,16 +206,36 @@ export class TrustedDeviceService {
   async isTrusted(req: Request, userId: string): Promise<boolean> {
     // Check every token the browser carries, not just the first: the cookie holds
     // one per account, and this user's may not be at the front.
-    for (const parsed of this.parseTokens(this.readCookie(req))) {
-      const device = await this.prisma.trustedDevice.findUnique({ where: { id: parsed.id } }).catch(() => null);
-      if (!device || device.userId !== userId || device.revokedAt) continue;
-      if (device.expiresAt <= new Date()) continue;
+    const tokens = this.parseTokens(this.readCookie(req));
+    if (!tokens.length) return false;
 
-      const expected = Buffer.from(device.tokenHash);
+    // One query for the whole cookie. Walking the tokens one at a time meant a
+    // database round trip per account on the browser — up to five, in series, on
+    // the fast path that exists precisely to make signing in quick. The
+    // ownership, revocation and expiry conditions move into the query, so a row
+    // that comes back is already a candidate.
+    const devices = await this.prisma.trustedDevice
+      .findMany({
+        where: { id: { in: tokens.map((t) => t.id) }, userId, revokedAt: null, expiresAt: { gt: new Date() } },
+        select: { id: true, tokenHash: true },
+      })
+      .catch(() => []);
+    if (!devices.length) return false;
+
+    const hashById = new Map(devices.map((d) => [d.id, d.tokenHash]));
+    for (const parsed of tokens) {
+      const tokenHash = hashById.get(parsed.id);
+      if (!tokenHash) continue;
+
+      const expected = Buffer.from(tokenHash);
       const actual = Buffer.from(this.hash(parsed.verifier));
       if (expected.length !== actual.length || !crypto.timingSafeEqual(expected, actual)) continue;
 
-      await this.prisma.trustedDevice.update({ where: { id: device.id }, data: { lastLoginAt: new Date() } });
+      // "Last used" is a line in the admin device list, not something the person
+      // signing in has any reason to wait for.
+      void this.prisma.trustedDevice
+        .update({ where: { id: parsed.id }, data: { lastLoginAt: new Date() } })
+        .catch(() => undefined);
       return true;
     }
     return false;
@@ -268,7 +288,8 @@ export class TrustedDeviceService {
     const others = carried.filter((t) => !ownedIds.has(t.id));
     const value = this.serialiseTokens([{ id: device.id, verifier }, ...others]);
     res.cookie(TRUSTED_DEVICE_COOKIE, value, this.cookieOptions(maxAgeMs));
-    await this.prune(userId);
+    // Table housekeeping, not part of signing in — it runs behind the response.
+    void this.prune(userId);
     return expiresAt;
   }
 

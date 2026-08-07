@@ -54,7 +54,8 @@ export class AuthService {
       // window. That is the whole point of trusted devices: one code per device
       // per window, so signing out and back in doesn't cost another one.
       if (otp.trustDeviceEnabled && (await this.devices.isTrusted(req, user.id))) {
-        await this.audit(user.id, 'trusted_device_login', 'Signed in from a trusted device — OTP skipped');
+        // Written behind the response: the audit trail is nobody's answer.
+        void this.audit(user.id, 'trusted_device_login', 'Signed in from a trusted device — OTP skipped');
         return this.completeLogin(user.id, user.email, user.role);
       }
       // A cookie is present but this user isn't trusted by it — expired, revoked,
@@ -85,19 +86,25 @@ export class AuthService {
    */
   async verifyLoginOtp(challengeId: string, code: string, req: Request, res: Response) {
     const { userId } = await this.otp.verify(challengeId, code);
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    // The account and the trust policy are unrelated lookups, so they overlap.
+    const [user, s] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: userId } }),
+      this.otp.getSettings(),
+    ]);
     if (!user || !user.isActive) throw new UnauthorizedException('Account deactivated');
 
     // A passed code buys this browser a trust window — including a fresh one when
-    // the previous window had simply run out.
-    const s = await this.otp.getSettings();
-    let trustedUntil: Date | null = null;
-    if (s.trustDeviceEnabled) {
-      trustedUntil = await this.devices.remember(req, res, user.id, s.trustDeviceDays);
-      await this.audit(user.id, 'trusted_device_added', `Device trusted until ${trustedUntil.toISOString().slice(0, 10)} — OTP will be skipped here`);
+    // the previous window had simply run out. Recording the device and finishing
+    // the login share nothing, so they run together instead of one after the other.
+    const [trustedUntil, tokens] = await Promise.all([
+      s.trustDeviceEnabled ? this.devices.remember(req, res, user.id, s.trustDeviceDays) : Promise.resolve(null),
+      this.completeLogin(user.id, user.email, user.role),
+    ]);
+    if (trustedUntil) {
+      void this.audit(user.id, 'trusted_device_added', `Device trusted until ${trustedUntil.toISOString().slice(0, 10)} — OTP will be skipped here`);
     }
 
-    return { ...(await this.completeLogin(user.id, user.email, user.role)), trustedUntil };
+    return { ...tokens, trustedUntil };
   }
 
   /** Shared tail of a successful login, whichever gate it came through. */

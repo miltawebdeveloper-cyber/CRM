@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
@@ -15,7 +15,7 @@ export interface MailMessage {
  * environments work without credentials.
  */
 @Injectable()
-export class MailService {
+export class MailService implements OnModuleDestroy {
   private readonly logger = new Logger(MailService.name);
   private readonly transporter: nodemailer.Transporter | null;
   private readonly from: string;
@@ -36,12 +36,44 @@ export class MailService {
       port,
       secure: port === 465,
       auth: user && pass ? { user, pass } : undefined,
+      // Pooled: without this every message paid for a fresh TCP connect, TLS
+      // handshake and SMTP AUTH round trip before a single byte of mail moved —
+      // most of a second against a remote host, on every login code. The
+      // connection is kept warm and reused instead.
+      pool: true,
+      maxConnections: 3,
+      // And bounded, so an SMTP host that accepts the connection but never
+      // answers cannot hold a send open indefinitely. Delivery is best-effort;
+      // hanging is worse than failing.
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 20_000,
     });
+  }
+
+  /** Pooled connections are held open, so they are closed with the app. */
+  onModuleDestroy() {
+    this.transporter?.close();
   }
 
   /** Whether real SMTP delivery is active. */
   get enabled(): boolean {
     return this.transporter !== null;
+  }
+
+  /**
+   * Send without making the caller wait for the SMTP conversation.
+   *
+   * For mail on a request's critical path — a login code above all — the send is
+   * the slowest thing in the handler by an order of magnitude, and awaiting it
+   * buys nothing: `send` already swallows its own failures, so the response could
+   * never have reported a delivery problem anyway. It only ever made the user
+   * watch the handshake.
+   */
+  sendInBackground(msg: MailMessage): void {
+    void this.send(msg).catch((err) => {
+      this.logger.error(`Background email "${msg.subject}" failed: ${(err as Error).message}`);
+    });
   }
 
   async send(msg: MailMessage): Promise<void> {

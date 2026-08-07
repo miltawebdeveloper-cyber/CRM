@@ -31,6 +31,16 @@ export default function LoginPage() {
    */
   const [userCount, setUserCount] = useState<number | null>(null);
 
+  /**
+   * The dashboard is the only place this page ever goes, so its route bundle is
+   * pulled down while the password is still being typed. Without this the
+   * redirect after a correct password is a cold chunk download — the tokens are
+   * already in hand and the screen still sits on "Signing in…".
+   */
+  useEffect(() => {
+    router.prefetch('/dashboard');
+  }, [router]);
+
   useEffect(() => {
     let cancelled = false;
     api

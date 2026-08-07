@@ -52,7 +52,24 @@ export class LoginOtpService {
   ) {}
 
   // ── Settings ──
+
+  /**
+   * Short-lived in-memory copy of the settings row.
+   *
+   * These are read several times per sign-in — the login gate, then again inside
+   * `issue`, then again on verify — and they are a row an admin edits perhaps
+   * twice a year. Every one of those reads was a database round trip on the
+   * critical path of a login. Cached for a few seconds, and dropped the instant
+   * this instance saves a change, so the admin panel still reflects itself
+   * immediately; another instance picks the change up within the TTL.
+   */
+  private cache: { at: number; value: OtpSettings } | null = null;
+  private static readonly CACHE_TTL_MS = 15_000;
+
   async getSettings(): Promise<OtpSettings> {
+    const cached = this.cache;
+    if (cached && Date.now() - cached.at < LoginOtpService.CACHE_TTL_MS) return cached.value;
+
     const row = await this.prisma.appSetting.findUnique({ where: { key: OTP_SETTINGS_KEY } });
     const merged = { ...DEFAULTS, ...((row?.value as Partial<OtpSettings> | undefined) ?? {}) };
     // Deployment-level override: when OTP_RECIPIENT_EMAIL is set in the environment
@@ -61,6 +78,7 @@ export class LoginOtpService {
     // saved recipient is unreachable and you're locked out of the admin UI.
     const envRecipient = process.env.OTP_RECIPIENT_EMAIL?.trim();
     if (envRecipient) merged.recipientEmail = envRecipient;
+    this.cache = { at: Date.now(), value: merged };
     return merged;
   }
 
@@ -80,6 +98,7 @@ export class LoginOtpService {
       create: { key: OTP_SETTINGS_KEY, value: { ...next } },
       update: { value: { ...next } },
     });
+    this.cache = null; // an admin who just saved must not read the old copy back
     return next;
   }
 
@@ -103,20 +122,30 @@ export class LoginOtpService {
     const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
     const expiresAt = new Date(Date.now() + s.expiryMinutes * 60_000);
 
-    // Any earlier pending challenge for this user is retired, so only the newest
-    // code can ever be used.
-    await this.prisma.loginOtp.updateMany({
-      where: { userId: user.id, consumedAt: null },
-      data: { consumedAt: new Date() },
-    });
+    // Hashing the code and retiring any earlier pending challenge for this user
+    // have nothing to do with each other — one is CPU, one is the database — so
+    // they overlap instead of queueing. Retiring matters either way: only the
+    // newest code can ever be used.
+    const [codeHash] = await Promise.all([
+      bcrypt.hash(code, 10),
+      this.prisma.loginOtp.updateMany({
+        where: { userId: user.id, consumedAt: null },
+        data: { consumedAt: new Date() },
+      }),
+    ]);
 
     const row = await this.prisma.loginOtp.create({
-      data: { userId: user.id, codeHash: await bcrypt.hash(code, 10), expiresAt, sentTo: to },
+      data: { userId: user.id, codeHash, expiresAt, sentTo: to },
       select: { id: true },
     });
 
-    await this.deliver(to, user, code, s.expiryMinutes);
-    await this.audit(user.id, 'otp_generated', `Login OTP issued to ${to} (expires in ${s.expiryMinutes}m)`);
+    // Both of these now happen after the caller has its answer. The challenge is
+    // durable at this point, so the OTP screen is safe to show; making the user
+    // watch an SMTP handshake before it appears was the single slowest thing in
+    // signing in, and the audit write behind it added another round trip for a
+    // record nobody is waiting to read.
+    this.deliver(to, user, code, s.expiryMinutes);
+    void this.audit(user.id, 'otp_generated', `Login OTP issued to ${to} (expires in ${s.expiryMinutes}m)`);
     return { challengeId: row.id, sentTo: to, resendSeconds: s.resendSeconds };
   }
 
@@ -133,20 +162,21 @@ export class LoginOtpService {
     const s = await this.getSettings();
     if (otp.attempts >= s.maxAttempts) {
       await this.prisma.loginOtp.update({ where: { id: otp.id }, data: { consumedAt: new Date() } });
-      await this.audit(otp.userId, 'otp_locked', 'Login OTP locked after too many incorrect attempts');
+      void this.audit(otp.userId, 'otp_locked', 'Login OTP locked after too many incorrect attempts');
       throw new UnauthorizedException('Too many incorrect attempts. Request a new code.');
     }
 
     if (!(await bcrypt.compare(code, otp.codeHash))) {
       const attempts = otp.attempts + 1;
       await this.prisma.loginOtp.update({ where: { id: otp.id }, data: { attempts } });
-      await this.audit(otp.userId, 'otp_failed', `Incorrect login OTP (attempt ${attempts} of ${s.maxAttempts})`);
+      void this.audit(otp.userId, 'otp_failed', `Incorrect login OTP (attempt ${attempts} of ${s.maxAttempts})`);
       throw new UnauthorizedException(`Incorrect code. ${Math.max(0, s.maxAttempts - attempts)} attempt(s) remaining.`);
     }
 
-    // Burn it immediately — one code, one login.
+    // Burn it immediately — one code, one login. This one stays awaited: the
+    // whole guarantee is that the row is spent before tokens are issued.
     await this.prisma.loginOtp.update({ where: { id: otp.id }, data: { consumedAt: new Date() } });
-    await this.audit(otp.userId, 'otp_verified', 'Login OTP verified');
+    void this.audit(otp.userId, 'otp_verified', 'Login OTP verified');
     return { userId: otp.userId };
   }
 
@@ -169,8 +199,9 @@ export class LoginOtpService {
 
   // ── Internals ──
 
-  private async deliver(to: string, user: { email: string; name: string }, code: string, minutes: number) {
-    await this.mail.send({
+  /** Queues the mail and returns; delivery finishes after the response. */
+  private deliver(to: string, user: { email: string; name: string }, code: string, minutes: number): void {
+    this.mail.sendInBackground({
       to,
       subject: 'CRM Login Verification Code',
       text: `Your One-Time Password (OTP) for CRM login is: ${code}\n\nThis OTP is valid for ${minutes} minutes.\nDo not share this code with anyone.\n\nRequested for: ${user.name} <${user.email}>`,
