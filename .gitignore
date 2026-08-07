@@ -9,6 +9,10 @@ build/
 .next/
 out/
 .turbo/
+# TypeScript's incremental-build cache. Rewritten by every typecheck and every
+# build, so tracking it meant the tree was never clean for longer than it took
+# to run one — and it carries nothing a checkout needs.
+*.tsbuildinfo
 
 # env & secrets
 .env
