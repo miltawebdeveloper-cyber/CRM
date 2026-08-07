@@ -22,11 +22,20 @@ export const tokenStore = {
   },
 };
 
+function decodeBase64Url(segment: string): string {
+  const normalized = segment.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = normalized.length % 4;
+  const padded = pad ? normalized + '='.repeat(4 - pad) : normalized;
+  return globalThis.atob(padded);
+}
+
 /** The account a JWT belongs to, or null when it can't be read. */
 function subjectOf(token: string | null | undefined): string | null {
   if (!token) return null;
   try {
-    const payload = JSON.parse(atob(token.split('.')[1] ?? ''));
+    const body = token.split('.')[1] ?? '';
+    if (!body) return null;
+    const payload = JSON.parse(decodeBase64Url(body));
     return payload.sub ?? payload.email ?? null;
   } catch {
     return null;
