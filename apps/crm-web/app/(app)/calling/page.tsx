@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Phone, Check, Target, CheckCircle2, Clock, Percent, Video, ExternalLink, MessageSquare, Mail, Briefcase, Factory, UserRound, Search, Send, X, Loader2, Lock, ArrowRight } from 'lucide-react';
+import { Phone, Check, Target, CheckCircle2, Clock, Percent, Video, ExternalLink, MessageSquare, Mail, Briefcase, Factory, UserRound, Search, Send, X, Loader2, ArrowRight } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { callsApi, communicationsApi, outcomesApi, formatDuration, type CallPhase } from '@/lib/crm';
 import { api } from '@/lib/api';
@@ -292,7 +292,36 @@ export default function CallingPage() {
     !!l.lastCallEndedAt ||
     !!l.lastWorkedAt ||
     processed.has(l.id);
-  const queue = leads;
+  /**
+   * The queue order as it stood when the current lead was saved, held until Next.
+   *
+   * The server ranks a finished lead into the bottom band the moment it is saved,
+   * and the save refreshes the queue — so the row used to drop to the bottom while
+   * the agent was still looking at the lead itself, which stays on screen until
+   * they press Next. The list reordered under a lead that had not been handed
+   * over yet, and the highlighted row left the position the agent had just been
+   * reading.
+   *
+   * So the order is pinned for exactly that window. Nothing is re-sorted: this
+   * replays the order the SERVER last gave, which is why there is still only one
+   * sort in the system. Next clears it and the fresh ranking applies, taking the
+   * finished lead to the bottom as it always did.
+   */
+  const [frozenOrder, setFrozenOrder] = useState<string[] | null>(null);
+  const queue = useMemo(() => {
+    // Gated on there still BEING a saved lead to hold, rather than on remembering
+    // to clear the snapshot everywhere a session can end. A session dropped
+    // because its lead was reassigned would otherwise strand the pin, and the
+    // queue would stay frozen on that snapshot for the rest of the sitting.
+    const order = session?.saved ? frozenOrder : null;
+    if (!order) return leads;
+    const rank = new Map(order.map((id, i) => [id, i]));
+    // Leads the snapshot never saw — assigned since the save — keep the server's
+    // order among themselves and sit after the pinned ones rather than vanishing.
+    return [...leads].sort(
+      (a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }, [leads, frozenOrder, session]);
 
   // ── The Your Queue contract ──
   // Everything below is scoped to leads that are actually IN this agent's queue.
@@ -306,17 +335,18 @@ export default function CallingPage() {
   const sessionLead = session ? leads.find((l) => l.id === session.leadId) : undefined;
   const saved = !!session?.saved;
   /**
-   * The agent is mid-lead: a queue lead is open and its outcome + comments have
-   * not been written yet. This single flag is what every navigation guard on the
-   * page reads — the queue rows, the view tabs, the dial pad and the stale-
-   * selection effect all refuse the same way, so they can't disagree about when
-   * the agent is free to move.
+   * A queue lead is open and not yet written up.
    *
-   * While the queue is still loading `inQueue` can't answer yet, and the safe
-   * answer there is "locked": briefly refusing a click costs the agent a second,
-   * quietly handing them a different lead costs the one they were working.
+   * This no longer blocks anything — the agent chooses which lead to work and
+   * when to move on. What it still does is mark the write-up as owed: it makes
+   * comments required alongside the outcome, and it is what the refresh guard
+   * asks before warning that typed work is about to be lost.
+   *
+   * While the queue is still loading `inQueue` can't answer, and the safe answer
+   * is "yes, owed" — asking for a comment that wasn't needed is a smaller cost
+   * than letting a lead through without one.
    */
-  const locked = !!session && !session.saved && (!queueLoaded || inQueue(session.leadId));
+  const inProgress = !!session && !session.saved && (!queueLoaded || inQueue(session.leadId));
 
   /**
    * Drop a session whose lead is no longer in the queue — reassigned to someone
@@ -360,10 +390,10 @@ export default function CallingPage() {
   // User may call ANY record: an explicit selection wins, else the next pending
   // lead (top of the queue). Falls back to the first row if everything's done.
   //
-  // An open queue session outranks all of it. That ordering IS the restriction:
-  // a row click, a deep link, a background refetch that reorders the queue, an
-  // auto-reassignment — none of them can change which lead the panel is working,
-  // because none of them are consulted until the session is cleared by Next.
+  // The session comes first so the card holds the lead being worked against
+  // background churn — a refetch that reorders the queue, an auto-reassignment,
+  // a poll landing mid-write-up. It is NOT a restriction on the agent: clicking
+  // another row re-points the session, so the card follows the choice.
   const current =
     sessionLead ??
     active?.lead ??
@@ -371,18 +401,11 @@ export default function CallingPage() {
     nextPending ??
     queue[0];
 
-  /**
-   * Refuse an action that would take the agent off an unfinished queue lead.
-   * Returns true when it blocked, so callers read as `if (blockedByQueue()) return;`.
-   */
-  function blockedByQueue(): boolean {
-    if (!locked) return false;
-    toast.info('Finish this lead first — choose a call status/outcome, add your comments and press Save.');
-    return true;
-  }
-
   /** Clear the write-up so the next lead arrives to empty fields. */
   function resetWriteUp() {
+    // Releases the pinned order too: the lead being held is being given up, so
+    // the server's ranking — which has it in the bottom band — takes over.
+    setFrozenOrder(null);
     setNote('');
     setOutcome(null);
     setCallbackAt('');
@@ -408,38 +431,30 @@ export default function CallingPage() {
   }
 
   /**
-   * The "Open Lead" step: the agent picks which lead to work from Your Queue.
+   * The agent picks which lead to work from Your Queue. Any row, any time.
    *
-   * Refused outright while a lead is unfinished. Allowed once it's saved —
-   * choosing the next row by hand is the same move as Next, just aimed, and the
-   * write-up is cleared exactly as Next clears it so the new lead never inherits
-   * the last one's outcome.
+   * No longer refuses while a lead is unfinished. Deciding who to ring next is
+   * the agent's call — a customer rings back, an appointment is remembered, a
+   * name catches the eye — and a queue that answered that with "finish the one I
+   * gave you first" was taking the choice away rather than helping.
+   *
+   * What survives is the part that was actually about data: an outcome and
+   * comments are still required to SAVE. Moving on without saving simply leaves
+   * the lead unworked, which is what it was before it was opened.
+   *
+   * The write-up is always cleared on a switch, saved or not, so the new lead can
+   * never inherit the last one's outcome. Unsaved work is called out as it goes —
+   * silently binning a typed note would be the worse failure.
    */
   function openQueueLead(leadId: string) {
     if (session?.leadId === leadId) return;
-    if (blockedByQueue()) return;
-    if (saved) resetWriteUp();
+    if (!saved && (outcome || note.trim())) {
+      toast.info('That lead was left unsaved — its outcome and comments were cleared. It stays in your queue.');
+    }
+    resetWriteUp();
     setSelectedId(leadId);
     setSession(inQueue(leadId) ? { leadId, saved: false } : null);
   }
-
-  /**
-   * Anything that still managed to aim the panel at a different lead gets turned
-   * back here: the `?leadId=` deep link that fired before the stored session was
-   * restored, or a selection left over from an earlier visit. `current` already
-   * ignores a stale selection — this clears it too, so the highlighted queue row
-   * and the card on screen can't quietly disagree about which lead is open.
-   */
-  useEffect(() => {
-    if (!locked || !session || !selectedId || selectedId === session.leadId) return;
-    /* eslint-disable react-hooks/set-state-in-effect */
-    setSelectedId(session.leadId);
-    // A deep link that arrived with ?autocall=1 must not dial the lead it was
-    // just refused in favour of.
-    setAutoCall(false);
-    /* eslint-enable react-hooks/set-state-in-effect */
-    toast.info('Finish the lead you have open first — choose a status/outcome, add your comments and press Save.');
-  }, [locked, session, selectedId]);
 
   // Restart the processing clock whenever a different lead comes to the front —
   // whether the agent picked it or the queue handed it over after a save. Reading
@@ -574,6 +589,9 @@ export default function CallingPage() {
       // they're the receipt for what was just written, and the fields go
       // read-only rather than blank so a second Save can't log the lead twice.
       setProcessed((done) => new Set(done).add(lead.id));
+      // Pin the order as the agent currently sees it, BEFORE the refresh below
+      // re-ranks this lead into the bottom band. Released by Next.
+      setFrozenOrder(queue.map((l) => l.id));
       // Hold the lead. Marking the session saved is the ONLY thing that lights
       // up Next; nothing here selects, loads or even looks at the lead after it.
       setSession({ leadId: lead.id, saved: true });
@@ -651,7 +669,7 @@ export default function CallingPage() {
    * Scoped to the queue: a record opened from Lead Management by a team leader
    * saves as it always did.
    */
-  const requiresComment = locked || inQueue(current?.id);
+  const requiresComment = inProgress || inQueue(current?.id);
   const missingComment = requiresComment && !note.trim();
   const canSave = !!current && !saved && !!outcome && !missingComment && !busy && !callbackError && !(schedulesZoom && !zoomAt);
   const canNext = saved && !busy;
@@ -727,14 +745,17 @@ export default function CallingPage() {
    * on unsaved work, so it stays silent once Save has been pressed.
    */
   useEffect(() => {
-    if (!locked || (!outcome && !note.trim())) return;
+    // Both halves matter: a lead still owed a write-up, AND something actually
+    // typed on it. Either alone would spend the browser's confirm on nothing —
+    // an untouched lead has no work to lose, and a saved one has none either.
+    if (saved || (!outcome && !note.trim())) return;
     const onLeave = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = '';
     };
     window.addEventListener('beforeunload', onLeave);
     return () => window.removeEventListener('beforeunload', onLeave);
-  }, [locked, outcome, note]);
+  }, [saved, outcome, note]);
 
   // The Zoom form still books on the CURRENT lead's clock here: `leadZone` is the
   // zone abbreviation as it stands today (EDT vs EST), `leadNow` the customer's
@@ -878,16 +899,15 @@ export default function CallingPage() {
                 </span>
               </div>
 
-              {/* Why the other rows have stopped responding. A list that ignores
-                  clicks with no explanation reads as a broken page, so the rule
-                  is stated where the clicks are being refused — and it names the
-                  lead, so an agent who's scrolled away knows which one is open. */}
-              {locked && current && (
-                <div className="mt-2.5 flex items-start gap-2 rounded-lg border border-[#e8d19a] bg-[#fdf8ec] px-2.5 py-2 text-[10.5px] leading-relaxed text-[var(--tone-amber-fg-strong)]">
-                  <Lock className="mt-[1px] h-3.5 w-3.5 shrink-0" />
+              {/* Which lead the card is on, for an agent who has scrolled the
+                  list away from it. It says where you are, not what you may not
+                  do — nothing here is refusing clicks any more. */}
+              {inProgress && current && (
+                <div className="mt-2.5 flex items-start gap-2 rounded-lg border bg-muted/50 px-2.5 py-2 text-[10.5px] leading-relaxed text-muted-foreground">
+                  <Phone className="mt-[1px] h-3.5 w-3.5 shrink-0" />
                   <span>
-                    Finish <span className="font-semibold">{current.contactName || current.businessName}</span> first —
-                    choose a status/outcome, add comments and press Save. Next then loads the following lead.
+                    Working <span className="font-semibold text-foreground">{current.contactName || current.businessName}</span> —
+                    an outcome and comments are needed to save it. Pick any other lead whenever you want.
                   </span>
                 </div>
               )}
@@ -1031,21 +1051,20 @@ export default function CallingPage() {
                 const meta = outcomeMeta(q.lastOutcome ?? q.callStatus);
                 const qType = getQueueItemType(q);
                 const priorityIndex = queue.findIndex((item) => item.id === q.id) + 1;
-                // Every other row is inert while a lead is being worked. This is
-                // the restriction's most literal case: clicking a different lead
-                // must not load it, and must not cost the agent the one they
-                // already have open.
-                const blocked = locked && !isCurrent;
-                const selectable = !live && !closed && !blocked;
+                // Every row is selectable. The only two that aren't are a lead
+                // that's closed (nothing left to work) and any row at all while a
+                // call is live — swapping the card mid-call would leave the agent
+                // writing up the wrong customer.
+                const selectable = !live && !closed;
 
                 return (
                   <div
                     key={q.id}
-                    onClick={() => { if (!live && !closed) openQueueLead(q.id); }}
-                    title={blocked ? 'Finish the lead you have open before starting another' : undefined}
+                    onClick={() => { if (selectable) openQueueLead(q.id); }}
+                    title={live ? 'Finish the call before switching lead' : undefined}
                     className={`mb-[9px] flex flex-col gap-1.5 rounded-[11px] border p-3 transition-colors ${
-                      isCurrent ? 'border-[var(--brand-mid)] bg-muted shadow-[inset_3px_0_0_var(--brand)]' : blocked ? '' : 'hover:bg-muted/50'
-                    } ${selectable ? 'cursor-pointer' : ''} ${blocked ? 'opacity-55' : ''} ${
+                      isCurrent ? 'border-[var(--brand-mid)] bg-muted shadow-[inset_3px_0_0_var(--brand)]' : 'hover:bg-muted/50'
+                    } ${selectable ? 'cursor-pointer' : ''} ${
                       qType.type === 'callback'
                         ? 'border-[#e8c9bf] bg-[#fdf6f4]'
                         : qType.type === 'zoom'
@@ -1500,13 +1519,11 @@ export default function CallingPage() {
           {/* Dial pad — call any number directly from the CRM (live status in the docked
               widget). Blocked while THIS panel has a call in flight: the two run separate
               call flows, so without this an agent could start a second call mid-call. */}
-          {/* Also blocked while a queue lead is unfinished: dialling a stranger
-              from the pad is how the lead on screen gets abandoned half-worked,
-              and it's the "any other option in the Calling Panel" case. */}
-          <DialPad
-            disabled={!!active || locked}
-            disabledHint={locked && !active ? 'Finish the lead you have open first' : undefined}
-          />
+          {/* Blocked only while THIS panel has a call in flight, which is what it
+              was there for — the two run separate call flows and would otherwise
+              put the agent on two calls at once. It also refused while a queue
+              lead was merely unfinished; that went with the rest of the lock. */}
+          <DialPad disabled={!!active} />
           {/* Pinned Zoom meetings due today — a pending action like a callback */}
           {zoomDue.length > 0 && (
             <div className="overflow-hidden rounded-2xl border border-[var(--tone-blue-line)] bg-[var(--tone-blue-bg-2)] shadow-sm">
