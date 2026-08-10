@@ -288,6 +288,11 @@ export class CallsService {
         ? parseInZone(dto.callbackAt, leadObj?.timezone)
         : parseFutureInZone(dto.callbackAt, leadObj?.timezone);
 
+    // The disposition this save is REPEATING, if it is a repeat. See
+    // `recentProcessedDuplicate` — only the no-call path can duplicate a row in
+    // Calls Made, so only it looks.
+    const supersedes = action === 'lead_processed' ? await this.recentProcessedDuplicate(leadId, userId) : null;
+
     const results = await this.prisma.$transaction([
       ...extraOps,
       this.prisma.lead.update({
@@ -334,28 +339,43 @@ export class CallsService {
               { callbackCompletedAt: new Date() }),
         },
       }),
-      this.prisma.activity.create({
-        data: {
-          leadId,
-          userId,
-          action,
-          newValue: dto.outcome,
-          callStatus: dto.outcome,
-          assignedToId: leadObj?.assignedToId ?? null,
-          ...(action === 'lead_processed'
-            ? {
-                remarks: 'Outcome logged from the queue while calling was disabled (no call placed).',
-                // Time the agent spent on the lead — the queue times from opening
-                // it to pressing Save. With no call to measure, this is what the
-                // log and the reports use as the duration. Clamped so a tab left
-                // open overnight can't report a nine-hour "call".
-                durationSecs: clampProcessingSecs(dto.durationSecs),
-              }
-            : action === 'outcome_updated'
-              ? { remarks: 'Outcome corrected from the Outcome Records log.' }
-              : {}),
-        },
-      }),
+      // A repeat of the same no-call disposition UPDATES the row it is repeating
+      // rather than adding a second one beside it. Everything the first write set
+      // is re-stated, so the surviving row carries the latest outcome and the
+      // latest processing time rather than a half-updated mix of the two.
+      supersedes
+        ? this.prisma.activity.update({
+            where: { id: supersedes.id },
+            data: {
+              newValue: dto.outcome,
+              callStatus: dto.outcome,
+              assignedToId: leadObj?.assignedToId ?? null,
+              remarks: 'Outcome logged from the queue while calling was disabled (no call placed).',
+              durationSecs: clampProcessingSecs(dto.durationSecs),
+            },
+          })
+        : this.prisma.activity.create({
+            data: {
+              leadId,
+              userId,
+              action,
+              newValue: dto.outcome,
+              callStatus: dto.outcome,
+              assignedToId: leadObj?.assignedToId ?? null,
+              ...(action === 'lead_processed'
+                ? {
+                    remarks: 'Outcome logged from the queue while calling was disabled (no call placed).',
+                    // Time the agent spent on the lead — the queue times from opening
+                    // it to pressing Save. With no call to measure, this is what the
+                    // log and the reports use as the duration. Clamped so a tab left
+                    // open overnight can't report a nine-hour "call".
+                    durationSecs: clampProcessingSecs(dto.durationSecs),
+                  }
+                : action === 'outcome_updated'
+                  ? { remarks: 'Outcome corrected from the Outcome Records log.' }
+                  : {}),
+            },
+          }),
     ]);
 
     const lead = await this.prisma.lead.findUnique({
@@ -376,6 +396,47 @@ export class CallsService {
       );
     }
     return results;
+  }
+
+  /**
+   * How long after a no-call disposition a second one for the same lead, by the
+   * same agent, is treated as a REPEAT of it rather than a fresh contact.
+   *
+   * Ten minutes is well past any retry, double-submit or replayed request, and
+   * well short of a genuine second contact: an agent who works a lead, moves
+   * through their queue and comes back to it is not doing that inside ten
+   * minutes, and if they do, the second write is a correction of the first
+   * anyway — which is exactly what it becomes.
+   */
+  private static readonly PROCESSED_DEDUPE_MS = 10 * 60 * 1000;
+
+  /**
+   * The no-call disposition this one would duplicate, if any.
+   *
+   * Why only this path needs it: a dialled call is ONE `calls` row that every
+   * later write updates in place, so re-ending it cannot put a second line in
+   * Calls Made. A lead worked without a call has no such row — the activity IS
+   * the line — so every repeat of the write appeared as another call in the log,
+   * another entry in the totals, and another item in the agent's day.
+   *
+   * And repeats are ordinary here, not exotic. Saving a lead is two requests,
+   * the disposition and then the note; if the note fails (a follow-up time that
+   * has just gone by is enough) the panel keeps the agent's work on screen and
+   * invites them to press Save again — which is the right thing for it to do,
+   * and which used to log the lead a second time. A refresh that replays the
+   * request, a double-submit and a retried network call all land here too.
+   */
+  private async recentProcessedDuplicate(leadId: string, userId: string) {
+    return this.prisma.activity.findFirst({
+      where: {
+        leadId,
+        userId,
+        action: PROCESSED_ACTION,
+        createdAt: { gte: new Date(Date.now() - CallsService.PROCESSED_DEDUPE_MS) },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
   }
 
   /**
