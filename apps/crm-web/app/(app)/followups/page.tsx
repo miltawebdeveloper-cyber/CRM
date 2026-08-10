@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Calendar, Plus, Clock, RefreshCw, CheckCircle2, AlertTriangle, Bell, Phone, Filter, Pencil, CircleCheckBig, Users } from 'lucide-react';
 import { callsApi, assignmentsApi, type Followup } from '@/lib/crm';
+import { api } from '@/lib/api';
 import { useCanCall } from '@/lib/use-can-call';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
@@ -44,8 +45,21 @@ export default function FollowupsPage() {
     queryFn: () => callsApi.followups(userId || undefined),
     retry: false,
   });
-  // Caller list powering the User Filter (admin/TL-gated endpoint).
-  const { data: summary } = useQuery({ queryKey: ['assignment-summary'], queryFn: assignmentsApi.summary, retry: false });
+  // Whose follow-ups this page is showing. The API decides: a manager sees the
+  // whole floor and may narrow to one rep, an employee sees their own and cannot
+  // widen it. The role only tells the page which controls are worth drawing.
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
+  const isManager = me?.role === 'admin' || me?.role === 'team_leader';
+  // Caller list powering the User Filter (admin/TL-gated endpoint). Not fetched
+  // for an employee: it would 403, and the filter it feeds narrows a list that
+  // is already narrowed to them — one dead option under a heading promising
+  // otherwise.
+  const { data: summary } = useQuery({
+    queryKey: ['assignment-summary'],
+    queryFn: assignmentsApi.summary,
+    enabled: isManager,
+    retry: false,
+  });
   const userOpts = useMemo(
     () => [{ label: 'All Users', value: '' }, ...(summary?.callers ?? []).map((c) => ({ label: c.name, value: c.id }))],
     [summary],
@@ -210,7 +224,7 @@ export default function FollowupsPage() {
         toolbar={
           <>
             <SearchInput value={q} onChange={setQ} placeholder="Search company, phone, note…" className="min-w-[220px]" />
-            <FilterSelect icon={Users} value={userId} onChange={setUserId} options={userOpts} />
+            {isManager && <FilterSelect icon={Users} value={userId} onChange={setUserId} options={userOpts} />}
             <FilterSelect icon={Filter} value={timeframe} onChange={setTimeframe} options={TIMEFRAME_OPTS} />
             <DateFilter value={created} onChange={setCreated} />
           </>

@@ -37,9 +37,11 @@ export class CallsController {
     return this.calls.followups({ id: user.id, role: user.role }, userId);
   }
 
+  // Both mutations below are scoped in the service: a rep may complete or move a
+  // follow-up on their own leads, a manager on anyone's.
   @Post('followups/:kind/:id/complete')
   completeFollowup(@Param('kind') kind: 'note' | 'lead', @Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.calls.completeFollowup(kind, id, user.id);
+    return this.calls.completeFollowup(kind, id, { id: user.id, role: user.role });
   }
 
   @Post('followups/:kind/:id')
@@ -49,7 +51,7 @@ export class CallsController {
     @Body() dto: UpdateFollowupDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.calls.updateFollowup(kind, id, dto, user.id);
+    return this.calls.updateFollowup(kind, id, dto, { id: user.id, role: user.role });
   }
 
   @Get('outcomes')
@@ -163,6 +165,15 @@ export class CallsController {
   @Patch('lead/:leadId/outcome')
   updateLeadOutcome(@Param('leadId') leadId: string, @Body() dto: EndCallDto, @CurrentUser() user: AuthUser) {
     return this.calls.updateLeadOutcome(leadId, dto, { id: user.id, role: user.role });
+  }
+
+  /**
+   * A lead's follow-up sequence — Follow-Up 1, 2, 3… with what happened on each.
+   * Scoped in the service: an employee reads only their own leads.
+   */
+  @Get('lead/:leadId/followups')
+  leadFollowups(@Param('leadId') leadId: string, @CurrentUser() user: AuthUser) {
+    return this.calls.leadFollowups(leadId, { id: user.id, role: user.role });
   }
 
   /** Note + Comments update against a lead with no call attached. */

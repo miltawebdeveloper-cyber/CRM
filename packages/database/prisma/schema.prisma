@@ -174,6 +174,8 @@ model User {
   employee           Employee?
   assignedLeads      Lead[]                    @relation("LeadAssignedTo")
   closedLeads        Lead[]                    @relation("LeadClosedBy")
+  followupsOwned     LeadFollowup[]            @relation("FollowupAssignedTo")
+  followupsCompleted LeadFollowup[]            @relation("FollowupCompletedBy")
   targetsSet         Target[]                  @relation("TargetSetBy")
   activities         Activity[]
   loginOtps          LoginOtp[]
@@ -453,6 +455,7 @@ model Lead {
   quoSyncLogs  QuoSyncLog[]
   messages     Message[]
   zoomMeetings ZoomMeeting[]
+  followups    LeadFollowup[]
 
   // DB-015 — indexes on every dashboard filter column.
   //
@@ -851,6 +854,55 @@ model Message {
 }
 
 /// DB-007 — call notes + follow-up
+/// One rung of a lead's follow-up sequence: Follow-Up 1, 2, 3 and so on.
+///
+/// `Lead.callbackAt` is a single column, so booking a second callback wrote over
+/// the first: the date, who agreed it and what was said all went, and the lead's
+/// history read as though it had only ever been followed up once. This table is
+/// the record instead — one row per follow-up, numbered, never rewritten by the
+/// next one.
+///
+/// `Lead.callbackAt` is kept in step as a pointer to whichever row is currently
+/// open, because the queue, the reminder cron, the due popup and the Calling
+/// Panel all read it. Nothing about that machinery changes; it just stops being
+/// the only place the appointment exists.
+model LeadFollowup {
+  id     String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  leadId String @map("lead_id") @db.Uuid
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  /// Position in this lead's sequence, from 1. Unique per lead, so two callbacks
+  /// booked at once cannot both claim to be Follow-Up 3.
+  seq Int
+
+  /// When this follow-up is due — the instant `Lead.callbackAt` mirrors while
+  /// this row is the open one.
+  scheduledAt DateTime @map("scheduled_at")
+
+  /// Who owed the follow-up when it was booked. Kept per row rather than read
+  /// off the lead, because a lead reassigned in March must not rewrite who was
+  /// responsible for January's call.
+  assignedToId String? @map("assigned_to_id") @db.Uuid
+  assignedTo   User?   @relation("FollowupAssignedTo", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  /// Filled in when the follow-up is worked: the disposition chosen, the note
+  /// written with it, when it happened and by whom. Null on an open follow-up —
+  /// which is exactly what makes it the open one.
+  outcome       String?
+  comments      String?
+  completedAt   DateTime? @map("completed_at")
+  completedById String?   @map("completed_by_id") @db.Uuid
+  completedBy   User?     @relation("FollowupCompletedBy", fields: [completedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([leadId, seq])
+  @@index([leadId, completedAt])
+  @@index([scheduledAt])
+  @@map("lead_followups")
+}
+
 model Note {
   id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   leadId           String    @map("lead_id") @db.Uuid

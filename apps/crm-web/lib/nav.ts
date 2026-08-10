@@ -69,7 +69,12 @@ export const NAV: NavGroup[] = [
       // reads this entry, so the topbar heading follows automatically.
       { label: 'Onboarding Leads', href: '/closed-leads', icon: CircleCheckBig, sub: 'Won leads moving into onboarding' },
       { label: 'Sales Pipeline', href: '/pipeline', icon: GitBranch, sub: 'Deals by stage', hidden: true },
-      { label: 'Follow-Ups', href: '/followups', icon: Clock, sub: 'Callbacks & reminders', roles: MANAGERS },
+      // Open to every role. A rep's own callbacks and follow-ups are the work
+      // they are measured on, and the list of them was the one view of it they
+      // could not open — they had to reconstruct the day from the queue. The API
+      // scopes an employee to their own leads on the read and on both mutations,
+      // so opening the page grants no reach they did not already have.
+      { label: 'Follow-Ups', href: '/followups', icon: Clock, sub: 'Callbacks & reminders' },
     ],
   },
   {

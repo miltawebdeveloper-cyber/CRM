@@ -11,6 +11,7 @@ import { communicationsApi } from '@/lib/crm';
 import { useCanCall } from '@/lib/use-can-call';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
 import { ZoomTimeline } from '@/components/zoom-timeline';
+import { FollowupSequence } from '@/components/followup-sequence';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { api } from '@/lib/api';
 import { formatDate, formatDateTime, formatTime } from '@/lib/display-settings';
@@ -482,6 +483,11 @@ export default function LeadDetailPage() {
           })}
         </div>
       </section>
+
+      {/* Follow-Up 1 → 5, in order, with what happened on each. Sits above the
+          Zoom timeline: what is owed next is read more often than what has been
+          booked. */}
+      <FollowupSequence leadId={id} timezone={lead.timezone} />
 
       {/* Complete Zoom meeting history/timeline for this client */}
       <ZoomTimeline leadId={id} />

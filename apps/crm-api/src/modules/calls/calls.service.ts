@@ -293,6 +293,27 @@ export class CallsService {
     // Calls Made, so only it looks.
     const supersedes = action === 'lead_processed' ? await this.recentProcessedDuplicate(leadId, userId) : null;
 
+    /**
+     * Is this a fresh contact with the lead, or a second pass at one already
+     * recorded?
+     *
+     * A correction from the Outcome Records log is the obvious second pass, and
+     * a repeated save is the other: both describe a contact that has already
+     * advanced the sequence. Neither may advance it again, or fixing a typo
+     * would burn a rung and a retried save would push a lead from Follow-Up 2
+     * to Follow-Up 4 without anyone having called.
+     */
+    const revising = action === 'outcome_updated' || !!supersedes;
+    const followupOps = await this.followupSequenceOps({
+      leadId,
+      userId,
+      outcome: dto.outcome,
+      callbackAt,
+      schedulesCallback,
+      revising,
+      assignedToId: leadObj?.assignedToId ?? null,
+    });
+
     const results = await this.prisma.$transaction([
       ...extraOps,
       this.prisma.lead.update({
@@ -376,6 +397,10 @@ export class CallsService {
                   : {}),
             },
           }),
+      // LAST, deliberately. Callers read their own row back out of `results` by
+      // position — `results[correctOps.length]` is the lead update — so anything
+      // added here goes on the end where it cannot shift those indices.
+      ...followupOps,
     ]);
 
     const lead = await this.prisma.lead.findUnique({
@@ -396,6 +421,143 @@ export class CallsService {
       );
     }
     return results;
+  }
+
+  /**
+   * The rungs a lead's follow-up ladder is expected to run to.
+   *
+   * Presentational, not a limit. The sequence is numbered truthfully however far
+   * it runs, and a sixth callback becomes Follow-Up 6 rather than being refused:
+   * an agent with a customer on the line asking to be rung again next week must
+   * not be told the lead is full. What this constant does is tell the UI how many
+   * rungs to lay out, so a lead on its second call shows the road ahead.
+   */
+  static readonly FOLLOWUP_LADDER = 5;
+
+  /**
+   * The writes that move a lead's follow-up sequence on, for one disposition.
+   *
+   * The sequence is the answer to "what happened, in order, and what is owed
+   * next". One row per follow-up: opened when a callback is booked, closed when
+   * the lead is next worked, never rewritten by the one after it.
+   *
+   * Four cases, and they are all the same two questions — is a follow-up open,
+   * and does this outcome book another:
+   *
+   *  • Open one, and the agent is working it → close it with this outcome. That
+   *    is the history entry: what was decided when that follow-up came due.
+   *  • Outcome books a callback → open the next rung at the agreed time.
+   *  • Both → close this rung and open the next, which is the ordinary
+   *    Follow-Up 2 → Follow-Up 3 step.
+   *  • Revising (`revising`) → the contact was already recorded, so nothing
+   *    advances; a re-booked time moves the OPEN rung instead of burning a new
+   *    one. Correcting a typo must not cost a lead a follow-up.
+   *
+   * Returned as prepared operations so they run inside the caller's transaction:
+   * a sequence that advanced while the lead update rolled back would leave the
+   * ladder describing a call that never happened.
+   */
+  private async followupSequenceOps(args: {
+    leadId: string;
+    userId: string;
+    outcome: string;
+    callbackAt: Date | null;
+    schedulesCallback: boolean;
+    revising: boolean;
+    assignedToId: string | null;
+  }): Promise<Prisma.PrismaPromise<unknown>[]> {
+    const { leadId, userId, outcome, callbackAt, schedulesCallback, revising, assignedToId } = args;
+
+    // The open rung, and the highest number used so far. They are different
+    // questions: a lead whose Follow-Up 3 is closed has no open rung but has
+    // certainly used 3, and the next one it books is 4, not 1.
+    const [open, last] = await Promise.all([
+      this.prisma.leadFollowup.findFirst({
+        where: { leadId, completedAt: null },
+        orderBy: { seq: 'desc' },
+        select: { id: true },
+      }),
+      this.prisma.leadFollowup.findFirst({
+        where: { leadId },
+        orderBy: { seq: 'desc' },
+        select: { seq: true },
+      }),
+    ]);
+
+    const ops: Prisma.PrismaPromise<unknown>[] = [];
+
+    if (revising) {
+      // Re-point the open rung at the corrected time, or close it if the
+      // corrected outcome no longer books a callback. Never opens a rung.
+      if (open) {
+        ops.push(
+          this.prisma.leadFollowup.update({
+            where: { id: open.id },
+            data: schedulesCallback && callbackAt
+              ? { scheduledAt: callbackAt, outcome, assignedToId }
+              : { outcome, completedAt: new Date(), completedById: userId },
+          }),
+        );
+      } else if (schedulesCallback && callbackAt) {
+        // Nothing open to correct — the appointment has to live somewhere, so
+        // this becomes the next rung rather than being lost.
+        ops.push(this.createFollowup(leadId, (last?.seq ?? 0) + 1, callbackAt, assignedToId));
+      }
+      return ops;
+    }
+
+    if (open) {
+      ops.push(
+        this.prisma.leadFollowup.update({
+          where: { id: open.id },
+          data: { outcome, completedAt: new Date(), completedById: userId },
+        }),
+      );
+    }
+    if (schedulesCallback && callbackAt) {
+      ops.push(this.createFollowup(leadId, (last?.seq ?? 0) + 1, callbackAt, assignedToId));
+    }
+    return ops;
+  }
+
+  /**
+   * A lead's follow-up sequence, oldest rung first — the history plus whatever
+   * is still owed.
+   *
+   * Reports `ladder` alongside so the caller doesn't hard-code how many rungs to
+   * draw, and `active` so it doesn't have to work out which row is the open one
+   * by scanning for a null.
+   */
+  async leadFollowups(leadId: string, user: { id: string; role: Role }) {
+    await this.assertCanWorkLead(leadId, user);
+    const rows = await this.prisma.leadFollowup.findMany({
+      where: { leadId },
+      orderBy: { seq: 'asc' },
+      select: {
+        id: true,
+        seq: true,
+        scheduledAt: true,
+        outcome: true,
+        comments: true,
+        completedAt: true,
+        assignedTo: { select: { id: true, name: true } },
+        completedBy: { select: { id: true, name: true } },
+      },
+    });
+    return {
+      followups: rows,
+      /** How many rungs the UI lays out. See `FOLLOWUP_LADDER` — not a limit. */
+      ladder: CallsService.FOLLOWUP_LADDER,
+      /** The rung currently owed, if any. At most one is ever open. */
+      active: rows.find((r) => !r.completedAt) ?? null,
+    };
+  }
+
+  /** One new rung, at `seq`, due at `scheduledAt`. */
+  private createFollowup(leadId: string, seq: number, scheduledAt: Date, assignedToId: string | null) {
+    return this.prisma.leadFollowup.create({
+      data: { leadId, seq, scheduledAt, assignedToId },
+    });
   }
 
   /**
@@ -640,8 +802,37 @@ export class CallsService {
     const text = dto.noteText?.trim();
     if (text) {
       await this.prisma.lead.update({ where: { id: leadId }, data: { comments: text } });
+      await this.attachCommentsToFollowup(leadId, text);
     }
     return note;
+  }
+
+  /**
+   * Put the agent's write-up on the follow-up it belongs to.
+   *
+   * Saving a lead is two requests — the disposition, then the note — so by the
+   * time the words exist the sequence has already moved: `applyDisposition` has
+   * closed the rung that was open. The comment belongs on THAT rung, the one the
+   * agent was just working, not on the one they booked for next week, which
+   * hasn't happened and has nothing to say yet.
+   *
+   * So: the most recently completed follow-up, and only if it is still blank —
+   * a note added days later to a lead whose ladder has moved on must not rewrite
+   * what was said on a call that is now history. With nothing completed yet the
+   * comment simply stays on the note and the lead, where it already was.
+   */
+  private async attachCommentsToFollowup(leadId: string, comments: string) {
+    const lastCompleted = await this.prisma.leadFollowup.findFirst({
+      where: { leadId, completedAt: { not: null }, comments: null },
+      orderBy: { completedAt: 'desc' },
+      select: { id: true, completedAt: true },
+    });
+    if (!lastCompleted?.completedAt) return;
+    // Only while it is still the disposition being written up. Past that it is
+    // someone revisiting an old lead, and the rung keeps what it recorded.
+    const age = Date.now() - lastCompleted.completedAt.getTime();
+    if (age > CallsService.PROCESSED_DEDUPE_MS) return;
+    await this.prisma.leadFollowup.update({ where: { id: lastCompleted.id }, data: { comments } });
   }
 
   // CAL-015 — call + note history for a lead.
@@ -838,7 +1029,29 @@ export class CallsService {
     });
   }
 
-  async updateFollowup(kind: 'note' | 'lead', id: string, dto: UpdateFollowupDto, userId: string) {
+  /**
+   * The lead a follow-up hangs off, checked against who is asking.
+   *
+   * Both mutations here took a bare id and acted on it. That was survivable only
+   * while the Follow-Ups page was manager-only — the routes themselves have
+   * always been open to any authenticated user, so an employee who knew a lead
+   * id could complete or move another rep's callback. Opening the page to
+   * employees turns that from a hidden edge into the front door, so the rule the
+   * rest of this module enforces is enforced here too: a rep acts on their own
+   * leads, a manager on anyone's.
+   */
+  private async assertCanWorkFollowup(kind: 'note' | 'lead', id: string, user: { id: string; role: Role }) {
+    if (kind === 'lead') {
+      await this.assertCanWorkLead(id, user);
+      return;
+    }
+    const note = await this.prisma.note.findUnique({ where: { id }, select: { leadId: true } });
+    if (!note) throw new NotFoundException('Follow-up not found');
+    await this.assertCanWorkLead(note.leadId, user);
+  }
+
+  async updateFollowup(kind: 'note' | 'lead', id: string, dto: UpdateFollowupDto, user: { id: string; role: Role }) {
+    await this.assertCanWorkFollowup(kind, id, user);
     // Rescheduling reads the new time in the LEAD's zone, exactly as the panel's
     // callback picker does — a follow-up moved from the Follow-ups page must land
     // on the same instant it would have from the Calling Panel.
@@ -887,7 +1100,7 @@ export class CallsService {
     await this.prisma.activity.create({
       data: {
         leadId: id,
-        userId,
+        userId: user.id,
         action: 'updated',
         oldValue: lead.callbackAt?.toISOString() ?? null,
         newValue: rescheduled?.toISOString() ?? null,
@@ -897,12 +1110,13 @@ export class CallsService {
     return updated;
   }
 
-  async completeFollowup(kind: 'note' | 'lead', id: string, userId: string) {
+  async completeFollowup(kind: 'note' | 'lead', id: string, user: { id: string; role: Role }) {
+    await this.assertCanWorkFollowup(kind, id, user);
     if (kind === 'note') {
       const note = await this.prisma.note.findUnique({ where: { id } });
       if (!note) throw new NotFoundException('Follow-up not found');
       await this.prisma.activity.create({
-        data: { leadId: note.leadId, userId, action: 'completed', oldValue: note.nextFollowupDate?.toISOString() ?? null, newValue: null },
+        data: { leadId: note.leadId, userId: user.id, action: 'completed', oldValue: note.nextFollowupDate?.toISOString() ?? null, newValue: null },
       });
       return this.prisma.note.update({ where: { id }, data: { nextFollowupDate: null } });
     }
@@ -910,7 +1124,7 @@ export class CallsService {
     const lead = await this.prisma.lead.findUnique({ where: { id } });
     if (!lead) throw new NotFoundException('Follow-up not found');
     await this.prisma.activity.create({
-      data: { leadId: id, userId, action: 'completed', oldValue: lead.callbackAt?.toISOString() ?? null, newValue: null },
+      data: { leadId: id, userId: user.id, action: 'completed', oldValue: lead.callbackAt?.toISOString() ?? null, newValue: null },
     });
     return this.prisma.lead.update({ where: { id }, data: { callbackCompletedAt: new Date() } });
   }

@@ -249,6 +249,37 @@ export interface Followup {
   lead: { id: string; businessName: string; phone: string; city: string; state: string; timezone: string | null; status: string; callbackAt?: string | null; callbackCompletedAt?: string | null } | null;
 }
 
+/**
+ * One rung of a lead's follow-up sequence — Follow-Up 1, 2, 3 and so on.
+ *
+ * An OPEN rung is one with no `completedAt`: it is the follow-up currently owed,
+ * and at most one is ever open. Everything below it is history and is never
+ * rewritten by what comes after.
+ */
+export interface LeadFollowup {
+  id: string;
+  /** Position in the sequence, from 1. */
+  seq: number;
+  /** When this follow-up is due, in the lead's zone. */
+  scheduledAt: string;
+  /** The disposition chosen when it was worked. Null while still open. */
+  outcome: CallOutcome | null;
+  /** The agent's write-up from that call. Null while still open. */
+  comments: string | null;
+  completedAt: string | null;
+  /** Who owed it when it was booked — held per rung, not read off the lead. */
+  assignedTo: { id: string; name: string } | null;
+  completedBy: { id: string; name: string } | null;
+}
+
+export interface LeadFollowupSequence {
+  followups: LeadFollowup[];
+  /** How many rungs to lay out. Presentational — the sequence is not capped. */
+  ladder: number;
+  /** The rung currently owed, if any. */
+  active: LeadFollowup | null;
+}
+
 export interface OutcomeRecord {
   id: string;
   outcome: CallOutcome | null;
@@ -428,6 +459,9 @@ export const callsApi = {
   myLeads: async (): Promise<Lead[]> => (await api.get('/calls/caller/leads')).data,
   followups: async (userId?: string): Promise<Followup[]> =>
     (await api.get('/calls/followups', { params: userId ? { userId } : {} })).data,
+  /** A single lead's numbered follow-up sequence, oldest rung first. */
+  leadFollowups: async (leadId: string): Promise<LeadFollowupSequence> =>
+    (await api.get(`/calls/lead/${leadId}/followups`)).data,
   completeFollowup: async (kind: 'note' | 'lead', id: string) => (await api.post(`/calls/followups/${kind}/${id}/complete`)).data,
   updateFollowup: async (kind: 'note' | 'lead', id: string, body: { noteText?: string; followUpAt?: string | null }) =>
     (await api.post(`/calls/followups/${kind}/${id}`, body)).data,
