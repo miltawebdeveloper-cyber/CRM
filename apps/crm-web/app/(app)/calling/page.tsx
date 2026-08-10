@@ -345,33 +345,7 @@ export default function CallingPage() {
   // lead with no zone set therefore matches no selection and appears only under
   // All Time Zones — filing it under Eastern is precisely the guess the rest of
   // this module exists to refuse.
-  /**
-   * A callback or Zoom meeting the agent has already worked today.
-   *
-   * These leave Your Queue for the rest of the day. An appointment is a piece of
-   * work with a time on it; once it has been kept, leaving it on the list — still
-   * badged "Callback Today", still counted by the Callback tab — advertises work
-   * that is already done and sends the agent back to a lead they have finished.
-   *
-   * The server reads it the same way: `rank()` sends anything worked today to the
-   * bottom band and never reaches the callback or Zoom bands at all. This is the
-   * list agreeing with that.
-   *
-   * Only for today. `lastWorkedAt` counts saves made TODAY, so the lead returns
-   * to the queue tomorrow, and on the day of any callback booked in its place it
-   * is pinned again like any other appointment. Nothing is lost — the lead, its
-   * outcome, its comments and its follow-up history are all still on the record.
-   *
-   * Leads worked without an appointment are untouched: they stay listed with
-   * their ✓ and their outcome, which is the agent's account of the day.
-   */
-  const handledAppointment = (l: Lead) => {
-    if (!isDone(l)) return false;
-    const t = getQueueItemType(l).type;
-    return t === 'callback' || t === 'zoom';
-  };
-  const openQueue = queue.filter((l) => !handledAppointment(l));
-  const zoneQueue = tzFilter ? openQueue.filter((l) => l.timezone === tzFilter) : openQueue;
+  const zoneQueue = tzFilter ? queue.filter((l) => l.timezone === tzFilter) : queue;
   // Search runs INSIDE the chosen zone, so the two compose: pick Central, then
   // find the Alvarez in it. See matchesContactSearch for what counts as a hit.
   const searchedQueue = search.trim() ? zoneQueue.filter((l) => matchesContactSearch(l, search)) : zoneQueue;
