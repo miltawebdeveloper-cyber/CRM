@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { metricsApi, type StateMetric } from '@/lib/crm';
 import { US_STATES, US_MAP_WIDTH as W, US_MAP_HEIGHT as H, type StateShape } from '@/lib/us-states-geo';
@@ -37,6 +37,47 @@ const EMPTY = (state: string): StateMetric => ({
   progressPct: 0,
 });
 
+/**
+ * Resolve whatever a lead calls its state to the shape on the map.
+ *
+ * Leads store the USPS abbreviation — every one of them, "FL" and "GA", not
+ * "Florida". The map was joining on the full name, so nothing ever matched: the
+ * whole country rendered in the zero-leads colour and every state opened a panel
+ * of zeroes, on a page whose caption sat above it correctly reporting hundreds
+ * of leads across dozens of states.
+ *
+ * Both forms are accepted rather than swapping one hard-coded assumption for the
+ * other. Imports are the source of this field and they don't agree with each
+ * other — an export written in full names is not a broken import, and it must
+ * not be a blank map either.
+ */
+const norm = (v: string) => v.trim().toLowerCase();
+const AB_BY_KEY = new Map<string, string>(
+  US_STATES.flatMap((s) => [
+    [norm(s.ab), s.ab],
+    [norm(s.name), s.ab],
+  ] as [string, string][]),
+);
+
+/** Add a metric row into the running total for its state. */
+function mergeMetric(into: StateMetric, row: StateMetric): StateMetric {
+  const total = into.total + row.total;
+  const planned = into.planned + row.planned;
+  return {
+    ...into,
+    // Keep whichever zone is known; a state sits in one, and "" means unset.
+    timezone: into.timezone || row.timezone,
+    total,
+    assigned: into.assigned + row.assigned,
+    contacted: into.contacted + row.contacted,
+    planned,
+    // Recomputed rather than summed — a balance and a percentage are not
+    // additive, and adding two of them is how a merged state reports 190%.
+    balance: Math.max(planned - total, 0),
+    progressPct: planned > 0 ? Number(((total / planned) * 100).toFixed(1)) : 0,
+  };
+}
+
 export default function TerritoriesPage() {
   const { data: states = [] } = useQuery<StateMetric[]>({
     queryKey: ['m-states'],
@@ -44,10 +85,31 @@ export default function TerritoriesPage() {
     refetchInterval: LIVE_MS,
     refetchOnWindowFocus: true,
   });
-  const byName = new Map(states.map((s) => [s.state, s]));
+  // Keyed by abbreviation, which is the one form every shape on the map has.
+  // Rows that resolve to the same state are merged rather than overwriting each
+  // other, so a book holding both "FL" and "Florida" reports one Florida with
+  // all of its leads instead of whichever row the API happened to return last.
+  const { byState, unmappedLeads } = useMemo(() => {
+    const map = new Map<string, StateMetric>();
+    let unmapped = 0;
+    for (const row of states) {
+      const ab = AB_BY_KEY.get(norm(row.state));
+      // "Unknown", territories and anything the projection doesn't draw. Counted
+      // rather than dropped: leads with no usable state are invisible on a map
+      // by nature, and a caption that quietly omitted them would have the page
+      // disagreeing with Lead Management about how many leads exist.
+      if (!ab) {
+        unmapped += row.total;
+        continue;
+      }
+      const prev = map.get(ab);
+      map.set(ab, prev ? mergeMetric(prev, row) : { ...row, state: ab });
+    }
+    return { byState: map, unmappedLeads: unmapped };
+  }, [states]);
   const [selected, setSelected] = useState<StateShape | null>(null);
 
-  const metric = selected ? (byName.get(selected.name) ?? EMPTY(selected.name)) : null;
+  const metric = selected ? (byState.get(selected.ab) ?? EMPTY(selected.ab)) : null;
 
   // Anchor the panel beside the state rather than on top of it, flipping to the
   // left for eastern states so it never covers them or the Northeast callouts.
@@ -56,7 +118,7 @@ export default function TerritoriesPage() {
   const flipLeft = selected ? selected.lx > W * 0.58 : false;
 
   function renderState(s: StateShape) {
-    const m = byName.get(s.name);
+    const m = byState.get(s.ab);
     const { fill, text } = fillFor(m?.total ?? 0);
     const isSelected = selected?.ab === s.ab;
     const callout = CALLOUT_Y[s.ab];
@@ -132,8 +194,14 @@ export default function TerritoriesPage() {
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        {/* Counts the states actually DRAWN, so the caption describes the map
+            under it. Leads whose state the map can't place are named separately
+            rather than folded in — they're real leads, and silently leaving them
+            out of the total is how this page and Lead Management end up
+            disagreeing about the size of the book. */}
         <div className="text-xs text-muted-foreground">
-          {states.length} states with leads · {states.reduce((a, s) => a + s.total, 0).toLocaleString()} total ·
+          {byState.size} states with leads · {states.reduce((a, s) => a + s.total, 0).toLocaleString()} total
+          {unmappedLeads > 0 && ` (${unmappedLeads.toLocaleString()} with no mapped state)`} ·
           {' '}Select a state for its lead stats
         </div>
         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
@@ -171,8 +239,10 @@ export default function TerritoriesPage() {
             }}
           >
             <div className="mb-1.5 flex items-start justify-between gap-2">
+              {/* Titled from the SHAPE, not the metric: the metric now carries
+                  the abbreviation, and "FL (FL)" tells nobody anything. */}
               <span className="font-display text-[12.5px] font-bold leading-tight">
-                {metric.state} ({selected.ab})
+                {selected.name} ({selected.ab})
               </span>
               <button
                 type="button"
