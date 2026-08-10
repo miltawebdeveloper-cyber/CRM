@@ -11,7 +11,19 @@ import { Roles } from '../../common/decorators/roles.decorator';
 export class ActivitiesController {
   constructor(private readonly activities: ActivitiesService) {}
 
-  @Roles(Role.admin, Role.team_leader)
+  /**
+   * The Activity Tracker feed — open to every role, scoped in the service.
+   *
+   * This was admin + team-leader only, while the menu item carrying it was shown
+   * to everyone: an employee clicked Activity Tracker, the request 403'd, the
+   * page swallowed it (`retry: false`) and they got an empty log that looked like
+   * a day in which they had done nothing.
+   *
+   * The scoping to fix that was already written and had never been reachable —
+   * `list` narrows an employee to their own `userId`, which was dead code behind
+   * this guard. Removing the guard is what turns it on. An employee sees their
+   * own activity, managers see the floor.
+   */
   @Get()
   list(@CurrentUser() user: AuthUser, @Query('limit') limit?: string) {
     return this.activities.list(user, limit ? Number(limit) : 100);
