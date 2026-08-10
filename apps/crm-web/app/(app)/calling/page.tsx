@@ -787,13 +787,15 @@ export default function CallingPage() {
             <button
               key={k}
               type="button"
-              // Leaving the panel mid-lead is refused along with everything else
-              // that would take the agent off it. The state would survive the
-              // round trip, but the lead wouldn't get worked — which is the
-              // thing this is here to stop.
-              onClick={() => { if (k !== 'panel' && blockedByQueue()) return; setTab(k); }}
-              title={k !== 'panel' && locked ? 'Finish the lead you have open first' : undefined}
-              className={`whitespace-nowrap rounded-[5px] px-2.5 py-[3px] text-[11px] font-semibold transition-colors ${tab === k ? 'bg-primary text-primary-foreground shadow-sm' : `text-muted-foreground ${k !== 'panel' && locked ? 'opacity-45' : 'hover:bg-background hover:text-foreground'}`}`}
+              // Always available, to everyone, mid-lead included. These are
+              // reference views — the agent's own call history, a recording they
+              // need to hear again, the SMS thread — and the queue lead is not at
+              // risk while they look: this page keeps its state across the round
+              // trip, and the session is persisted on top of that. Blocking them
+              // stopped nothing and cost the agent the context they were reaching
+              // for.
+              onClick={() => setTab(k)}
+              className={`whitespace-nowrap rounded-[5px] px-2.5 py-[3px] text-[11px] font-semibold transition-colors ${tab === k ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-background hover:text-foreground'}`}
             >
               {label}
             </button>
