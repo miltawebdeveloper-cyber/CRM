@@ -17,9 +17,18 @@ const KEYS = [
  *
  * `disabled` lets a host that runs its own call flow (the Calling Panel) block
  * dialling while ITS call is live, so the two can't put the agent on two calls
- * at once.
+ * at once. `disabledHint` is why, in the host's own words — it blocks for more
+ * than one reason and "finish the call first" is wrong for most of them.
  */
-export function DialPad({ className = '', disabled = false }: { className?: string; disabled?: boolean }) {
+export function DialPad({
+  className = '',
+  disabled = false,
+  disabledHint,
+}: {
+  className?: string;
+  disabled?: boolean;
+  disabledHint?: string;
+}) {
   const { placeCallNumber, active } = useCall();
   const { dial, callingEnabled, disabledReason } = useCanCall();
   const [num, setNum] = useState('');
@@ -71,7 +80,7 @@ export function DialPad({ className = '', disabled = false }: { className?: stri
         <button
           onClick={call}
           disabled={!num.trim() || busy}
-          title={!callingEnabled ? disabledReason || 'Calling is temporarily disabled' : disabled && !active ? 'Finish the call in the panel first' : undefined}
+          title={!callingEnabled ? disabledReason || 'Calling is temporarily disabled' : disabled && !active ? disabledHint || 'Finish the call in the panel first' : undefined}
           className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-[var(--brand-strong)] py-3 text-[13px] font-semibold text-white hover:opacity-90 disabled:opacity-50"
         >
           <Phone className="h-4 w-4" /> {!callingEnabled ? 'Calling disabled' : busy ? 'On call…' : 'Call'}
