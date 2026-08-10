@@ -850,9 +850,22 @@ export default function CallingPage() {
           four type tabs sharing another, and rows holding a name, a company, a
           badge and a number. The 60px comes out of the lead card, which is the
           column with room to spare. */}
+      {/* Stacked, the lead comes first.
+          The three columns read left-to-right on a laptop, but stacked they read
+          top-to-bottom, and DOM order put the queue above the lead — so a tablet
+          or a phone opened on a list of leads with the one actually being worked
+          somewhere below the fold, along with the outcome and comments needed to
+          finish it. Stacked order is now the lead card and its write-up, then the
+          queue, then the dial pad: the thing in hand, what's next, then the tool.
+
+          All three carry an `order`, not just the two that move. CSS `order`
+          defaults to 0, so leaving the dial pad unset would rank it below every
+          numbered sibling and float it to the top — the opposite of where it
+          belongs. `xl:order-*` hands the row back to the column template, which
+          places by source order and would otherwise inherit the stacked one. */}
       <div className="grid gap-[18px] xl:grid-cols-[360px_minmax(0,1fr)_360px]">
         {/* Left: Your Queue section (New Calling Queue, Callback Queue, Zoom Scheduled Queue) */}
-        <div className="space-y-[18px]">
+        <div className="order-2 space-y-[18px] xl:order-1">
           <div className="rounded-2xl border bg-card shadow-sm">
             <div className="border-b px-[18px] py-3.5">
               <div className="flex items-center justify-between gap-2">
@@ -1102,7 +1115,7 @@ export default function CallingPage() {
         </div>
 
         {/* Centre: call card + notes */}
-        <div className="space-y-[18px]">
+        <div className="order-1 space-y-[18px] xl:order-2">
           <div className="relative overflow-hidden rounded-[18px] p-4 text-white shadow-md" style={{ background: 'linear-gradient(165deg,var(--brand-ink),var(--brand-ink-2))' }}>
             <svg className="pointer-events-none absolute inset-0 opacity-[.13]" viewBox="0 0 600 400" preserveAspectRatio="xMidYMid slice">
               <g fill="none" stroke="#a6c15c" strokeWidth="1">
@@ -1483,7 +1496,7 @@ export default function CallingPage() {
             and running its cards side by side, because a dial pad stretched over
             1000px is not a better dial pad — is gone with the column it worked
             around. */}
-        <div className="space-y-[18px]">
+        <div className="order-3 space-y-[18px] xl:order-3">
           {/* Dial pad — call any number directly from the CRM (live status in the docked
               widget). Blocked while THIS panel has a call in flight: the two run separate
               call flows, so without this an agent could start a second call mid-call. */}
