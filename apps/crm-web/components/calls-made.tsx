@@ -82,7 +82,18 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
     queryFn: () => callsApi.madeFilters(scope),
   });
 
-  const outcomeOf = (slug: string | null) => outcomes.find((o) => o.slug === slug);
+  const outcomeOf = (slug: string | null | undefined) => outcomes.find((o) => o.slug === slug);
+
+  /**
+   * The outcome a row reports: its own, or the lead's when the call carries none.
+   *
+   * One definition, used by the column, the search index and the export, so the
+   * three can't describe the same row differently. Legacy imported leads hold a
+   * display NAME in `callStatus` rather than a slug, so an unresolved value falls
+   * through as-is rather than disappearing.
+   */
+  const outcomeLabel = (c: CallRecord): string =>
+    outcomeOf(c.outcome)?.name ?? c.outcome ?? outcomeOf(c.lead?.callStatus)?.name ?? c.lead?.callStatus ?? '';
 
   /**
    * Ring an unknown caller back.
@@ -169,10 +180,41 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
     { key: 'duration', header: 'Call Duration', cellClassName: 'tabular-nums', render: (c) => c.durationSecs != null ? formatDuration(c.durationSecs) : '—' },
     {
       key: 'outcome', header: 'Call Outcome', trackable: true, searchable: true,
-      searchValue: (c) => outcomeOf(c.outcome)?.name,
+      searchValue: (c) => outcomeLabel(c),
+      /**
+       * The call's own disposition, falling back to the lead's current outcome.
+       *
+       * The fallback is not cosmetic — it is the rule the API's outcome FILTER
+       * already applies (`outcome IS NULL AND lead.callStatus matches`). Without
+       * it the column disagreed with the filter it sits under: picking
+       * "Interested" returned rows that all displayed "—". `Call.outcome` is only
+       * ever written by the CRM's own wrap-up, so every call synced from Quo, and
+       * every call older than the most recent one on a lead, had nothing to show
+       * even when the lead was plainly dispositioned.
+       *
+       * The two are drawn differently on purpose. A pill is what this CALL
+       * recorded; the outlined chip is the LEAD's current outcome, standing in
+       * because the call itself was never dispositioned. Rendering them
+       * identically would claim a disposition that never happened, which is
+       * exactly the kind of thing a manager reads these rows to check.
+       */
       render: (c) => {
-        const o = outcomeOf(c.outcome);
-        return c.outcome ? <OutcomePill name={o?.name ?? c.outcome} color={o?.color} /> : <span className="text-muted-foreground">—</span>;
+        if (c.outcome) {
+          const o = outcomeOf(c.outcome);
+          return <OutcomePill name={o?.name ?? c.outcome} color={o?.color} />;
+        }
+        const fromLead = c.lead?.callStatus;
+        if (!fromLead) return <span className="text-muted-foreground">—</span>;
+        const o = outcomeOf(fromLead);
+        return (
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full border border-dashed px-2.5 py-[3px] text-[11px] font-medium text-muted-foreground"
+            title={`This call was never dispositioned. "${o?.name ?? fromLead}" is the lead's current outcome.`}
+          >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: o?.color ?? 'var(--tone-neutral-fg)' }} />
+            {o?.name ?? fromLead}
+          </span>
+        );
       },
     },
     {
@@ -254,10 +296,16 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
   const EXPORT_HEADERS = [
     'Call Date', 'Call Time', 'Customer Name', 'Contact Person', 'Phone Number',
     'Assigned Employee', 'Direction', 'Call Duration', 'Duration (secs)',
-    'Call Outcome', 'Funnel Bucket', 'Lead ID', 'Recording',
+    // "Outcome Source" carries the distinction the table draws with a dashed
+    // chip: whether this call was dispositioned, or is showing the lead's
+    // current outcome because it never was. A spreadsheet with one Outcome
+    // column and no such marker reads as though every call was worked.
+    'Call Outcome', 'Outcome Source', 'Funnel Bucket', 'Lead ID', 'Recording',
   ];
   const exportRows = () => filteredRecords.map((c) => {
-    const o = outcomeOf(c.outcome);
+    // The funnel bucket follows whichever outcome the row is actually reporting,
+    // so a bucket can never contradict the outcome printed beside it.
+    const o = outcomeOf(c.outcome) ?? outcomeOf(c.lead?.callStatus);
     const start = new Date(c.startTime);
     return [
       formatDate(start),
@@ -273,7 +321,8 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
       c.kind === 'processed' ? 'No call' : c.direction ? (c.direction === 'inbound' ? 'Incoming' : 'Outgoing') : '',
       c.durationSecs != null ? formatDuration(c.durationSecs) : '',
       c.durationSecs ?? '',
-      o?.name ?? c.outcome ?? '',
+      outcomeLabel(c),
+      c.outcome ? 'This call' : c.lead?.callStatus ? "Lead's current outcome" : '',
       o?.category ? CAT[o.category].label : '',
       c.lead?.leadId ?? '',
       c.hasRecording ? 'Yes' : 'No',
