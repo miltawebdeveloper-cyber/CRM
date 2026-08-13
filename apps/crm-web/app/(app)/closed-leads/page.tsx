@@ -19,24 +19,34 @@ import { usePersistedState } from '@/lib/use-persisted-state';
 import { pushToast } from '@/lib/toast';
 import { formatDate } from '@/lib/display-settings';
 import { TIMEZONE_FILTER_OPTIONS_COMPACT } from '@/lib/timezone';
+import { useOutcomeLabels } from '@/lib/use-outcome-label';
 
 /** Ceiling for an export — the API's `limit` cap. Beyond it the user is told
  *  what was left out rather than handed a short file that looks complete. */
 const EXPORT_LIMIT = 5000;
 
-const CALL_STATUS_OPTS = [
-  { label: 'All Call Statuses', value: '' },
-  { label: 'Closed-Won',        value: 'Closed-Won' },
-  { label: 'Closed-Lost',       value: 'Closed-Lost' },
-  { label: 'Negotiation',       value: 'Negotiation' },
-  { label: 'Meeting Scheduled', value: 'Meeting Scheduled' },
-  { label: 'Zoom',              value: 'Zoom' },
-  { label: 'Not Interested',    value: 'Not Interested' },
-  { label: 'Dm-Not Interested', value: 'Dm-Not Interested' },
-];
+/**
+ * The outcome filter is built from the CONFIGURED outcome list, not a frozen
+ * copy of it.
+ *
+ * This was seven hard-coded options matching on the display NAME. It worked only
+ * while those strings stayed byte-identical to what Admin → Outcomes holds:
+ * rename "Dm-Not Interested" there and this menu goes on sending the old name,
+ * which the API can no longer resolve, so the filter quietly returns nothing.
+ * Sending the slug removes the coupling entirely — the API accepts either, and
+ * the label follows whatever the outcome is currently called.
+ */
+const ALL_STATUSES = { label: 'All Call Statuses', value: '' };
 
 export default function ClosedLeadsPage() {
   const router = useRouter();
+  const { outcomes } = useOutcomeLabels();
+  // Ordered by the outcome list's own sortOrder, which the API already applies —
+  // so this menu reads in the order an admin arranged them.
+  const callStatusOpts = useMemo(
+    () => [ALL_STATUSES, ...outcomes.map((o) => ({ label: o.name, value: o.slug }))],
+    [outcomes],
+  );
   const [tz, setTz] = useState('');
   const [state, setState] = useState('');
   const [city, setCity] = useState('');
@@ -234,7 +244,7 @@ export default function ClosedLeadsPage() {
         <FilterSelect className="min-w-0 flex-1" icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         {canManage && <FilterSelect className="min-w-0 flex-1" icon={Info} value={closedBy} onChange={setClosedBy} options={closerOpts} />}
-        <FilterSelect className="min-w-0 flex-1" icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={CALL_STATUS_OPTS} />
+        <FilterSelect className="min-w-0 flex-1" icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={callStatusOpts} />
         <DateFilter value={dateFilter} onChange={setDateFilter} />
       </div>
 

@@ -5,7 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Phone, Users, NotebookPen, CheckCircle2, Download } from 'lucide-react';
 import { activitiesApi, type Activity } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
-import { StatusPill } from '@/components/status-pill';
+import { OutcomePill } from '@/components/outcome-pill';
+import { useOutcomeLabels } from '@/lib/use-outcome-label';
 import { DateFilter, SearchInput } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { KpiCard } from '@/components/dashboard/kpi-card';
@@ -15,6 +16,7 @@ import { formatDateTime, formatTime } from '@/lib/display-settings';
 
 export default function ActivityPage() {
   const { data: allActivities = [] } = useQuery({ queryKey: ['activities'], queryFn: activitiesApi.list, retry: false });
+  const { outcome, label: outcomeLabel } = useOutcomeLabels();
   const [dateRange, setDateRange] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
 
@@ -51,8 +53,15 @@ export default function ActivityPage() {
     { key: 'lead', header: 'Lead', required: true, render: (a) => <div className="flex items-center gap-[10px]"><Avatar name={a.lead?.businessName ?? '—'} /><span className="font-semibold">{a.lead?.businessName ?? '—'}</span></div> },
     { key: 'by', header: 'By', cellClassName: 'text-muted-foreground', render: (a) => a.user?.name ?? '—' },
     { key: 'action', header: 'Action', render: (a) => <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10.5px]">{a.action}</span> },
-    { key: 'outcome', header: 'Outcome', render: (a) => (a.newValue ? <StatusPill status={a.newValue} /> : '—') },
-  ], []);
+    // The configured outcome name, not the stored slug. This used to be a
+    // StatusPill fed the raw value, and StatusPill replaces only the FIRST
+    // underscore before CSS capitalises it — so `dm_not_interested` reached the
+    // screen as "Dm Not_interested" rather than "Dm-Not Interested".
+    {
+      key: 'outcome', header: 'Outcome',
+      render: (a) => (a.newValue ? <OutcomePill name={outcomeLabel(a.newValue)} color={outcome(a.newValue)?.color} /> : '—'),
+    },
+  ], [outcomeLabel, outcome]);
 
   return (
     <div>
@@ -60,7 +69,15 @@ export default function ActivityPage() {
         <SearchInput value={q} onChange={setQ} placeholder="Search lead, user, outcome…" className="min-w-[220px]" />
         <DateFilter value={dateRange} onChange={setDateRange} />
         <button
-          onClick={() => downloadCsv('activity-log', ['Time', 'Lead', 'By', 'Action', 'Outcome'], activities.map((a) => [formatDateTime(a.createdAt), a.lead?.businessName ?? '', a.user?.name ?? '', a.action, a.newValue ?? '']))}
+          onClick={() =>
+            downloadCsv(
+              'activity-log',
+              ['Time', 'Lead', 'By', 'Action', 'Outcome'],
+              // Outcome resolved the same way the column resolves it, so the
+              // export can't print a slug the screen never showed.
+              activities.map((a) => [formatDateTime(a.createdAt), a.lead?.businessName ?? '', a.user?.name ?? '', a.action, outcomeLabel(a.newValue)]),
+            )
+          }
           disabled={activities.length === 0}
           className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
         ><Download className="h-4 w-4" /> Export</button>

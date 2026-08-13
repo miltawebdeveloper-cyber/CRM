@@ -4,6 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import { ShieldCheck, X } from 'lucide-react';
 import { activitiesApi, type Activity } from '@/lib/crm';
 import { LeadAssignmentHistory } from '@/components/lead-assignment-history';
+import { OutcomePill } from '@/components/outcome-pill';
+import { useOutcomeLabels } from '@/lib/use-outcome-label';
 import { formatDateTime } from '@/lib/display-settings';
 
 const fmt = (iso: string) =>
@@ -39,14 +41,19 @@ const label = (a: string) => ACTION_LABEL[a] ?? a.replace(/_/g, ' ');
 
 // UUIDs (e.g. assignment owner ids) aren't human-friendly — hide them, prefer remarks.
 const isUuid = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
-function showVal(v: string | null): string {
+/**
+ * `outcomeLabel` resolves an outcome slug to its configured name. These columns
+ * carry more than outcomes — lead statuses, field edits, booleans — so anything
+ * that isn't a known outcome falls through to the humanised value.
+ */
+function showVal(v: string | null, outcomeLabel: (s?: string | null) => string): string {
   if (!v) return '—';
   if (isUuid(v)) return '—';
   const d = new Date(v);
   if (!Number.isNaN(d.getTime()) && /\d{4}-\d{2}-\d{2}T/.test(v)) {
     return formatDateTime(d);
   }
-  return v.replace(/_/g, ' ');
+  return outcomeLabel(v);
 }
 
 /**
@@ -54,6 +61,7 @@ function showVal(v: string | null): string {
  * `/activities/lead/:id` endpoint is role-gated, so render this only for them.
  */
 export function LeadActivityLog({ leadId, title }: { leadId: string; title?: string }) {
+  const { outcome, label: outcomeLabel } = useOutcomeLabels();
   const { data: items = [], isLoading } = useQuery<Activity[]>({
     queryKey: ['lead', leadId, 'activities'],
     queryFn: () => activitiesApi.byLead(leadId),
@@ -87,7 +95,7 @@ export function LeadActivityLog({ leadId, title }: { leadId: string; title?: str
               {items.map((a) => {
                 let desc = label(a.action);
                 if (a.oldValue || a.newValue) {
-                  desc += `: ${showVal(a.oldValue)} ➔ ${showVal(a.newValue)}`;
+                  desc += `: ${showVal(a.oldValue, outcomeLabel)} ➔ ${showVal(a.newValue, outcomeLabel)}`;
                 }
                 if (a.remarks) {
                   desc += ` (${a.remarks})`;
@@ -97,7 +105,16 @@ export function LeadActivityLog({ leadId, title }: { leadId: string; title?: str
                   <tr key={a.id} className="border-b align-top last:border-0">
                     <td className="whitespace-nowrap px-3 py-2.5 font-mono text-xs">{a.lead?.leadId ?? '—'}</td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">{fmt(a.createdAt)}</td>
-                    <td className="px-3 py-2.5 capitalize">{a.callStatus ?? '—'}</td>
+                    {/* The configured outcome, not the stored slug. `capitalize`
+                        is gone with it — a real name carries its own casing, and
+                        forcing it mangled "Dm-Not Interested". */}
+                    <td className="px-3 py-2.5">
+                      {a.callStatus ? (
+                        <OutcomePill name={outcomeLabel(a.callStatus)} color={outcome(a.callStatus)?.color} />
+                      ) : (
+                        '—'
+                      )}
+                    </td>
                     <td className="px-3 py-2.5 font-medium">{a.assignedTo?.name ?? '—'}</td>
                     <td className="px-3 py-2.5 text-muted-foreground">{desc}</td>
                   </tr>
