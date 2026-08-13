@@ -361,11 +361,19 @@ export default function CallingPage() {
   }, [queueLoaded, leads, session, setSession]);
 
   // ── Time-zone filter, then Contact Search ──
-  // Both are purely a view over the queue: they narrow what the list DISPLAYS
-  // and the counts on the type tabs, which describe that list. Neither touches
-  // `nextPending` or `current` below — those decide which lead the panel hands
-  // the rep and are what the call, the outcome and the status update are
-  // recorded against, so a display filter must not be able to move them.
+  //
+  // The two are NOT the same kind of filter, deliberately.
+  //
+  // The ZONE scopes the working queue. Picking EST means the agent is working
+  // Eastern for this sitting: the list shows Eastern, and Save & Next hands over
+  // the next Eastern lead. Calling runs in zone blocks — you ring the east coast
+  // while it is business hours there — so a filter that narrowed the list but
+  // then handed back a California lead on Next was fighting the way the work is
+  // actually done, and the agent had to notice and re-pick every single time.
+  //
+  // SEARCH stays a view. It answers "where is that Alvarez record" and must not
+  // redefine what the agent is working through — a term left in the box would
+  // otherwise silently become the queue.
   //
   // Applied with `filter`, in that order, so the server's queue ORDER survives
   // both: the rows that remain are in exactly the positions the server gave
@@ -383,9 +391,11 @@ export default function CallingPage() {
     if (queueFilter === 'all') return true;
     return getQueueItemType(q).type === queueFilter;
   });
-  // The next lead to work: first not-yet-done in ascending queue order. Read off
-  // the FULL queue, not the filtered view — see above.
-  const nextPending = queue.find((l) => !isDone(l));
+  // The next lead to work: first not-yet-done in ascending queue order, WITHIN
+  // the selected zone. Read off `zoneQueue` rather than the search/type view —
+  // those two stay display-only, so a typed search term can never decide which
+  // lead the panel hands over next.
+  const nextPending = zoneQueue.find((l) => !isDone(l));
 
   // User may call ANY record: an explicit selection wins, else the next pending
   // lead (top of the queue). Falls back to the first row if everything's done.
@@ -399,7 +409,12 @@ export default function CallingPage() {
     active?.lead ??
     (selectedId ? leads.find((l) => l.id === selectedId) ?? selectedLead : undefined) ??
     nextPending ??
-    queue[0];
+    // Last resort when everything in the zone is worked: the first row of the
+    // ZONE, not of the whole book — landing the agent on an out-of-zone lead is
+    // the thing the filter is there to prevent. A session or an explicit pick
+    // still wins above, so a lead already being worked is never pulled away by
+    // a zone change mid-write-up.
+    zoneQueue[0];
 
   /** Clear the write-up so the next lead arrives to empty fields. */
   function resetWriteUp() {
@@ -620,18 +635,37 @@ export default function CallingPage() {
    * only once the current one has been saved. Nothing calls it on a timer or off
    * the back of a refetch — the next lead arrives because the agent asked for
    * it, never on its own.
+   *
+   * The next lead comes from the SELECTED TIME ZONE, in the queue's own order.
+   * The filter is not touched here — it holds for the whole sitting, so an agent
+   * working Eastern stays in Eastern until they change it themselves.
    */
   function nextQueueLead() {
     if (!canNext) return;
     const doneId = session?.leadId;
-    // Ascending queue order, skipping the lead just finished. `isDone` already
-    // excludes it via `processed`; naming it as well means a refetch that hasn't
-    // landed yet can't hand the same lead straight back.
-    const next = queue.find((l) => !isDone(l) && l.id !== doneId);
+    // Ascending queue order within the zone, skipping the lead just finished.
+    // `isDone` already excludes it via `processed`; naming it as well means a
+    // refetch that hasn't landed yet can't hand the same lead straight back.
+    const next = zoneQueue.find((l) => !isDone(l) && l.id !== doneId);
     resetWriteUp();
     setSelectedId(next?.id ?? null);
     setSession(next ? { leadId: next.id, saved: false } : null);
-    if (!next) toast.success('Queue complete — every assigned lead has been worked.');
+    if (!next) {
+      // Two different endings, and conflating them is how an agent stops for the
+      // day with half their book unworked: a zone that is finished is not a
+      // queue that is finished. The zone message says which zone, and what to do
+      // about it — the filter is still set, and only they can change it.
+      if (tzFilter) {
+        const remaining = queue.filter((l) => !isDone(l) && l.id !== doneId).length;
+        toast.success(
+          remaining > 0
+            ? `No more leads available in this timezone (${tzFilter}). ${remaining} lead${remaining === 1 ? '' : 's'} left in other zones — change the Time Zone filter to carry on.`
+            : `No more leads available in this timezone (${tzFilter}).`,
+        );
+      } else {
+        toast.success('Queue complete — every assigned lead has been worked.');
+      }
+    }
   }
 
   // Picking an outcome or typing the first comment is starting work on the lead,
@@ -1036,7 +1070,10 @@ export default function CallingPage() {
                   {search.trim() && searchedQueue.length === 0
                     ? `No leads match “${search.trim()}”${tzFilter ? ` in ${tzFilter}` : ''}.`
                     : tzFilter && zoneQueue.length === 0
-                    ? 'No leads available for the selected time zone.'
+                    ? // Same wording as the Save & Next toast — the zone is what
+                      // the agent is working, so both places name it and say that
+                      // changing the filter is the way on.
+                      `No more leads available in this timezone (${tzFilter}). Change the Time Zone filter to carry on.`
                     : 'No items in this queue.'}
                 </p>
               )}
