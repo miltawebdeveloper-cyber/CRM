@@ -7,10 +7,11 @@ import { CommunicationsController } from './communications.controller';
 import { WebhooksController, QuoHookController } from './webhooks.controller';
 import { OpenPhoneModule } from '../openphone/openphone.module';
 import { LlmModule } from '../llm/llm.module';
-import { LeadIdModule } from '../leads/lead-id.module';
 
+// No LeadIdModule: nothing in here creates a lead any more. An unrecognised
+// caller is logged as an unknown call, not minted as a lead.
 @Module({
-  imports: [OpenPhoneModule, LlmModule, LeadIdModule],
+  imports: [OpenPhoneModule, LlmModule],
   controllers: [CommunicationsController, WebhooksController, QuoHookController],
   providers: [CommunicationsService, CallHistoryService, QuoSyncService, CallInsightsService],
   exports: [CommunicationsService, QuoSyncService, CallInsightsService],

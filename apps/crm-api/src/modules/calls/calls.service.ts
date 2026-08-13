@@ -197,6 +197,29 @@ export class CallsService {
     const durationSecs =
       dto.durationSecs ?? Math.max(0, Math.round((endTime.getTime() - call.startTime.getTime()) / 1000));
 
+    // An UNKNOWN call — an unrecognised number, so no lead. Everything a
+    // disposition normally does to the lead (status, closure credit, callback,
+    // follow-up sequence) has no subject here, so the outcome is recorded on the
+    // call and in the activity trail and nothing else is touched. The rep still
+    // gets to say what the call was, and Calls Made still shows it.
+    if (!call.leadId) {
+      const updated = await this.prisma.call.update({
+        where: { id: callId },
+        data: { endTime, durationSecs, outcome: dto.outcome, recordingUrl: dto.recordingUrl },
+      });
+      await this.prisma.activity.create({
+        data: {
+          leadId: null,
+          userId: callerId,
+          action: 'call_completed',
+          newValue: dto.outcome,
+          callStatus: dto.outcome,
+          remarks: `Call with ${call.externalNumber ?? 'an unknown number'} logged — no matching lead, so the outcome is recorded on the call only.`,
+        },
+      });
+      return updated;
+    }
+
     const [updated] = await this.applyDisposition(call.leadId, dto, callerId, 'call_completed', [
       this.prisma.call.update({
         where: { id: callId },
@@ -634,6 +657,12 @@ export class CallsService {
     const oc = await this.outcomesService.bySlug(dto.outcome);
     if (!oc) throw new BadRequestException('Unknown outcome');
 
+    // An unknown call has no lead to carry the correction through to, so the
+    // outcome is corrected on the call itself — the same place `end` put it.
+    if (!call.leadId) {
+      return this.prisma.call.update({ where: { id: callId }, data: { outcome: dto.outcome } });
+    }
+
     // An outcome that schedules a callback must end up with a date. Keep the one
     // already on the lead when the corrected outcome still schedules one and no
     // new date was given — re-picking "Call Back" shouldn't silently wipe the
@@ -762,6 +791,21 @@ export class CallsService {
     // Same rule `end` enforces: an employee writes up their own calls only.
     const isManager = user.role === Role.admin || user.role === Role.team_leader;
     if (!isManager && call.callerId !== user.id) throw new ForbiddenException('Not your call');
+
+    // A note belongs to a lead — a note row can't exist without one — so for an
+    // UNKNOWN call the write-up goes into the activity trail instead of being
+    // dropped. The agent's words about who rang and why are often the only record
+    // of it, and losing them silently would be the worst of both worlds.
+    if (!call.leadId) {
+      return this.prisma.activity.create({
+        data: {
+          leadId: null,
+          userId: user.id,
+          action: 'call_note',
+          remarks: dto.noteText,
+        },
+      });
+    }
     return this.writeNote(call.leadId, callId, dto, user.id);
   }
 
@@ -1273,8 +1317,15 @@ export class CallsService {
        *
        * Answered inbound calls stay. Those are real work: the rep spoke to a
        * customer, and it is only who dialled that differs.
+       *
+       * The exclusion is scoped to calls that HAVE a lead, because a missed call
+       * from an unknown number has nowhere else to go: Missed Calls works by
+       * opening the lead behind each row, so it lists lead-linked calls only.
+       * Unknown calls are listed here — the one module that can show a bare
+       * number and ring it back — and so they are counted here too, exactly
+       * once, which is what keeps these tiles describing their own table.
        */
-      NOT: MISSED_INBOUND_CALL,
+      NOT: { ...MISSED_INBOUND_CALL, leadId: { not: null } },
       // Filter on when the call happened, not when the row was written.
       ...(query.from || query.to
         ? {
@@ -1701,6 +1752,10 @@ export class CallsService {
         status: true,
         outcome: true,
         recordingUrl: true,
+        // The customer's own number. On a lead-linked call it simply repeats the
+        // lead's phone; on an UNKNOWN call it is the only identity there is, and
+        // it is what the row displays and what Call Back dials.
+        externalNumber: true,
         lead: {
           select: {
             id: true, leadId: true, businessName: true, contactName: true, phone: true, status: true,
@@ -1736,6 +1791,12 @@ export class CallsService {
       ...c,
       /** Distinguishes a dialled call from a lead worked without one. */
       kind: 'call' as const,
+      /**
+       * No lead behind this call: an unrecognised number rang in (or was rung
+       * back) and the CRM deliberately did not mint a lead for it. The row shows
+       * "Unknown Call" and the number, and offers Call Back instead of a lead link.
+       */
+      unknown: !c.lead,
       // Whether a recording EXISTS is safe for anyone who can see the call, and is
       // what the export reports. The signed provider URL stays manager-only —
       // employees play their own recordings through the permission-checked proxy.
@@ -1749,6 +1810,10 @@ export class CallsService {
       // must not be offered on a row that has no call behind it.
       id: `processed:${a.id}`,
       kind: 'processed' as const,
+      // Always a lead: `processedWhere` requires one (these rows ARE leads worked
+      // from the queue). Present so both row shapes carry the same fields.
+      unknown: false,
+      externalNumber: a.lead?.phone ?? null,
       startTime: a.createdAt,
       endTime: a.createdAt,
       // How long the agent spent working the lead in the queue. Null for rows
@@ -1824,14 +1889,16 @@ export class CallsService {
     });
 
     // Most recent call per lead made today, to derive each lead's call state.
+    // Unknown calls are excluded at the query: with no lead they can't describe
+    // the state of one, and this map is keyed by lead id.
     const calls = await this.prisma.call.findMany({
-      where: { callerId, startTime: { gte: startOfDay, lte: endOfToday } },
+      where: { callerId, leadId: { not: null }, startTime: { gte: startOfDay, lte: endOfToday } },
       orderBy: { startTime: 'desc' },
       select: { leadId: true, startTime: true, endTime: true, outcome: true },
     });
     const latestByLead = new Map<string, { startTime: Date; endTime: Date | null; outcome: string | null }>();
     for (const c of calls) {
-      if (!latestByLead.has(c.leadId)) latestByLead.set(c.leadId, c);
+      if (c.leadId && !latestByLead.has(c.leadId)) latestByLead.set(c.leadId, c);
     }
 
     // Leads this rep has already saved today. Without this the panel only knew a

@@ -1,10 +1,9 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import * as crypto from 'crypto';
-import { CommDirection, LeadStatus, Prisma } from '@crm/database';
+import { CommDirection, Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MISSED_INBOUND_STATUSES, isMissedInbound } from '../calls/call-status';
 import { OpenPhoneService } from '../openphone/openphone.service';
-import { LeadIdService } from '../leads/lead-id.service';
 import { CallInsightsService } from './call-insights.service';
 
 type Json = Record<string, unknown>;
@@ -121,11 +120,13 @@ export class CommunicationsService {
     };
   }
 
+  // No LeadIdService here any more: this service no longer mints leads. Numbering
+  // a new lead is the New Lead form's and the importer's job — nothing an inbound
+  // call, an SMS or a Quo contact does creates one.
   constructor(
     private readonly prisma: PrismaService,
     private readonly openphone: OpenPhoneService,
     private readonly insights: CallInsightsService,
-    private readonly leadIds: LeadIdService,
   ) {}
 
   // ── Calling on/off (temporary lead-processing mode) ──
@@ -320,15 +321,21 @@ export class CommunicationsService {
    *  2. The agent who last called this customer, so a returning caller reaches the
    *     person who was working them (and a missed call lands with that person).
    *  3. The lead's assignee, then an admin.
+   *
+   * `leadId` is null for an unknown caller. Step 2 is skipped for those — there is
+   * no lead to have worked — so an unknown call routes on the line that rang, and
+   * failing that to an admin, who is the one person guaranteed to be able to see it.
    */
-  private async resolveInboundOwner(leadId: string, assignedToId: string | null, toNumber?: string | null): Promise<string> {
+  private async resolveInboundOwner(leadId: string | null, assignedToId: string | null, toNumber?: string | null): Promise<string> {
     const dialed = await this.userByLine(toNumber);
     if (dialed) return dialed;
-    const lastOutbound = await this.prisma.call.findFirst({
-      where: { leadId, direction: CommDirection.outbound },
-      orderBy: { startTime: 'desc' },
-      select: { callerId: true },
-    });
+    const lastOutbound = leadId
+      ? await this.prisma.call.findFirst({
+          where: { leadId, direction: CommDirection.outbound },
+          orderBy: { startTime: 'desc' },
+          select: { callerId: true },
+        })
+      : null;
     return lastOutbound?.callerId ?? (await this.resolveCallerId(assignedToId));
   }
 
@@ -348,36 +355,24 @@ export class CommunicationsService {
   }
 
   /**
-   * Find a lead by phone (last 10 digits) or create a minimal one.
+   * The lead a phone number belongs to, matched on the last 10 digits — or null.
    *
-   * A lead minted here is a real lead — someone rang a company line and nobody
-   * in the CRM knew the number — so it is numbered by the same rule as one typed
-   * into the New Lead form or loaded from a sheet. It used to get
-   * `L-${Date.now().toString(36)}`, i.e. `L-M8XK2P9`: unique, but a different
-   * format, out of sequence, and unsortable against every other lead. The
-   * queue orders by Lead ID by parsing the prefix and the trailing number, so
-   * those rows sorted arbitrarily wherever they landed.
+   * NEVER creates one. An unrecognised number ringing a workspace line used to
+   * mint a minimal "Unknown caller" lead so the call had somewhere to hang, which
+   * meant every wrong number, robocall and personal call arrived in Lead
+   * Management → New Lead as a lead to work. Nobody asked for those, they can't
+   * be told apart from real ones at a glance, and a second call from the same
+   * number would find the junk lead and pile history onto it.
+   *
+   * So the CRM records the call and leaves Lead Management alone: a call with no
+   * lead is an UNKNOWN CALL, listed in Calls Made against the caller's own number
+   * with a Call Back button. Leads are created by people — the New Lead form and
+   * the importer — not by whoever happens to dial in.
    */
-  private async findOrCreateLeadByPhone(phone: string) {
+  private async findLeadByPhone(phone: string) {
     const last10 = digits(phone).slice(-10);
-    const existing = last10
-      ? await this.prisma.lead.findFirst({ where: { deletedAt: null, phone: { contains: last10 } } })
-      : null;
-    if (existing) return existing;
-
-    const lead = await this.leadIds.create((leadId) => ({
-      leadId,
-      businessName: 'Unknown caller',
-      phone,
-      state: 'Unknown',
-      city: 'Unknown',
-      // State and city are 'Unknown' here, so the zone is genuinely unknown
-      // too — claiming EST would be a guess the callback scheduler then treats
-      // as fact. Left null; the rep is asked for a zone when they book.
-      status: LeadStatus.new,
-    }));
-    this.logger.log(`Created lead ${lead.leadId} from unknown caller ${phone}`);
-    return lead;
+    if (!last10) return null;
+    return this.prisma.lead.findFirst({ where: { deletedAt: null, phone: { contains: last10 } } });
   }
 
   /**
@@ -470,7 +465,11 @@ export class CommunicationsService {
     const external = direction === CommDirection.inbound ? from : to;
     if (!external) return { ignored: 'no phone' };
 
-    const lead = await this.findOrCreateLeadByPhone(external);
+    // May be null — a text from a number nobody holds is filed as a message with
+    // no lead, for the same reason an unknown CALL gets no lead. Letting SMS mint
+    // one would reopen the hole from the other side: the junk lead would exist by
+    // the time that number rang, and the call would link straight to it.
+    const lead = await this.findLeadByPhone(external);
     const quoMessageId = str(o.id);
     const status = str(o.status) ?? (type === 'message.received' ? 'received' : 'sent');
     // OpenPhone sends the text as `text`; `body` is our own column name.
@@ -485,15 +484,15 @@ export class CommunicationsService {
       // so a later event for the same id repairs it instead of leaving it broken.
       await this.prisma.message.update({
         where: { id: existing.id },
-        data: { status, direction, leadId: lead.id, ...(body ? { body } : {}) },
+        data: { status, direction, leadId: lead?.id ?? null, ...(body ? { body } : {}) },
       });
     } else {
       await this.prisma.message.create({
-        data: { leadId: lead.id, direction, body, fromNumber: from, toNumber: to, status, quoMessageId, conversationId: str(o.conversationId) },
+        data: { leadId: lead?.id ?? null, direction, body, fromNumber: from, toNumber: to, status, quoMessageId, conversationId: str(o.conversationId) },
       });
     }
-    await this.touchLead(lead.id);
-    return { ok: true, leadId: lead.id };
+    if (lead) await this.touchLead(lead.id);
+    return { ok: true, leadId: lead?.id ?? null };
   }
 
   // ── Calls ──
@@ -560,7 +559,7 @@ export class CommunicationsService {
         },
       });
       await this.linkRecording(existing.id, rec, durationSecs);
-      await this.touchLead(existing.leadId);
+      if (existing.leadId) await this.touchLead(existing.leadId);
       // Log the completion to the Activity Log exactly once — when the call first
       // reaches a final state (same guard as stamping endTime above).
       if (isFinal && !existing.endTime) {
@@ -585,15 +584,20 @@ export class CommunicationsService {
       return { ignored: 'no phone' };
     }
 
-    const lead = await this.findOrCreateLeadByPhone(external);
+    // Null when the number matches no lead — an UNKNOWN CALL. The call is still
+    // recorded in full; what it doesn't get is a lead, so Lead Management stays
+    // the list of leads somebody decided to work. It surfaces in Calls Made
+    // against `external`, where it can be called back.
+    const lead = await this.findLeadByPhone(external);
+    if (!lead) this.logger.log(`Unknown ${direction} call from ${external} — logged without a lead`);
     // Inbound calls belong to the agent whose Quo line was dialled (falling back
     // to whoever last worked the customer); outbound falls back to the assignee.
     // This is what makes the incoming-call popup reach one agent instead of the
     // whole floor.
     const callerId =
       direction === CommDirection.inbound
-        ? await this.resolveInboundOwner(lead.id, lead.assignedToId, to)
-        : ((await this.userByLine(from)) ?? (await this.resolveCallerId(lead.assignedToId)));
+        ? await this.resolveInboundOwner(lead?.id ?? null, lead?.assignedToId ?? null, to)
+        : ((await this.userByLine(from)) ?? (await this.resolveCallerId(lead?.assignedToId ?? null)));
     const startTime = o.createdAt ? new Date(o.createdAt as string) : new Date();
     // For an outbound call the provider's `from` is the line it went out on — that's
     // the caller identity. Inbound `from` is the customer, so it isn't our identity.
@@ -603,7 +607,7 @@ export class CommunicationsService {
     // that same call coming back from Quo. Adopting it keeps ONE record — the
     // agent's outcome and notes on the same row as the provider's duration and
     // recording — instead of the duplicate pair this used to leave behind.
-    const adopted = await this.adoptPendingOutboundCall(lead.id, direction, startTime, quoCallId);
+    const adopted = await this.adoptPendingOutboundCall(lead?.id ?? null, external, direction, startTime, quoCallId);
     if (adopted) {
       await this.prisma.call.update({
         where: { id: adopted.id },
@@ -623,9 +627,9 @@ export class CommunicationsService {
         },
       });
       await this.linkRecording(adopted.id, rec, durationSecs);
-      await this.touchLead(lead.id);
+      if (lead) await this.touchLead(lead.id);
       if (isFinal && !adopted.endTime) {
-        await this.logCallCompleted(lead.id, adopted.callerId, direction, status, durationSecs);
+        await this.logCallCompleted(lead?.id ?? null, adopted.callerId, direction, status, durationSecs);
       }
       return { ok: true, callId: adopted.id, adopted: true as const };
     }
@@ -634,7 +638,12 @@ export class CommunicationsService {
     try {
       created = await this.prisma.call.create({
         data: {
-          leadId: lead.id, callerId, direction, status, durationSecs, fromNumber,
+          leadId: lead?.id ?? null,
+          // The customer's number, stamped on every provider-seen call — and the
+          // ONLY identity an unknown call has, since there is no lead to read a
+          // phone number off. Calls Made lists and calls back on this.
+          externalNumber: external,
+          callerId, direction, status, durationSecs, fromNumber,
           recordingUrl: rec.url ?? undefined, transcript: transcript ?? undefined, aiSummary: aiSummary ?? undefined,
           quoCallId, conversationId: str(o.conversationId),
           startTime,
@@ -655,12 +664,12 @@ export class CommunicationsService {
       throw err;
     }
     await this.linkRecording(created.id, rec, durationSecs);
-    await this.touchLead(lead.id);
+    if (lead) await this.touchLead(lead.id);
 
     // A provider event that already carries a final state (e.g. call.completed for
     // a call we never saw ring) → log the completion to the Activity Log.
     if (isFinal) {
-      await this.logCallCompleted(lead.id, callerId, direction, status, durationSecs);
+      await this.logCallCompleted(lead?.id ?? null, callerId, direction, status, durationSecs);
     }
 
     // Workflow: missed inbound call → follow-up task for the owner.
@@ -672,8 +681,11 @@ export class CommunicationsService {
     // zero-length inbound call, which caught answered-but-brief ones too.
     const missed = isMissedInbound(direction, status);
     if (missed) {
+      // An unknown caller has no name to put in the task — the number IS the
+      // identity, and it's what the agent rings back.
+      const who = lead ? `${lead.businessName} (${external})` : `an unknown number (${external})`;
       await this.prisma.task.create({
-        data: { title: `Follow up: missed call from ${lead.businessName} (${external})`, ownerId: callerId, priority: 'high' },
+        data: { title: `Follow up: missed call from ${who}`, ownerId: callerId, priority: 'high' },
       });
     }
     return { ok: true, callId: created.id, missed };
@@ -688,23 +700,33 @@ export class CommunicationsService {
    * That is what doubled call counts, split the recording away from the agent's
    * outcome, and made the Calls Made figures untrustworthy.
    *
-   * Match conservatively: same lead, outbound, never linked to a provider call,
-   * and started within a couple of hours of the provider's own start time. Most
-   * recent first, so back-to-back attempts adopt the right one. Inbound is
+   * Match conservatively: same customer, outbound, never linked to a provider
+   * call, and started within a couple of hours of the provider's own start time.
+   * Most recent first, so back-to-back attempts adopt the right one. Inbound is
    * excluded — those rows only ever originate from the provider, so there is
    * nothing to adopt and a wrong match would misroute the popup.
+   *
+   * "Same customer" is the lead when there is one, and the dialled NUMBER when
+   * there isn't: a call back to an unknown caller has no lead to match on, and
+   * without the number it would have left the same duplicate pair behind that
+   * this method exists to prevent.
    */
   private async adoptPendingOutboundCall(
-    leadId: string,
+    leadId: string | null,
+    externalNumber: string,
     direction: CommDirection,
     providerStart: Date,
     quoCallId: string | undefined,
   ) {
     if (direction !== CommDirection.outbound || !quoCallId) return null;
+    const last10 = digits(externalNumber).slice(-10);
+    // Nothing to match on: no lead, and a number too short to identify anyone.
+    // Better a second row than one bolted onto somebody else's call.
+    if (!leadId && last10.length < 10) return null;
     const WINDOW_MS = 2 * 60 * 60 * 1000;
     return this.prisma.call.findFirst({
       where: {
-        leadId,
+        ...(leadId ? { leadId } : { leadId: null, externalNumber: { contains: last10 } }),
         direction: CommDirection.outbound,
         quoCallId: null,
         startTime: {
@@ -723,7 +745,7 @@ export class CommunicationsService {
    * duration, status) alongside the synced recording, summary and transcript.
    */
   private async logCallCompleted(
-    leadId: string,
+    leadId: string | null,
     userId: string,
     direction: CommDirection | null,
     status: string,
@@ -734,11 +756,13 @@ export class CommunicationsService {
     const dirLabel = direction === CommDirection.inbound ? 'Inbound' : 'Outbound';
     await this.prisma.activity.create({
       data: {
+        // Null for an unknown call: there is no lead timeline to write to, but the
+        // completion still belongs in the activity trail.
         leadId,
         userId,
         action: 'call_completed',
         newValue: status || 'completed',
-        remarks: `${dirLabel} call completed via Quo — ${dur} (${status || 'completed'}).`,
+        remarks: `${dirLabel} call completed via Quo — ${dur} (${status || 'completed'})${leadId ? '' : ' — unknown caller, no lead'}.`,
       },
     });
   }
@@ -748,7 +772,11 @@ export class CommunicationsService {
     const phones = Array.isArray(o.phoneNumbers) ? o.phoneNumbers : [];
     const phone = str(o.phoneNumber) ?? str((phones[0] as Json)?.value) ?? str(phones[0]);
     if (!phone) return { ignored: 'no phone' };
-    const lead = await this.findOrCreateLeadByPhone(phone);
+    // Links a Quo contact to the lead we already have; it never creates one.
+    // Saving a number in the Quo address book is not a decision to work it as a
+    // lead — an employee's dentist would have become a row in Lead Management.
+    const lead = await this.findLeadByPhone(phone);
+    if (!lead) return { ignored: 'no matching lead' };
     await this.prisma.lead.update({ where: { id: lead.id }, data: { quoContactId: str(o.id) } });
     return { ok: true, leadId: lead.id };
   }
@@ -812,6 +840,7 @@ export class CommunicationsService {
     const call = await this.prisma.call.create({
       data: {
         leadId: lead.id,
+        externalNumber: lead.phone,
         callerId,
         direction: CommDirection.outbound,
         status: 'initiated',
@@ -870,30 +899,73 @@ export class CommunicationsService {
   }
 
   // ── Outbound: dial-pad call to an arbitrary number ──
-  /** Place a call to a typed number: resolve (or create) the lead, then dial. */
+  /**
+   * Place a call to a typed number — the dial pad, and the Call Back button on an
+   * unknown call in Calls Made.
+   *
+   * If the number belongs to a lead, this IS a call to that lead and is logged
+   * against it. If it doesn't, the call is logged with no lead. Typing a number
+   * into the pad is not a decision to add someone to the lead book, and ringing
+   * an unknown caller back must not create the very lead the inbound call
+   * deliberately refused to create.
+   */
   async startCallByPhone(phone: string, callerId: string) {
     await this.assertCallingEnabled();
     const trimmed = phone?.trim();
     if (!trimmed || digits(trimmed).length < 3) throw new BadRequestException('A valid phone number is required');
-    // Validate the caller's identity before resolving the lead, so a rejected call
-    // (no assigned caller ID) never leaves a stray "Unknown caller" lead behind.
-    await this.resolveCallerIdentity(callerId);
-    const lead = await this.findOrCreateLeadByPhone(trimmed);
-    const result = await this.startCall(lead.id, callerId);
-    return {
-      ...result,
-      // `timezone` so the widget's wrap-up callback picker can book on the
-      // customer's clock. A lead reached by typing a number is often the
-      // auto-created "Unknown caller", which has no zone at all — the picker
-      // asks for one rather than silently booking against Eastern.
-      lead: {
-        id: lead.id,
-        businessName: lead.businessName,
-        phone: lead.phone,
-        city: lead.city,
-        state: lead.state,
-        timezone: lead.timezone,
+    // Validate the caller's identity before anything is written, so a rejected
+    // call (no assigned caller ID) leaves no half-logged call behind.
+    const { name, fromNumber } = await this.resolveCallerIdentity(callerId);
+
+    const lead = await this.findLeadByPhone(trimmed);
+    if (lead) {
+      const result = await this.startCall(lead.id, callerId);
+      return {
+        ...result,
+        // `timezone` so the widget's wrap-up callback picker can book on the
+        // customer's clock — a lead with no zone makes the picker ask for one
+        // rather than silently booking against Eastern.
+        lead: {
+          id: lead.id,
+          businessName: lead.businessName,
+          phone: lead.phone,
+          city: lead.city,
+          state: lead.state,
+          timezone: lead.timezone,
+        },
+      };
+    }
+
+    // No lead behind this number: log the call on its own. Same identity rules,
+    // same live monitoring, same deep link — it just has no record to hang off,
+    // so the widget wraps it up as an outcome on the call itself.
+    const call = await this.prisma.call.create({
+      data: {
+        leadId: null,
+        externalNumber: trimmed,
+        callerId,
+        direction: CommDirection.outbound,
+        status: 'initiated',
+        startTime: new Date(),
+        fromNumber,
       },
+    });
+    await this.prisma.activity.create({
+      data: {
+        leadId: null,
+        userId: callerId,
+        action: 'call_started',
+        newValue: 'initiated',
+        remarks: `Outbound call to ${trimmed} (no matching lead) as ${name} (${fromNumber}) via the Quo app`,
+      },
+    });
+    return {
+      callId: call.id,
+      dialUrl: quoDialUrl(trimmed, fromNumber),
+      phone: trimmed,
+      from: fromNumber,
+      callerName: name,
+      lead: null,
     };
   }
 
@@ -952,7 +1024,13 @@ export class CommunicationsService {
       endedAt: call.endTime,
       durationSecs: Math.max(0, durationSecs),
       recordingUrl: canViewRecordings ? call.recordingUrl : null,
+      // Null on an unknown call — the widget shows the number and wraps up
+      // against the call itself rather than against a lead.
       lead: call.lead,
+      // The customer on this call, whether or not they're a lead. The widget
+      // needs a number to display and to re-open in Quo, and an unknown call
+      // has no lead to read one off.
+      phone: call.externalNumber ?? call.lead?.phone ?? null,
       by: call.caller?.name ?? null,
       // The line this call is going out on — the caller identity the customer sees.
       from: call.fromNumber,
@@ -1061,11 +1139,11 @@ export class CommunicationsService {
     // and whether this customer had a callback pending — so the handler answers
     // knowing who's calling back and why.
     let lastOutcome: string | null = null;
-    if (call.lead.callStatus) {
+    if (call.lead?.callStatus) {
       const oc = await this.prisma.outcome.findUnique({ where: { slug: call.lead.callStatus }, select: { name: true } });
       lastOutcome = oc?.name ?? call.lead.callStatus;
     }
-    const pendingCallback = !!call.lead.callbackAt && !call.lead.callbackCompletedAt;
+    const pendingCallback = !!call.lead?.callbackAt && !call.lead.callbackCompletedAt;
     return {
       callId: call.id,
       at: call.startTime,
@@ -1077,16 +1155,24 @@ export class CommunicationsService {
       handledById: call.callerId,
       lastOutcome,
       pendingCallback,
-      lead: {
-        id: call.lead.id,
-        businessName: call.lead.businessName,
-        // Contact person at the company — the "customer name" shown on the popup.
-        contactName: call.lead.contactName,
-        phone: call.lead.phone,
-        city: call.lead.city,
-        state: call.lead.state,
-        status: call.lead.status,
-      },
+      // The number that is ringing, lead or not. An unknown caller has nothing
+      // else to show, so the popup leads with this rather than with a name the
+      // CRM would have to invent.
+      phone: call.externalNumber ?? call.lead?.phone ?? '',
+      /** No lead behind this call — the popup says "Unknown caller" and offers no lead link. */
+      unknown: !call.lead,
+      lead: call.lead
+        ? {
+            id: call.lead.id,
+            businessName: call.lead.businessName,
+            // Contact person at the company — the "customer name" shown on the popup.
+            contactName: call.lead.contactName,
+            phone: call.lead.phone,
+            city: call.lead.city,
+            state: call.lead.state,
+            status: call.lead.status,
+          }
+        : null,
     };
   }
 
@@ -1101,6 +1187,12 @@ export class CommunicationsService {
     const where: Prisma.CallWhereInput = {
       direction: CommDirection.inbound,
       status: { in: MISSED_INBOUND_STATUSES },
+      // Leads only. A missed call from an UNKNOWN number has no lead to link to,
+      // and every row here is worked by opening the lead behind it — so those
+      // belong in Calls Made, which lists them against the caller's number and
+      // gives them a Call Back button. Keeping them out of both would lose them;
+      // listing them in both would show the same unanswered call twice.
+      leadId: { not: null },
     };
     // Employees see only calls routed to them. Managers see the team's.
     if (role === 'employee') where.callerId = userId;
@@ -1115,7 +1207,9 @@ export class CommunicationsService {
       orderBy: { startTime: 'desc' },
       take: limit,
     });
-    return calls.map((c) => ({
+    // `lead` is guaranteed by the WHERE above; the filter narrows the type without
+    // an assertion, and would drop a row rather than emit one with a blank lead.
+    return calls.flatMap((c) => (c.lead ? [{
       id: c.id,
       at: c.startTime,
       leadId: c.lead.id,
@@ -1132,7 +1226,7 @@ export class CommunicationsService {
       status: c.status ?? 'missed',
       assignedTo: c.caller?.name ?? null,
       assignedToId: c.callerId,
-    }));
+    }] : []));
   }
 
   // ── Communication analytics ──

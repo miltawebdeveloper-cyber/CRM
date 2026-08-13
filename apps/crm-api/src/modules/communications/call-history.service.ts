@@ -91,10 +91,12 @@ export class CallHistoryService {
 
     return calls.map((c) => ({
       callId: c.id,
-      leadId: c.lead.id,
-      customerName: c.lead.contactName || c.lead.businessName,
-      businessName: c.lead.businessName,
-      phone: c.lead.phone,
+      // Null on an unknown call — recorded, playable, and simply not attached to
+      // anybody's lead. The tab shows the number instead of a name.
+      leadId: c.lead?.id ?? null,
+      customerName: c.lead?.contactName || c.lead?.businessName || 'Unknown caller',
+      businessName: c.lead?.businessName ?? null,
+      phone: c.lead?.phone ?? c.externalNumber ?? '',
       at: c.startTime,
       direction: c.direction,
       status: c.status,
@@ -245,7 +247,11 @@ export class CallHistoryService {
     rec: Prisma.CallRecordingGetPayload<{ include: { call: { include: { lead: { select: { businessName: true; phone: true } } } } } }>,
   ): Promise<{ body: Buffer; mimeType: string; filename: string }> {
     const stamp = (rec.startTime ?? rec.call.startTime).toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    const safeName = (rec.call.lead.businessName || 'recording').replace(/[^\w.-]+/g, '_').slice(0, 40);
+    // An unknown call has no business name to file the download under, so it is
+    // named after the number that rang — still identifiable, still unique.
+    const safeName = (rec.call.lead?.businessName || rec.call.externalNumber || 'recording')
+      .replace(/[^\w.-]+/g, '_')
+      .slice(0, 40);
 
     if (rec.url.startsWith('sandbox://')) {
       const secs = Number(new URL(rec.url).searchParams.get('d') ?? 10);

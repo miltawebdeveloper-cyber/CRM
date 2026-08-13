@@ -392,6 +392,14 @@ export interface CallRecord {
   recordingUrl: string | null;
   /** Whether a recording exists. Safe for any viewer, and what the export reports. */
   hasRecording: boolean;
+  /**
+   * An UNKNOWN CALL: the number matched no lead or contact, so the CRM logged the
+   * call without creating a lead for it. `lead` is null and `externalNumber` is
+   * the only identity the row has — it is what's displayed and what Call Back dials.
+   */
+  unknown: boolean;
+  /** The customer's number on this call. Present on every row that had one. */
+  externalNumber: string | null;
   lead: {
     id: string; leadId: string; businessName: string; contactName: string | null; phone: string; status: string;
     timezone: string | null; state: string; city: string; callStatus: string | null; assignedToId: string | null;
@@ -788,7 +796,10 @@ export interface CallState {
   endedAt: string | null;
   durationSecs: number;
   recordingUrl: string | null;
-  lead: { id: string; businessName: string; phone: string; city: string; state: string; timezone?: string | null };
+  /** Null on an unknown call — there is no lead, only the number in `phone`. */
+  lead: { id: string; businessName: string; phone: string; city: string; state: string; timezone?: string | null } | null;
+  /** The customer's number, lead or not — what the widget shows and re-dials. */
+  phone: string | null;
   by: string | null;
   /** Caller identity (OpenPhone line) the call is going out on. */
   from?: string | null;
@@ -811,6 +822,13 @@ export const communicationsApi = {
   },
   startCall: async (leadId: string): Promise<StartCallResult> =>
     (await api.post(`/communications/lead/${leadId}/call`, {})).data,
+  /**
+   * Call a typed number (dial pad, or Call Back on an unknown call).
+   *
+   * `lead` is null when the number matches no lead: the call is logged and
+   * monitored exactly the same way, it just doesn't belong to a record — and
+   * ringing an unknown caller back deliberately does NOT create one.
+   */
   startCallByPhone: async (phone: string): Promise<StartCallResult & { lead: CallState['lead'] }> =>
     (await api.post(`/communications/call`, { phone })).data,
   callState: async (callId: string): Promise<CallState> =>
@@ -893,9 +911,10 @@ export interface RecordingSegment {
 
 export interface RecordedCall {
   callId: string;
-  leadId: string;
+  /** Null for a recorded call from an unknown number — there is no lead to open. */
+  leadId: string | null;
   customerName: string;
-  businessName: string;
+  businessName: string | null;
   phone: string;
   at: string;
   direction: 'inbound' | 'outbound' | null;
@@ -1008,7 +1027,11 @@ export interface IncomingCall {
   lastOutcome: string | null;
   /** True when this customer had a callback pending (called back before it was due). */
   pendingCallback: boolean;
-  lead: { id: string; businessName: string; contactName: string | null; phone: string; city: string; state: string; status: string };
+  /** The ringing number, whether or not it belongs to a lead. */
+  phone: string;
+  /** No lead behind the call — the popup shows the number as an unknown caller. */
+  unknown: boolean;
+  lead: { id: string; businessName: string; contactName: string | null; phone: string; city: string; state: string; status: string } | null;
 }
 export interface CommAnalytics {
   period: string;

@@ -10,6 +10,18 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const digits = (v: string) => v.replace(/\D/g, '');
 const last10 = (v?: string | null) => (v ? digits(v).slice(-10) : '');
 
+/**
+ * What to call the other party on a call.
+ *
+ * A call from an unknown number has no lead, so there is no name to use: the
+ * number itself is the identity, and the transcript labels and summary say so
+ * rather than calling every unknown caller "Customer" and losing which one it was.
+ */
+const customerLabel = (call: {
+  lead: { businessName: string; contactName: string | null } | null;
+  externalNumber: string | null;
+}) => call.lead?.contactName || call.lead?.businessName || call.externalNumber || 'Customer';
+
 /** One speaker turn in the rendered transcript. */
 export interface TranscriptTurn {
   speaker: 'employee' | 'customer';
@@ -213,19 +225,20 @@ export class CallInsightsService {
     quoCallId: string | null;
     direction: CommDirection | null;
     fromNumber: string | null;
+    externalNumber: string | null;
     caller: { name: string } | null;
-    lead: { businessName: string; contactName: string | null; phone: string };
+    lead: { businessName: string; contactName: string | null; phone: string } | null;
     recordings: { id: string }[];
   }): Promise<{ turns: TranscriptTurn[]; source: string } | null> {
     const employeeName = call.caller?.name || 'Employee';
-    const customerName = call.lead.contactName || call.lead.businessName || 'Customer';
+    const customerName = customerLabel(call);
 
     // 1) Provider transcript. Sandbox synthesises one for any id; live mode needs
     //    the provider's own call id to look one up.
     if (this.openphone.isSandbox || call.quoCallId) {
       const res = await this.openphone.getCallTranscript(call.quoCallId ?? call.id);
       if (res.success && res.data?.dialogue?.length) {
-        const customer10 = last10(call.lead.phone);
+        const customer10 = last10(call.lead?.phone ?? call.externalNumber);
         const employee10 = last10(call.fromNumber);
         const turns: TranscriptTurn[] = res.data.dialogue
           .filter((d) => (d.content ?? '').trim())
@@ -320,7 +333,12 @@ export class CallInsightsService {
    * so an insight is always available.
    */
   private async buildSummary(
-    call: { direction: CommDirection | null; caller: { name: string } | null; lead: { businessName: string; contactName: string | null } },
+    call: {
+      direction: CommDirection | null;
+      caller: { name: string } | null;
+      lead: { businessName: string; contactName: string | null } | null;
+      externalNumber: string | null;
+    },
     turns: TranscriptTurn[],
   ): Promise<{ summary: CallSummary; model: string; error: string | null }> {
     const plain = turns.map((t) => `${this.label(t)}: ${t.text}`).join('\n');
@@ -343,7 +361,7 @@ export class CallInsightsService {
       '"decisions" (string[]), "followUps" (string[]), "outcome" (string), "nextSteps" (string[]). ' +
       'Use an empty array for any list section with no content.';
     const user =
-      `Call context: customer = ${call.lead.contactName || call.lead.businessName}; ` +
+      `Call context: customer = ${customerLabel(call)}; ` +
       `direction = ${call.direction ?? 'unknown'}; employee = ${call.caller?.name ?? 'unknown'}.\n\n` +
       `Transcript:\n${plain}\n\nSummarise this call into the required structured fields.`;
 
@@ -391,7 +409,11 @@ export class CallInsightsService {
    * fully demonstrable in sandbox/dev without a key.
    */
   private heuristicSummary(
-    call: { caller: { name: string } | null; lead: { businessName: string; contactName: string | null } },
+    call: {
+      caller: { name: string } | null;
+      lead: { businessName: string; contactName: string | null } | null;
+      externalNumber: string | null;
+    },
     turns: TranscriptTurn[],
   ): CallSummary {
     const employee = turns.filter((t) => t.speaker === 'employee');
@@ -399,7 +421,7 @@ export class CallInsightsService {
     const has = (t: string, words: string[]) => words.some((w) => t.toLowerCase().includes(w));
     const trim = (t: string) => t.replace(/\s+/g, ' ').trim();
     const uniq = (a: string[]) => Array.from(new Set(a));
-    const who = call.lead.contactName || call.lead.businessName;
+    const who = customerLabel(call);
 
     const questionsAsked = customer.filter((t) => t.text.includes('?')).map((t) => trim(t.text));
     // The employee turn right after each customer question is the response to it.

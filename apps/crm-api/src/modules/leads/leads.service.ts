@@ -282,9 +282,14 @@ export class LeadsService {
   /**
    * Create a lead with the next id in the `L-YYYY-N` sequence.
    *
-   * Generation itself lives in LeadIdService, shared with every other module
-   * that can bring a lead into the CRM, so a lead created here and one created
-   * from an unrecognised inbound caller are numbered by the same rule.
+   * Generation itself lives in LeadIdService, so a lead typed into the New Lead
+   * form and one loaded from a sheet are numbered by the same rule.
+   *
+   * This is now the ONLY way a lead comes into existence. Inbound calls, SMS and
+   * Quo contacts used to mint one for any number the CRM didn't recognise; they
+   * no longer do, because that filled Lead Management with wrong numbers and
+   * robocalls. An unrecognised caller is recorded as an unknown call instead —
+   * see CommunicationsService.findLeadByPhone.
    */
   private createLead(buildData: (leadId: string) => Prisma.LeadCreateInput, explicitLeadId?: string) {
     return this.leadIds.create(buildData, explicitLeadId);

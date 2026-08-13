@@ -25,6 +25,20 @@ export interface CallLead {
   timezone?: string | null;
 }
 
+/**
+ * The other party on the call the widget is showing.
+ *
+ * A call to a number that matches no lead — the dial pad, or Call Back on an
+ * unknown incoming call — has no lead at all, and is deliberately not given one.
+ * So the widget works from the number, and `lead` is simply absent: the wrap-up
+ * then records an outcome against the call rather than dispositioning a record
+ * that doesn't exist.
+ */
+interface CallSubject {
+  phone: string;
+  lead: CallLead | null;
+}
+
 /** The caller identity the customer sees — the agent's own name + assigned line. */
 interface CallIdentity {
   callerName?: string;
@@ -60,7 +74,7 @@ const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '
 
 export function CallProvider({ children }: { children: ReactNode }) {
   const qc = useQueryClient();
-  const [active, setActive] = useState<{ callId: string; lead: CallLead; identity?: CallIdentity } | null>(null);
+  const [active, setActive] = useState<{ callId: string; subject: CallSubject; identity?: CallIdentity } | null>(null);
   const [ending, setEnding] = useState(false);
   const [finalDuration, setFinalDuration] = useState(0);
   const [outcome, setOutcome] = useState<string | null>(null);
@@ -75,7 +89,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const place = useMutation({
     mutationFn: (lead: CallLead) => communicationsApi.startCall(lead.id),
     onSuccess: (res, lead) => {
-      setActive({ callId: res.callId, lead, identity: { callerName: res.callerName, from: res.from } });
+      setActive({ callId: res.callId, subject: { phone: lead.phone, lead }, identity: { callerName: res.callerName, from: res.from } });
       setEnding(false);
       // The Quo app is launched at the click site, not here: a custom scheme
       // handed over from an async callback is dropped by the browser. This
@@ -93,7 +107,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const placeByNumber = useMutation({
     mutationFn: (phone: string) => communicationsApi.startCallByPhone(phone),
     onSuccess: (res) => {
-      setActive({ callId: res.callId, lead: res.lead, identity: { callerName: res.callerName, from: res.from } });
+      // `res.lead` is null when the number belongs to no lead — an unknown
+      // caller being rung back, or a number typed into the pad. The widget runs
+      // on the number in that case; nothing here mints a lead to fill the gap.
+      setActive({
+        callId: res.callId,
+        subject: { phone: res.phone, lead: res.lead },
+        identity: { callerName: res.callerName, from: res.from },
+      });
       setEnding(false);
       // The Quo app is opened at the click site (DialPad) so the browser doesn't
       // drop an app handoff fired from this async callback.
@@ -151,7 +172,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       {children}
       {active && (
         <CallWidget
-          lead={active.lead}
+          subject={active.subject}
           identity={active.identity}
           phase={phase}
           durationSecs={ending ? finalDuration : 0}
@@ -168,8 +189,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
           onSave={() => save.mutate()}
           saving={save.isPending}
           // A typed date is not the same as a bookable one — the scheduler owns
-          // that judgement so the button and the server agree.
-          canSave={!!outcome && (!needsCallback || !callbackInputError(callbackAt, active.lead.timezone))}
+          // that judgement so the button and the server agree. With no lead
+          // there is no callback to book at all, so only the outcome gates Save.
+          canSave={!!outcome && (!needsCallback || !active.subject.lead || !callbackInputError(callbackAt, active.subject.lead.timezone))}
           onClose={reset}
         />
       )}
@@ -178,7 +200,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 }
 
 function CallWidget(props: {
-  lead: CallLead;
+  subject: CallSubject;
   identity?: CallIdentity;
   phase: CallPhase;
   durationSecs: number;
@@ -198,6 +220,7 @@ function CallWidget(props: {
   onClose: () => void;
 }) {
   const p = PHASES[props.phase];
+  const { lead, phone } = props.subject;
 
   return (
     <div className="fixed bottom-5 right-5 z-[60] w-[340px] overflow-hidden rounded-2xl border bg-card shadow-2xl">
@@ -211,10 +234,16 @@ function CallWidget(props: {
       </div>
 
       <div className="p-4">
-        <div className="text-[14px] font-bold">{props.lead.businessName}</div>
-        <div className="font-mono text-[12px] text-muted-foreground">{props.lead.phone}</div>
-        {(props.lead.city || props.lead.state) && (
-          <div className="mt-0.5 text-[12px] text-muted-foreground">{[props.lead.city, props.lead.state].filter(Boolean).join(', ')}</div>
+        {/* No lead behind this call: the number leads instead of a name the CRM
+            would have to invent, and the widget says plainly that this contact
+            isn't in the lead book rather than looking like data went missing. */}
+        <div className="text-[14px] font-bold">{lead ? lead.businessName : 'Unknown number'}</div>
+        <div className="font-mono text-[12px] text-muted-foreground">{phone}</div>
+        {lead && (lead.city || lead.state) && (
+          <div className="mt-0.5 text-[12px] text-muted-foreground">{[lead.city, lead.state].filter(Boolean).join(', ')}</div>
+        )}
+        {!lead && (
+          <div className="mt-0.5 text-[11px] text-muted-foreground">Not a lead — the outcome is saved against this call only.</div>
         )}
         {props.identity?.from && (
           // The identity the customer sees — so the agent dials from the right line.
@@ -233,7 +262,7 @@ function CallWidget(props: {
                   click re-sends the same number. It works because it runs inside a
                   real gesture, which is the condition the handoff needs. */}
               <button
-                onClick={() => launchQuoCall(props.lead.phone, props.identity?.from)}
+                onClick={() => launchQuoCall(phone, props.identity?.from)}
                 title="Send this number to the Quo app again"
                 className="inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-[12px] font-semibold hover:bg-muted"
               >
@@ -268,17 +297,28 @@ function CallWidget(props: {
               ))}
             </div>
 
-            {props.needsCallback && (
+            {props.needsCallback && lead && (
               // The same picker the Calling Panel uses: entered on the
               // customer's clock, shown on both clocks, and refused if the lead
               // has no zone or the time has already gone there.
               <CallbackScheduler
                 className="mt-3"
-                leadId={props.lead.id}
-                timezone={props.lead.timezone}
+                leadId={lead.id}
+                timezone={lead.timezone}
                 value={props.callbackAt}
                 onChange={props.onCallbackAt}
               />
+            )}
+            {props.needsCallback && !lead && (
+              // A callback is an appointment ON a lead — it lives in the lead's
+              // record, drives its queue position and its reminders. With no
+              // lead there is nowhere to book it, so the outcome is still
+              // recorded and the rep is told what didn't happen rather than
+              // being given a date picker that quietly saves nothing.
+              <p className="mt-3 rounded-md bg-muted px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground">
+                This number isn&apos;t a lead, so no callback can be scheduled against it. The outcome is saved on the
+                call. Add them as a lead first if this needs following up.
+              </p>
             )}
 
             <textarea

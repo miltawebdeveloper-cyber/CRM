@@ -294,9 +294,15 @@ function RecordingRow({
         </div>
 
         <div className="min-w-0 flex-1">
-          <Link href={`/leads/${call.leadId}`} className="truncate text-[12.5px] font-semibold hover:underline">
-            {call.customerName}
-          </Link>
+          {/* A recording from an unknown number has no lead to open — the name is
+              plain text rather than a link to `/leads/null`. */}
+          {call.leadId ? (
+            <Link href={`/leads/${call.leadId}`} className="truncate text-[12.5px] font-semibold hover:underline">
+              {call.customerName}
+            </Link>
+          ) : (
+            <div className="truncate text-[12.5px] font-semibold">{call.customerName}</div>
+          )}
           <div className="truncate font-mono text-[11px] text-muted-foreground">{call.phone}</div>
           {/* Caller identity the customer saw. Outbound calls with no recorded line
               predate identity tracking — flag them so a manager can verify who called. */}

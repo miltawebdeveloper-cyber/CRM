@@ -728,8 +728,13 @@ model Assignment {
 /// DB-006 — call records
 model Call {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  leadId       String    @map("lead_id") @db.Uuid
-  lead         Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  /// NULL for an UNKNOWN CALL: a number rang a workspace line and matches no lead
+  /// or contact. Such a call is deliberately never given a lead — minting one put
+  /// spam, wrong numbers and personal calls into Lead Management as "Unknown
+  /// caller" rows nobody asked for. The call is still recorded in full and is
+  /// listed in Calls Made against `externalNumber`, where it can be called back.
+  leadId       String?   @map("lead_id") @db.Uuid
+  lead         Lead?     @relation(fields: [leadId], references: [id], onDelete: Cascade)
   callerId     String    @map("caller_id") @db.Uuid
   caller       User      @relation(fields: [callerId], references: [id])
   startTime    DateTime  @map("start_time")
@@ -740,6 +745,10 @@ model Call {
   // time). Stamped on every outbound call so call logs, recordings and activity stay
   // tied to the employee who called, even if their assigned number changes later.
   fromNumber   String?   @map("from_number")
+  /// The CUSTOMER's number on this call — who rang in, or who was dialled. Stamped
+  /// on every provider-seen call, and the only identity a lead-less unknown call
+  /// has: it is what Calls Made shows and what its Call Back button dials.
+  externalNumber String? @map("external_number")
   outcome      String? // Outcome.slug — configurable list (see model Outcome)
   providerSid  String?   @map("provider_sid") // Twilio call SID
   createdAt    DateTime  @default(now()) @map("created_at")

@@ -91,8 +91,10 @@ export function IncomingCallPopup() {
   const isCallback = active.pendingCallback || !!active.lastOutcome || !!active.handledBy;
   const status = active.connected ? 'Connected' : isCallback ? 'Incoming callback' : 'Incoming call';
   // "Customer name" is the contact person; fall back to the company when unknown.
-  const customerName = active.lead.contactName?.trim() || active.lead.businessName;
-  const hasContact = !!active.lead.contactName?.trim();
+  // With no lead at all there is no name to fall back to — the number is who they
+  // are, and the popup says so rather than presenting a blank or an invented one.
+  const customerName = active.lead?.contactName?.trim() || active.lead?.businessName || 'Unknown caller';
+  const hasContact = !!active.lead?.contactName?.trim();
 
   return (
     // Centre-screen. The backdrop is deliberately inert — a stray click must not
@@ -121,12 +123,18 @@ export function IncomingCallPopup() {
         <div className="p-5">
           {/* Customer name · company · phone — the popup's core details. */}
           <div id="incoming-call-title" className="text-[17px] font-bold leading-tight">{customerName}</div>
-          {hasContact && <div className="mt-0.5 text-[12.5px] font-medium text-muted-foreground">{active.lead.businessName}</div>}
-          <div className="mt-1.5 font-mono text-[14px] tracking-wide">{active.lead.phone}</div>
-          {(active.lead.city || active.lead.state) && (
+          {hasContact && <div className="mt-0.5 text-[12.5px] font-medium text-muted-foreground">{active.lead?.businessName}</div>}
+          <div className="mt-1.5 font-mono text-[14px] tracking-wide">{active.phone || active.lead?.phone}</div>
+          {active.lead && (active.lead.city || active.lead.state) && (
             <div className="mt-0.5 text-[12px] text-muted-foreground">
               {[active.lead.city, active.lead.state].filter(Boolean).join(', ')}
             </div>
+          )}
+          {/* Says what the CRM knows, which is nothing: this number is in no lead
+              record. Stated up front so the agent answers knowing they are not
+              looking at a customer whose details failed to load. */}
+          {active.unknown && (
+            <div className="mt-0.5 text-[12px] text-muted-foreground">Not in the CRM — no lead matches this number.</div>
           )}
 
           {/* Recognition context: who handled this customer, last outcome, pending callback */}

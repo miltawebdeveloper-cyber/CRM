@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Phone, PhoneOutgoing, PhoneIncoming, PhoneMissed, PhoneOff, CheckCircle2, Clock, Timer, Download, MapPin, Building2, Tag, PhoneCall, User as UserIcon, Info, ClipboardCheck, Hourglass } from 'lucide-react';
+import { Phone, PhoneOutgoing, PhoneIncoming, PhoneMissed, PhoneOff, CheckCircle2, Clock, Timer, Download, MapPin, Building2, Tag, PhoneCall, User as UserIcon, Info, ClipboardCheck, Hourglass, HelpCircle } from 'lucide-react';
 import { callsApi, outcomesApi, formatDuration, type CallRecord } from '@/lib/crm';
 import { OutcomePill } from '@/components/outcome-pill';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
@@ -13,6 +13,8 @@ import { CAT, DirectionPill, useCallFilters } from '@/components/calls-shared';
 import { DateFilter, FilterSelect, optionsFrom } from '@/components/filter-controls';
 import { TIMEZONE_FILTER_OPTIONS_COMPACT } from '@/lib/timezone';
 import { useCallingEnabled } from '@/lib/use-calling-enabled';
+import { useCall } from '@/components/call-provider';
+import { useCanCall } from '@/lib/use-can-call';
 import { formatDate, formatDateTime, formatTime } from '@/lib/display-settings';
 
 const LEAD_STATUS_OPTS = [
@@ -37,6 +39,11 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
   // With dialling off no call rows are written at all, which is the single
   // likeliest reason this view is empty — see the notice below.
   const { callingEnabled, disabledReason } = useCallingEnabled();
+  // Call Back on an unknown call: the same two-step handoff every Call button
+  // uses — `dial` guards and launches the Quo app inside the click, then the
+  // widget logs and monitors it. Ringing back an unknown number creates no lead.
+  const { placeCallNumber, active: onCall } = useCall();
+  const { dial } = useCanCall();
 
   const [tz, setTz] = useState('');
   const [state, setState] = useState('');
@@ -77,6 +84,24 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
 
   const outcomeOf = (slug: string | null) => outcomes.find((o) => o.slug === slug);
 
+  /**
+   * Ring an unknown caller back.
+   *
+   * `dial` runs first and inside the click — the Quo app handoff is only honoured
+   * from a real gesture, and it refuses when the rep has no caller ID of their own
+   * — then the widget logs and monitors the call. Deliberately the same path the
+   * dial pad uses, so calling back an unknown number behaves identically and,
+   * like the inbound call it answers, creates no lead.
+   */
+  const callBack = useCallback(
+    (phone: string) => {
+      if (onCall) return;
+      if (!dial(phone)) return;
+      placeCallNumber(phone);
+    },
+    [onCall, dial, placeCallNumber],
+  );
+
   const columns = useMemo<ColumnDef<CallRecord>[]>(() => [
     {
       key: 'startTime', header: 'Call Date & Time', required: true, searchable: true,
@@ -89,8 +114,20 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
       ),
     },
     {
-      key: 'customer', header: 'Customer Name', searchable: true, searchValue: (c) => c.lead?.businessName,
-      render: (c) => c.lead ? (
+      key: 'customer', header: 'Customer Name', searchable: true,
+      searchValue: (c) => c.lead?.businessName ?? (c.unknown ? 'Unknown Call' : undefined),
+      // An unknown call has no name to show — the CRM refused to invent a lead
+      // for it, so inventing a customer name here would be the same lie in
+      // smaller type. It is labelled for what it is, and the number below (and
+      // in the Phone column) is the identity the rep works from.
+      render: (c) => c.unknown ? (
+        <span
+          className="inline-flex items-center gap-1 rounded-full bg-[var(--tone-neutral-bg)] px-2 py-[3px] text-[10.5px] font-semibold text-[var(--tone-neutral-fg)]"
+          title="This number matched no lead or contact, so no lead was created. Call them back from here; add them as a lead only if they're worth working."
+        >
+          <HelpCircle className="h-3 w-3" /> Unknown Call
+        </span>
+      ) : c.lead ? (
         <div className="flex items-center gap-[10px]">
           <Avatar name={c.lead.businessName} />
           <div>
@@ -100,7 +137,12 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
         </div>
       ) : '—',
     },
-    { key: 'phone', header: 'Phone Number', cellClassName: 'font-mono text-[11.5px] text-muted-foreground', searchable: true, searchValue: (c) => c.lead?.phone, render: (c) => c.lead?.phone ?? '—' },
+    {
+      key: 'phone', header: 'Phone Number', cellClassName: 'font-mono text-[11.5px] text-muted-foreground',
+      searchable: true, searchValue: (c) => c.lead?.phone ?? c.externalNumber ?? undefined,
+      // Falls back to the call's own number, which is all an unknown call has.
+      render: (c) => c.lead?.phone ?? c.externalNumber ?? '—',
+    },
     { key: 'caller', header: 'Assigned Employee', searchable: true, trackable: true, searchValue: (c) => c.caller?.name, render: (c) => c.caller?.name ?? '—' },
     {
       key: 'direction', header: 'Direction',
@@ -133,8 +175,30 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
         return c.outcome ? <OutcomePill name={o?.name ?? c.outcome} color={o?.color} /> : <span className="text-muted-foreground">—</span>;
       },
     },
-    { key: 'leadId', header: 'Lead ID', cellClassName: 'font-mono text-[11px] text-muted-foreground', searchable: true, searchValue: (c) => c.lead?.leadId, render: (c) => c.lead?.leadId ?? '—' },
-  ], [outcomes]); // eslint-disable-line react-hooks/exhaustive-deps
+    {
+      key: 'leadId', header: 'Lead ID', cellClassName: 'font-mono text-[11px] text-muted-foreground',
+      searchable: true, searchValue: (c) => c.lead?.leadId,
+      // An unknown call has no Lead ID because it has no lead — deliberately.
+      // What it has instead is the one action that matters on it: ring the
+      // number back. Placed in this column rather than a new one so the table
+      // keeps its shape, and it appears only on the rows that can use it.
+      render: (c) =>
+        c.lead?.leadId ??
+        (c.unknown && c.externalNumber && callingEnabled ? (
+          <button
+            type="button"
+            onClick={() => callBack(c.externalNumber!)}
+            disabled={onCall}
+            title={onCall ? 'Finish the call you are on first' : `Call ${c.externalNumber} back`}
+            className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-[3px] font-sans text-[11px] font-semibold text-foreground hover:bg-muted disabled:opacity-40"
+          >
+            <PhoneOutgoing className="h-3 w-3" /> Call Back
+          </button>
+        ) : (
+          '—'
+        )),
+    },
+  ], [outcomes, callingEnabled, onCall, callBack]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const prefs = useColumnPrefs('calls-made', columns);
 
@@ -198,9 +262,11 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
     return [
       formatDate(start),
       formatTime(start),
-      c.lead?.businessName ?? '',
+      // Mirrors the table: an unknown call exports under the same label it shows,
+      // against the number that is its only identity.
+      c.unknown ? 'Unknown Call' : c.lead?.businessName ?? '',
       c.lead?.contactName ?? '',
-      c.lead?.phone ?? '',
+      c.lead?.phone ?? c.externalNumber ?? '',
       c.caller?.name ?? '',
       // Matches the column: a processed row reports how it was worked rather
       // than a direction it never had.
