@@ -180,7 +180,36 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
       // Falls back to the call's own number, which is all an unknown call has.
       render: (c) => c.lead?.phone ?? c.externalNumber ?? '—',
     },
-    { key: 'caller', header: 'Assigned Employee', searchable: true, trackable: true, searchValue: (c) => c.caller?.name, render: (c) => c.caller?.name ?? '—' },
+    /**
+     * Who handled the call, and who owns the lead — two different facts that
+     * were being reported as one.
+     *
+     * This column was headed "Assigned Employee" and rendered the CALLER. They
+     * coincide on a rep dialling their own lead and diverge everywhere else: an
+     * inbound call is attributed to whoever's line rang, a reassigned lead keeps
+     * the original caller on its old calls, and — worst of the three — a call
+     * synced from Quo on an UNASSIGNED lead falls back to an admin, so the
+     * column confidently named an admin as the employee assigned to a lead
+     * nobody was working.
+     *
+     * So the caller column now says what it shows, and the lead's real owner is
+     * a column of its own. "Called By" is also the one the employee filter and
+     * every per-rep figure here match on, since this module reports what a rep
+     * DID — keeping that name on the filtered column is what stops the two
+     * disagreeing.
+     */
+    { key: 'caller', header: 'Called By', searchable: true, trackable: true, searchValue: (c) => c.caller?.name, render: (c) => c.caller?.name ?? '—' },
+    {
+      key: 'assignedTo', header: 'Assigned Employee', searchable: true, trackable: true,
+      searchValue: (c) => c.lead?.assignedTo?.name,
+      render: (c) => {
+        // An unknown call has no lead, so there is nobody it could be assigned
+        // to — distinct from a lead sitting unassigned, which is a real state
+        // worth seeing in a call log and used to read as an admin's name.
+        if (!c.lead) return <span className="text-muted-foreground">—</span>;
+        return c.lead.assignedTo?.name ?? <span className="text-muted-foreground italic">Unassigned</span>;
+      },
+    },
     {
       key: 'direction', header: 'Direction',
       // The "No call" badge lives here now that the Call Status column is gone.
@@ -298,7 +327,10 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
   // two fields the module no longer shows is how the two drift apart.
   const EXPORT_HEADERS = [
     'Call Date', 'Call Time', 'Customer Name', 'Contact Person', 'Phone Number',
-    'Assigned Employee', 'Direction', 'Call Duration', 'Duration (secs)',
+    // Both people, named for what each one is — the export mirrors the table,
+    // and one "Employee" column standing for two different roles is what made
+    // this wrong on screen in the first place.
+    'Called By', 'Assigned Employee', 'Direction', 'Call Duration', 'Duration (secs)',
     // "Outcome Source" carries the distinction the table draws with a dashed
     // chip: whether this call was dispositioned, or is showing the lead's
     // current outcome because it never was. A spreadsheet with one Outcome
@@ -319,6 +351,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
       c.lead?.contactName ?? '',
       c.lead?.phone ?? c.externalNumber ?? '',
       c.caller?.name ?? '',
+      c.lead ? c.lead.assignedTo?.name ?? 'Unassigned' : '',
       // Matches the column: a processed row reports how it was worked rather
       // than a direction it never had.
       c.kind === 'processed' ? 'No call' : c.direction ? (c.direction === 'inbound' ? 'Incoming' : 'Outgoing') : '',

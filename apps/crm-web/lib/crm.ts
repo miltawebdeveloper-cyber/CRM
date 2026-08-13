@@ -403,7 +403,12 @@ export interface CallRecord {
   lead: {
     id: string; leadId: string; businessName: string; contactName: string | null; phone: string; status: string;
     timezone: string | null; state: string; city: string; callStatus: string | null; assignedToId: string | null;
+    /** Who OWNS the lead now. Null when nobody does — which is not the same as
+     *  the call having no caller, and is why the two are separate columns. */
+    assignedTo: { id: string; name: string } | null;
   } | null;
+  /** Who handled THIS call. What the employee filter and every per-rep figure
+   *  in this module match on — not necessarily the lead's owner. */
   caller: { id: string; name: string; email: string } | null;
 }
 

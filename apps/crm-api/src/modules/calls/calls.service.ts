@@ -1760,6 +1760,11 @@ export class CallsService {
           select: {
             id: true, leadId: true, businessName: true, contactName: true, phone: true, status: true,
             timezone: true, state: true, city: true, callStatus: true, assignedToId: true,
+            // The employee who OWNS the lead. Deliberately separate from the
+            // caller, who is whoever handled this particular call — on an
+            // inbound call, a reassigned lead or a provider-synced one those are
+            // routinely different people.
+            assignedTo: { select: { id: true, name: true } },
           },
         },
         caller: { select: { id: true, name: true, email: true } },
@@ -1781,6 +1786,11 @@ export class CallsService {
           select: {
             id: true, leadId: true, businessName: true, contactName: true, phone: true, status: true,
             timezone: true, state: true, city: true, callStatus: true, assignedToId: true,
+            // The employee who OWNS the lead. Deliberately separate from the
+            // caller, who is whoever handled this particular call — on an
+            // inbound call, a reassigned lead or a provider-synced one those are
+            // routinely different people.
+            assignedTo: { select: { id: true, name: true } },
           },
         },
         user: { select: { id: true, name: true, email: true } },
