@@ -221,3 +221,55 @@ export function dayInZone(date: Date, tz?: Timezone | null): string {
   const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? '';
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
+
+/** Wall-clock time (`HH:mm`) an instant reads as in the given zone. */
+export function timeInZone(date: Date, tz?: Timezone | null): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: ianaFor(tz),
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? '00';
+  // `hour12: false` renders midnight as 24 in some ICU versions.
+  return `${String(Number(get('hour')) % 24).padStart(2, '0')}:${get('minute')}`;
+}
+
+/**
+ * Days the team works. Saturday and Sunday are off by default; set
+ * `WORKING_DAYS` to a comma-separated list of day numbers (0 = Sunday) for a
+ * team that works another week — a Sunday-to-Thursday week is a configuration,
+ * not a code change.
+ */
+export function workingDays(): Set<number> {
+  const raw = (process.env.WORKING_DAYS ?? '').trim();
+  if (!raw) return new Set([1, 2, 3, 4, 5]);
+  const days = raw
+    .split(/[,\s]+/)
+    .map((d) => Number(d))
+    .filter((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+  // An unreadable setting falls back to Mon–Fri rather than to "no working days
+  // at all", which would leave a rescheduler with nowhere to move anything to.
+  return days.length ? new Set(days) : new Set([1, 2, 3, 4, 5]);
+}
+
+/**
+ * The next working day strictly after `day` (both `yyyy-mm-dd`).
+ *
+ * Pure calendar arithmetic on the date string — no zone is involved, because a
+ * date has no offset: "the day after 2026-08-14" is 2026-08-15 wherever you
+ * stand. The instant is only re-derived once the day is known, by reading the
+ * new day and the original wall-clock time back in the customer's zone, which is
+ * what keeps a 10:00 callback at 10:00 rather than drifting by the DST hour.
+ */
+export function nextWorkingDay(day: string, working = workingDays()): string {
+  const [y, m, d] = day.split('-').map(Number);
+  const cursor = new Date(Date.UTC(y, m - 1, d));
+  // Bounded: a caller that somehow passes an empty working week gets one step
+  // rather than an infinite loop.
+  for (let i = 0; i < 7; i++) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    if (working.has(cursor.getUTCDay())) break;
+  }
+  return cursor.toISOString().slice(0, 10);
+}

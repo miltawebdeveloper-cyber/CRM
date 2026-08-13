@@ -1,8 +1,11 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Role } from '@crm/database';
 import { CallbacksService } from './callbacks.service';
+import { CallbackRolloverService } from './callback-rollover.service';
 import { SnoozeCallbackDto } from './dto/callback.dto';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import { Roles } from '../../common/decorators/roles.decorator';
 
 /**
  * The on-screen half of callback reminders — what the browser polls to decide
@@ -17,7 +20,10 @@ import { CurrentUser, AuthUser } from '../../common/decorators/current-user.deco
 @ApiBearerAuth()
 @Controller('callbacks')
 export class CallbacksController {
-  constructor(private readonly callbacks: CallbacksService) {}
+  constructor(
+    private readonly callbacks: CallbacksService,
+    private readonly rollover: CallbackRolloverService,
+  ) {}
 
   @Get('due')
   @ApiOperation({ summary: 'Callbacks due or overdue for the current user, not snoozed or dismissed' })
@@ -41,5 +47,20 @@ export class CallbacksController {
   @ApiOperation({ summary: 'Stop reminding about this callback without completing it' })
   dismiss(@Param('leadId') leadId: string, @CurrentUser() user: AuthUser) {
     return this.callbacks.dismiss(leadId, { id: user.id, role: user.role });
+  }
+
+  /**
+   * Run the pending-call rollover now instead of waiting for the hourly sweep.
+   *
+   * The rollover is automatic and needs nobody to press anything — this exists
+   * so an admin can catch the backlog up immediately after an outage, and so the
+   * behaviour is testable against real data. Idempotent: it moves only calls
+   * whose day has already ended, and always to a future slot.
+   */
+  @Roles(Role.admin)
+  @Post('rollover/run')
+  @ApiOperation({ summary: 'Move every pending scheduled call whose day has ended to the next working day' })
+  runRollover() {
+    return this.rollover.rollOverPending();
   }
 }
