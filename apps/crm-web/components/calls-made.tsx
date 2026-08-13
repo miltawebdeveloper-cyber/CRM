@@ -115,6 +115,32 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
 
   const columns = useMemo<ColumnDef<CallRecord>[]>(() => [
     {
+      // Leftmost, and pinned there: the Lead ID is how a row is identified and
+      // traced back to the record, so it is what the eye should land on first.
+      key: 'leadId', header: 'Lead ID', pinFirst: true,
+      cellClassName: 'font-mono text-[11px] text-muted-foreground',
+      searchable: true, searchValue: (c) => c.lead?.leadId,
+      // An unknown call has no Lead ID because it has no lead — deliberately.
+      // What it has instead is the one action that matters on it: ring the
+      // number back. Placed in this column rather than a new one so the table
+      // keeps its shape, and it appears only on the rows that can use it.
+      render: (c) =>
+        c.lead?.leadId ??
+        (c.unknown && c.externalNumber && callingEnabled ? (
+          <button
+            type="button"
+            onClick={() => callBack(c.externalNumber!)}
+            disabled={onCall}
+            title={onCall ? 'Finish the call you are on first' : `Call ${c.externalNumber} back`}
+            className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-[3px] font-sans text-[11px] font-semibold text-foreground hover:bg-muted disabled:opacity-40"
+          >
+            <PhoneOutgoing className="h-3 w-3" /> Call Back
+          </button>
+        ) : (
+          '—'
+        )),
+    },
+    {
       key: 'startTime', header: 'Call Date & Time', required: true, searchable: true,
       searchValue: (c) => formatDateTime(c.startTime),
       render: (c) => (
@@ -216,29 +242,6 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
           </span>
         );
       },
-    },
-    {
-      key: 'leadId', header: 'Lead ID', cellClassName: 'font-mono text-[11px] text-muted-foreground',
-      searchable: true, searchValue: (c) => c.lead?.leadId,
-      // An unknown call has no Lead ID because it has no lead — deliberately.
-      // What it has instead is the one action that matters on it: ring the
-      // number back. Placed in this column rather than a new one so the table
-      // keeps its shape, and it appears only on the rows that can use it.
-      render: (c) =>
-        c.lead?.leadId ??
-        (c.unknown && c.externalNumber && callingEnabled ? (
-          <button
-            type="button"
-            onClick={() => callBack(c.externalNumber!)}
-            disabled={onCall}
-            title={onCall ? 'Finish the call you are on first' : `Call ${c.externalNumber} back`}
-            className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-[3px] font-sans text-[11px] font-semibold text-foreground hover:bg-muted disabled:opacity-40"
-          >
-            <PhoneOutgoing className="h-3 w-3" /> Call Back
-          </button>
-        ) : (
-          '—'
-        )),
     },
   ], [outcomes, callingEnabled, onCall, callBack]); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -135,7 +135,8 @@ export default function ClosedLeadsPage() {
 
   const columns = useMemo<ColumnDef<Lead>[]>(() => [
     {
-      key: 'leadId', header: 'Lead ID', required: true, searchable: true,
+      // Pinned leftmost — same rule as every other table that carries a Lead ID.
+      key: 'leadId', header: 'Lead ID', required: true, pinFirst: true, searchable: true,
       searchValue: (l) => l.leadId,
       render: (l) => (
         <div className="flex items-center gap-[10px]">

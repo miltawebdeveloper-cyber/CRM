@@ -19,6 +19,16 @@ export interface ColumnDef<T> {
   defaultHidden?: boolean;
   /** Cannot be hidden or moved out (e.g. the primary identity column). */
   required?: boolean;
+  /**
+   * Always the leftmost column, whatever the saved layout says.
+   *
+   * For the column that identifies the row — the Lead ID. Column order is
+   * persisted per user, so moving a column in the source only reaches people who
+   * have never customised that table; everyone else keeps the order they saved.
+   * This makes the position a property of the column instead, so the rule holds
+   * for existing users too, and a later drag can't push it out of first place.
+   */
+  pinFirst?: boolean;
   /** Default column width in px (user can resize from there). */
   width?: number;
   headerClassName?: string;
@@ -210,7 +220,22 @@ export interface ColumnPrefs<T> {
  * automatically; removed columns are dropped from saved prefs gracefully.
  */
 export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): ColumnPrefs<T> {
-  const defaultOrder = useMemo(() => columns.map((c) => c.key), [columns]);
+  const pinnedFirst = useMemo(() => columns.filter((c) => c.pinFirst).map((c) => c.key), [columns]);
+  /**
+   * Put the pinned columns at the front, keeping their declared order among
+   * themselves and everything else's order untouched. Applied to the saved
+   * layout as well as the default, so a table customised months ago still shows
+   * its identity column first.
+   */
+  const hoistPinned = useCallback(
+    (keys: string[]) => {
+      if (pinnedFirst.length === 0) return keys;
+      const pinned = pinnedFirst.filter((k) => keys.includes(k));
+      return [...pinned, ...keys.filter((k) => !pinned.includes(k))];
+    },
+    [pinnedFirst],
+  );
+  const defaultOrder = useMemo(() => hoistPinned(columns.map((c) => c.key)), [columns, hoistPinned]);
   const defaultHidden = useMemo(() => columns.filter((c) => c.defaultHidden).map((c) => c.key), [columns]);
   const trackableKeys = useMemo(() => columns.filter((c) => c.trackable).map((c) => c.key), [columns]);
   const searchableKeys = useMemo(() => columns.filter((c) => c.searchable).map((c) => c.key), [columns]);
@@ -242,7 +267,7 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
       const mergedHidden = saved.hidden.filter((k) => known.has(k));
       // New columns flagged defaultHidden stay hidden unless the user saw them before.
       for (const k of defaultHidden) if (!saved.order.includes(k)) mergedHidden.push(k);
-      setOrder(mergedOrder);
+      setOrder(hoistPinned(mergedOrder));
       setHidden(mergedHidden);
       setWidths(saved.widths ?? {});
       setUntracked((saved.untracked ?? []).filter((k) => known.has(k)));
@@ -297,16 +322,21 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
   const reorder = useCallback(
     (key: string, beforeKey: string) => {
       if (key === beforeKey) return;
+      // A pinned column can't be dragged away, and nothing can be dropped in
+      // front of one — otherwise the layout the user saves contradicts the rule
+      // reloading the page would re-apply.
+      if (pinnedFirst.includes(key)) return;
       setOrder((o) => {
         const next = o.filter((k) => k !== key);
         const idx = next.indexOf(beforeKey);
         if (idx < 0) next.push(key);
         else next.splice(idx, 0, key);
-        persist({ order: next });
-        return next;
+        const pinnedOrder = hoistPinned(next);
+        persist({ order: pinnedOrder });
+        return pinnedOrder;
       });
     },
-    [persist],
+    [persist, pinnedFirst, hoistPinned],
   );
 
   const setWidth = useCallback(

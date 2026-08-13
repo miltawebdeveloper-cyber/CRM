@@ -354,7 +354,10 @@ export default function LeadsPage() {
       render: (l) => l.importSeq,
     },
     {
-      key: 'leadId', header: 'Lead ID', required: true, searchable: true, sortable: true,
+      // Pinned leftmost: the Lead ID identifies the row, so it stays the first
+      // thing on it whatever else a user rearranges. `importSeq` above is hidden
+      // by default and sorts behind this when shown.
+      key: 'leadId', header: 'Lead ID', required: true, pinFirst: true, searchable: true, sortable: true,
       searchValue: (l) => l.leadId,
       render: (l) => (
         <div className="flex items-center gap-[10px]">

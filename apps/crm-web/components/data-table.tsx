@@ -753,19 +753,26 @@ function CustomizePanel<T>({
           {prefs.ordered.map((col) => {
             const hidden = prefs.isHidden(col.key);
             const isOver = overKey === col.key && dragKey !== col.key;
+            // A pinned column is always leftmost, so it can't be dragged and
+            // nothing can be dropped in front of it. Shown as fixed rather than
+            // left draggable — a drag that silently snaps back reads as a bug.
+            const fixed = col.required || col.pinFirst;
             return (
               <div
                 key={col.key}
-                draggable={!col.required}
+                draggable={!fixed}
                 onDragStart={() => setDragKey(col.key)}
                 onDragEnd={() => { setDragKey(null); setOverKey(null); }}
-                onDragOver={(e) => { e.preventDefault(); setOverKey(col.key); }}
-                onDrop={(e) => { e.preventDefault(); if (dragKey) prefs.reorder(dragKey, col.key); setDragKey(null); setOverKey(null); }}
+                onDragOver={(e) => { if (col.pinFirst) return; e.preventDefault(); setOverKey(col.key); }}
+                onDrop={(e) => { e.preventDefault(); if (dragKey && !col.pinFirst) prefs.reorder(dragKey, col.key); setDragKey(null); setOverKey(null); }}
                 className={`mb-1.5 flex items-center gap-2.5 rounded-lg border px-3 py-2.5 transition-colors ${isOver ? 'border-primary bg-primary/5' : 'border-transparent bg-background'} ${dragKey === col.key ? 'opacity-50' : ''}`}
               >
-                <GripVertical className={`h-4 w-4 shrink-0 ${col.required ? 'text-muted-foreground/30' : 'cursor-grab text-muted-foreground'}`} />
+                <GripVertical className={`h-4 w-4 shrink-0 ${fixed ? 'text-muted-foreground/30' : 'cursor-grab text-muted-foreground'}`} />
                 <label className="flex flex-1 cursor-pointer items-center justify-between gap-2 text-[12.5px]">
-                  <span className={hidden && !col.required ? 'text-muted-foreground' : 'font-medium'}>{col.header || '—'}</span>
+                  <span className={hidden && !col.required ? 'text-muted-foreground' : 'font-medium'}>
+                    {col.header || '—'}
+                    {col.pinFirst && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">pinned first</span>}
+                  </span>
                   <input
                     type="checkbox"
                     checked={col.required || !hidden}

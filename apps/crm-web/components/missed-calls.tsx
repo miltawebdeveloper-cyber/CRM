@@ -58,6 +58,22 @@ export function MissedCalls() {
   const columns = useMemo<ColumnDef<MissedCall>[]>(
     () => [
       {
+        // Leftmost, and pinned there — the Lead ID identifies the row and is how
+        // a missed call is traced back to the record it belongs to.
+        key: 'lead',
+        header: 'Lead ID',
+        pinFirst: true,
+        searchable: true,
+        searchValue: (r) => r.leadRef,
+        // Links through to the record, which is where a missed call is actually
+        // acted on — there is no call-back button, because dialling is off.
+        render: (r) => (
+          <Link href={`/leads/${r.leadId}`} className="font-mono text-[11px] font-medium text-primary hover:underline">
+            {r.leadRef}
+          </Link>
+        ),
+      },
+      {
         key: 'at',
         header: 'Date & Time',
         required: true,
@@ -106,19 +122,6 @@ export function MissedCalls() {
         trackable: true,
         searchValue: (r) => r.assignedTo ?? '',
         render: (r) => r.assignedTo ?? '—',
-      },
-      {
-        key: 'lead',
-        header: 'Lead',
-        searchable: true,
-        searchValue: (r) => r.leadRef,
-        // Links through to the record, which is where a missed call is actually
-        // acted on — there is no call-back button, because dialling is off.
-        render: (r) => (
-          <Link href={`/leads/${r.leadId}`} className="font-mono text-[11px] font-medium text-primary hover:underline">
-            {r.leadRef}
-          </Link>
-        ),
       },
       {
         key: 'status',
