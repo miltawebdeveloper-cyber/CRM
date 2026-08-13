@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { History, Loader2 } from 'lucide-react';
 import { leadsApi, type Lead } from '@/lib/leads';
+import { callsApi } from '@/lib/crm';
 import { formatDateTime } from '@/lib/display-settings';
 
 /**
@@ -19,6 +20,7 @@ export function LeadCommentCell({ lead }: { lead: Lead }) {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(lead.comments ?? '');
+  const [dirty, setDirty] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -27,6 +29,7 @@ export function LeadCommentCell({ lead }: { lead: Lead }) {
   // mid-edit could overwrite what the user is part-way through typing.
   const beginEdit = () => {
     setDraft(lead.comments ?? '');
+    setDirty(false);
     setEditing(true);
   };
 
@@ -34,8 +37,19 @@ export function LeadCommentCell({ lead }: { lead: Lead }) {
     if (editing) inputRef.current?.focus();
   }, [editing]);
 
+  /**
+   * Saved as a NOTE on the lead, not as a lead edit.
+   *
+   * This used to call `PATCH /leads/:id`, which is admin/team-leader only — so a
+   * rep typing in this cell got a 403 and their comment was simply lost. Reps are
+   * the people writing most of the comments. `POST /calls/lead/:id/notes` is the
+   * same write (a note row, and `Lead.comments` refreshed to the newest remark)
+   * scoped the way the rest of the app scopes a rep's own work: their own leads
+   * yes, someone else's no. It is the endpoint the Calling Panel's comment box
+   * already uses, so a remark now lands identically wherever it was typed.
+   */
   const save = useMutation({
-    mutationFn: (text: string) => leadsApi.update(lead.id, { comments: text }),
+    mutationFn: (text: string) => callsApi.addLeadNote(lead.id, text),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['leads'] });
       qc.invalidateQueries({ queryKey: ['lead-comments', lead.id] });
@@ -43,10 +57,19 @@ export function LeadCommentCell({ lead }: { lead: Lead }) {
     },
   });
 
+  /**
+   * Save what was typed — including a remark identical to the last one.
+   *
+   * The guard is on whether the field was TOUCHED, not on whether the text
+   * differs. Comparing text dropped a deliberate repeat, and a repeat is a real
+   * event: "left voicemail" on Monday and again on Thursday is two calls, and
+   * the second one silently failed to record. Clicking into the cell and away
+   * again still saves nothing, which is what the guard is actually for — `onBlur`
+   * fires on every stray focus.
+   */
   const commit = () => {
-    const text = draft.trim();
-    if (text === (lead.comments ?? '').trim()) return setEditing(false);
-    save.mutate(text);
+    if (!dirty || !draft.trim()) return setEditing(false);
+    save.mutate(draft.trim());
   };
 
   if (editing) {
@@ -55,12 +78,12 @@ export function LeadCommentCell({ lead }: { lead: Lead }) {
         ref={inputRef}
         rows={2}
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => { setDraft(e.target.value); setDirty(true); }}
         onBlur={commit}
         // Enter saves, Shift+Enter adds a line, Escape abandons the edit.
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commit(); }
-          if (e.key === 'Escape') { setDraft(lead.comments ?? ''); setEditing(false); }
+          if (e.key === 'Escape') { setDraft(lead.comments ?? ''); setDirty(false); setEditing(false); }
         }}
         onClick={(e) => e.stopPropagation()}
         placeholder="Add a comment…"

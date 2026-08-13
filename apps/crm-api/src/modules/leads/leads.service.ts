@@ -1774,7 +1774,13 @@ export class LeadsService {
       }
     }
 
-    if (Object.keys(data).length === 0) return existing; // nothing changed
+    // A comment is APPENDED to the trail, so it is recorded even when it changes
+    // no column — re-entering the same remark is a second real event, and the
+    // early return below (which fires when nothing else changed) used to swallow
+    // it along with the write. Done before that return for exactly that reason.
+    await this.recordComment(id, dto.comments, user.id);
+
+    if (Object.keys(data).length === 0) return existing; // nothing else changed
 
     const updated = await this.prisma.lead.update({
       where: { id },
@@ -1791,18 +1797,29 @@ export class LeadsService {
       });
     }
 
-    // Comment history. `Lead.comments` only ever holds the LATEST remark (it's what
-    // the Lead Management column reads), so each edit is also appended to `notes` —
-    // the same table call notes land in. That keeps one chronological trail of both
-    // sources instead of overwriting the previous remark with no record of it. A
-    // null callId is what marks this entry as a manual update rather than a call.
-    if (dto.comments !== undefined) {
-      const text = (dto.comments ?? '').trim();
-      if (text && text !== (existing.comments ?? '').trim()) {
-        await this.prisma.note.create({ data: { leadId: id, callId: null, noteText: text, createdById: user.id } });
-      }
-    }
     return updated;
+  }
+
+  /**
+   * Append a comment to the lead's trail.
+   *
+   * `Lead.comments` only ever holds the LATEST remark (it's what the Lead
+   * Management column reads), so each edit is also written to `notes` — the same
+   * table call notes land in — keeping one chronological trail of both sources
+   * instead of overwriting the previous remark with no record of it. A null
+   * callId is what marks the entry as a manual update rather than a call.
+   *
+   * A remark identical to the one already on the lead is still recorded. It used
+   * to be skipped as "no change", which is true of the column and false of the
+   * trail: "left voicemail" on Monday and again on Thursday is two calls, and the
+   * second one vanished. Only an empty comment is ignored — clearing the field is
+   * not a remark.
+   */
+  private async recordComment(leadId: string, next: string | undefined, userId: string) {
+    if (next === undefined) return;
+    const text = next.trim();
+    if (!text) return;
+    await this.prisma.note.create({ data: { leadId, callId: null, noteText: text, createdById: userId } });
   }
 
   /**
