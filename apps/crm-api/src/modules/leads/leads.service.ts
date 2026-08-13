@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AssignmentType, Timezone, LeadStatus, Role, Prisma } from '@crm/database';
-import { timezoneWhere, tzLabel } from '../../common/timezone';
+import { dayInZone, timezoneWhere, tzLabel } from '../../common/timezone';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto';
@@ -254,10 +254,39 @@ export class LeadsService {
    * handover would look like the first — so the third would go through with no
    * confirmation at all, on the day the lead had already moved twice.
    */
+  /**
+   * Has this lead already been handed over today — where "today" is the day in
+   * the LEAD's own time zone, not the server's?
+   *
+   * The server runs on IST, 9.5–13.5 hours ahead of the US. Measured against a
+   * server-local midnight, an assignment made at 6pm IST on the 14th counts as
+   * "the 14th" while the lead's own clock still reads the 13th — so the lock
+   * fired a day early for every evening assignment, which is the entire Indian
+   * working evening. Read in the lead's zone, the same assignment correctly
+   * reads as the 13th and the lead is free to move again when the US 14th
+   * begins.
+   */
   private async assignedToday(leadId: string): Promise<boolean> {
-    const since = LeadsService.startOfToday();
-    const n = await this.prisma.assignment.count({ where: { leadId, assignedAt: { gte: since } } });
-    return n > 0;
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: leadId },
+      select: {
+        timezone: true,
+        assignments: {
+          // A carry-forward is not a handover — nobody moved this lead, a sweep
+          // re-stamped it for its new local day with the same owner. Counting it
+          // would lock every untouched lead against reassignment the moment that
+          // sweep ran, which is the opposite of what this restriction is for: it
+          // protects work from being pulled out from under someone mid-shift.
+          where: { type: { not: AssignmentType.carry_forward } },
+          orderBy: { assignedAt: 'desc' },
+          take: 1,
+          select: { assignedAt: true },
+        },
+      },
+    });
+    const last = lead?.assignments[0]?.assignedAt;
+    if (!last) return false;
+    return dayInZone(last, lead!.timezone) === dayInZone(new Date(), lead!.timezone);
   }
 
   private async resolveCaller(caller?: string): Promise<string | undefined> {

@@ -222,6 +222,34 @@ export function dayInZone(date: Date, tz?: Timezone | null): string {
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
+/**
+ * The instant at which the given zone's CURRENT calendar day began.
+ *
+ * The boundary every "is this today?" question about a lead has to be measured
+ * from. The server runs on IST, so `new Date().setHours(0,0,0,0)` answers "when
+ * did the day start in India" — which is between 9.5 and 13.5 hours ahead of the
+ * US, and on the wrong side of midnight for the whole Indian evening. An agent
+ * assigning at 6pm IST is working on a US date that is still yesterday, and a
+ * server-local boundary files that lead under tomorrow.
+ *
+ * A lead with no zone falls back to DEFAULT_TIMEZONE rather than to server time:
+ * a US default is wrong by at most a few hours, IST is wrong by half a day.
+ */
+export function startOfDayInZone(tz?: Timezone | null, at: Date = new Date()): Date {
+  const day = dayInZone(at, tz);
+  // Re-read midnight of that day back in the same zone, so DST is handled by the
+  // same two-pass offset logic every other conversion here uses.
+  return parseInZone(`${day}T00:00:00`, tz) ?? at;
+}
+
+/**
+ * Whether two instants fall on the same calendar day in the given zone — the
+ * zone-aware replacement for comparing against a server-local midnight.
+ */
+export function sameDayInZone(a: Date, b: Date, tz?: Timezone | null): boolean {
+  return dayInZone(a, tz) === dayInZone(b, tz);
+}
+
 /** Wall-clock time (`HH:mm`) an instant reads as in the given zone. */
 export function timeInZone(date: Date, tz?: Timezone | null): string {
   const parts = new Intl.DateTimeFormat('en-GB', {

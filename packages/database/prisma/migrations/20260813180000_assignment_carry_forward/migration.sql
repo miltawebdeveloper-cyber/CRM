@@ -1,0 +1,17 @@
+-- Carry-forward: a lead the day ended without anyone working it stays with the
+-- same rep and is re-stamped for the new day.
+--
+-- A third assignment type, deliberately distinct from new_assignment and
+-- reassignment, because it is neither: nobody handed the lead to anybody. It
+-- exists so the two things that read assignment history can tell the difference.
+--
+--  * "Assigned today" views count the lead again, which is the point — an
+--    untouched lead is today's work, not a fortnight-old leftover.
+--  * The once-a-day reassignment restriction must IGNORE these rows. That rule
+--    exists so work isn't pulled out from under someone mid-shift by a human;
+--    a nightly re-stamp is not that, and counting it would silently lock every
+--    carried lead against reassignment the moment the sweep ran.
+--
+-- Yesterday's rows are never touched, so the trail still shows when the lead was
+-- first assigned and by whom.
+ALTER TYPE "AssignmentType" ADD VALUE IF NOT EXISTS 'carry_forward';

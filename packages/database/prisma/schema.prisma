@@ -681,6 +681,10 @@ model WorkReassignment {
 enum AssignmentType {
   new_assignment
   reassignment
+  /// A lead nobody worked, re-stamped for the new day with its owner unchanged.
+  /// Not a handover — see AssignmentCarryForwardService. Excluded from the
+  /// once-a-day reassignment restriction, which is about people moving work.
+  carry_forward
 }
 
 /**

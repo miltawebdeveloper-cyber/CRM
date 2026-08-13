@@ -1,9 +1,22 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { AssignmentType, Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
-import { UNSET_TIMEZONE_LABEL } from '../../common/timezone';
+import { UNSET_TIMEZONE_LABEL, sameDayInZone } from '../../common/timezone';
 import { ManualAssignDto, AutoAssignDto, AssignStrategy, BatchAssignDto } from './dto/assignment.dto';
 import { sameDayConfirmError } from '../leads/leads.service';
+
+/**
+ * The earliest instant that could still be "today" in any US zone we serve.
+ *
+ * A pre-filter, never the rule. The server is on IST and the leads are American,
+ * so the US day starts up to ~13.5h after the Indian one and a lead's "today"
+ * can reach back past the server's midnight. Fetching from 24h ago and testing
+ * each row against its own lead's zone is correct in every zone; narrowing this
+ * to the server's midnight would silently drop the rows the test needs to see.
+ */
+function widestDayStart(): Date {
+  return new Date(Date.now() - 24 * 3600_000);
+}
 
 /** Midnight today — the boundary the same-day reassignment lock is measured from. */
 function startOfToday(): Date {
@@ -85,11 +98,29 @@ export class AssignmentsService {
     // `allowReassign` on purpose: one is about whose lead it is, the other about
     // how recently it moved, and a lead can be caught by both.
     const assignedTodayRows = await this.prisma.assignment.findMany({
-      where: { leadId: { in: leadIds }, assignedAt: { gte: startOfToday() } },
-      select: { leadId: true, lead: { select: { leadId: true } } },
+      // Carry-forward rows are excluded: they record a lead being re-stamped for
+      // the new day with the SAME owner, not somebody moving it. Counting them
+      // would demand a confirmation for every untouched lead every morning, which
+      // trains people to click through the very warning that protects live work.
+      //
+      // The date window is deliberately WIDER than a day here — see the filter
+      // below. SQL can't compare each row against its own lead's zone, so this
+      // fetches everything recent and the real "today" test is applied per lead.
+      where: {
+        leadId: { in: leadIds },
+        assignedAt: { gte: widestDayStart() },
+        type: { not: AssignmentType.carry_forward },
+      },
+      select: { leadId: true, assignedAt: true, lead: { select: { leadId: true, timezone: true } } },
+      orderBy: { assignedAt: 'desc' },
       distinct: ['leadId'],
     });
-    const sameDay = assignedTodayRows.filter((l) => !blocked.has(l.leadId));
+    const sameDay = assignedTodayRows.filter(
+      // "Today" in the LEAD's zone. On an IST server the same instant can be the
+      // 14th here and still the 13th in the US, and it is the lead's date that
+      // decides whether it has already been handed over today.
+      (l) => !blocked.has(l.leadId) && sameDayInZone(l.assignedAt, new Date(), l.lead.timezone),
+    );
     if (sameDay.length > 0 && !confirmSameDayReassign) {
       throw new BadRequestException(
         sameDayConfirmError(
@@ -265,11 +296,19 @@ export class AssignmentsService {
       const movable = prior
         .filter((p) => dto.allowReassign || !p.assignedToId || p.assignedToId === targetByLead.get(p.id))
         .map((p) => p.id);
-      const sameDay = await this.prisma.assignment.findMany({
-        where: { leadId: { in: movable }, assignedAt: { gte: startOfToday() } },
-        select: { leadId: true, lead: { select: { leadId: true } } },
+      const sameDayRows = await this.prisma.assignment.findMany({
+        // Same two rules as the single-lead check above: a re-stamp is not a
+        // handover, and "today" is the lead's US day, not the server's IST one.
+        where: {
+          leadId: { in: movable },
+          assignedAt: { gte: widestDayStart() },
+          type: { not: AssignmentType.carry_forward },
+        },
+        select: { leadId: true, assignedAt: true, lead: { select: { leadId: true, timezone: true } } },
+        orderBy: { assignedAt: 'desc' },
         distinct: ['leadId'],
       });
+      const sameDay = sameDayRows.filter((l) => sameDayInZone(l.assignedAt, new Date(), l.lead.timezone));
       if (sameDay.length > 0) {
         const nameById = new Map(prior.map((p) => [p.id, p.assignedTo?.name ?? null]));
         throw new BadRequestException(
