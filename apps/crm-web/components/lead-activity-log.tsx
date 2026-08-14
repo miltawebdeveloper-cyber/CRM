@@ -6,10 +6,18 @@ import { activitiesApi, type Activity } from '@/lib/crm';
 import { LeadAssignmentHistory } from '@/components/lead-assignment-history';
 import { OutcomePill } from '@/components/outcome-pill';
 import { useOutcomeLabels } from '@/lib/use-outcome-label';
-import { formatDateTime } from '@/lib/display-settings';
+import { leadDateTime, zoneNote } from '@/lib/timezone';
 
-const fmt = (iso: string) =>
-  formatDateTime(iso);
+/**
+ * Every stamp in a lead's history is read on the LEAD's clock.
+ *
+ * This is the lead's own record of what happened to it, and the rest of the
+ * module now dates that lead on its own zone — its created date, the day it is
+ * queued for, the day the next-day sweep moved it to. A history rendered on the
+ * reader's clock would be the one view that disagreed with all of them, and it
+ * is the view people open precisely when the dates are in question.
+ */
+const fmt = (iso: string, tz?: string | null) => leadDateTime(iso, tz);
 
 // Friendly labels for the action keys written across modules.
 const ACTION_LABEL: Record<string, string> = {
@@ -27,6 +35,10 @@ const ACTION_LABEL: Record<string, string> = {
   call_summary_synced: 'AI summary synced',
   call_transcript_synced: 'Transcript synced',
   callback_scheduled: 'Callback scheduled',
+  // Written by the overnight rollover when a scheduled call's day ended without
+  // it: the appointment moves to the next working day, the lead does not change
+  // hands, and nothing about the lead's own record is rewritten.
+  callback_rolled_over: 'Callback moved to the next working day',
   completed: 'Follow-up completed',
   updated: 'Follow-up updated',
   note_added: 'Note added',
@@ -45,13 +57,18 @@ const isUuid = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
  * `outcomeLabel` resolves an outcome slug to its configured name. These columns
  * carry more than outcomes — lead statuses, field edits, booleans — so anything
  * that isn't a known outcome falls through to the humanised value.
+ *
+ * The values that ARE instants get the lead's clock, like every other stamp
+ * here. These are the two halves of "callback moved from X to Y", so showing
+ * them on a different clock from the entry's own timestamp beside them would
+ * make a single row internally inconsistent.
  */
-function showVal(v: string | null, outcomeLabel: (s?: string | null) => string): string {
+function showVal(v: string | null, outcomeLabel: (s?: string | null) => string, tz?: string | null): string {
   if (!v) return '—';
   if (isUuid(v)) return '—';
   const d = new Date(v);
   if (!Number.isNaN(d.getTime()) && /\d{4}-\d{2}-\d{2}T/.test(v)) {
-    return formatDateTime(d);
+    return leadDateTime(d, tz);
   }
   return outcomeLabel(v);
 }
@@ -93,9 +110,12 @@ export function LeadActivityLog({ leadId, title }: { leadId: string; title?: str
             </thead>
             <tbody>
               {items.map((a) => {
+                // The clock this row is stated on — the lead's own, sent with
+                // the entry so the log can't have to guess it.
+                const tz = a.lead?.timezone;
                 let desc = label(a.action);
                 if (a.oldValue || a.newValue) {
-                  desc += `: ${showVal(a.oldValue, outcomeLabel)} ➔ ${showVal(a.newValue, outcomeLabel)}`;
+                  desc += `: ${showVal(a.oldValue, outcomeLabel, tz)} ➔ ${showVal(a.newValue, outcomeLabel, tz)}`;
                 }
                 if (a.remarks) {
                   desc += ` (${a.remarks})`;
@@ -104,7 +124,7 @@ export function LeadActivityLog({ leadId, title }: { leadId: string; title?: str
                 return (
                   <tr key={a.id} className="border-b align-top last:border-0">
                     <td className="whitespace-nowrap px-3 py-2.5 font-mono text-xs">{a.lead?.leadId ?? '—'}</td>
-                    <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">{fmt(a.createdAt)}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground" title={zoneNote(tz)}>{fmt(a.createdAt, tz)}</td>
                     {/* The configured outcome, not the stored slug. `capitalize`
                         is gone with it — a real name carries its own casing, and
                         forcing it mangled "Dm-Not Interested". */}

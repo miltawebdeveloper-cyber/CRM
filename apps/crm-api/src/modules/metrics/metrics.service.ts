@@ -88,9 +88,13 @@ export class MetricsService {
     if (q.from || q.to) {
       // Treat from/to as whole local days so a single-day (Daily) filter spans the
       // full day rather than only the midnight instant.
-      where.createdAt = {};
-      if (q.from) where.createdAt.gte = dayStart(q.from);
-      if (q.to) where.createdAt.lte = dayEnd(q.to);
+      const bounds = { ...(q.from ? { gte: dayStart(q.from) } : {}), ...(q.to ? { lte: dayEnd(q.to) } : {}) };
+      // Which date the range counts against — see MetricsQueryDto.dateField.
+      // `scheduled` reads the active assignment, so a lead created last week and
+      // carried into today counts as today's, exactly as the Lead Management
+      // grid shows it. `created` stays the default and the existing behaviour.
+      if (q.dateField === 'scheduled') where.assignments = { some: { isActive: true, assignedAt: bounds } };
+      else where.createdAt = bounds;
     }
     return where;
   }

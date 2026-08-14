@@ -11,6 +11,16 @@
  * which is wrong for any rep not sitting in the customer's time zone.
  */
 
+import {
+  DATE_FORMAT,
+  DATE_TIME_FORMAT,
+  TIME_FORMAT,
+  formatDate,
+  formatDateTime,
+  formatInZone,
+  formatTime,
+} from './display-settings';
+
 /**
  * Region zones, not fixed offsets: `America/New_York` follows daylight time,
  * where a literal `EST` would sit an hour out for most of the year. Same reason
@@ -98,6 +108,72 @@ export const hasLeadZone = (tz?: string | null): tz is LeadTimezone =>
 const DEFAULT_TZ: LeadTimezone = 'EST';
 
 const zoneOf = (tz?: string | null): string => IANA[(tz as LeadTimezone) ?? DEFAULT_TZ] ?? IANA[DEFAULT_TZ];
+
+// ── A lead's own timestamps, on the lead's own clock ──
+//
+// Everything a lead owns — when it was created, the day it is queued for, when
+// it changed hands, when it was called — is stated in the lead's time zone, not
+// the reader's. A lead created at 6pm Eastern is an 18:00 record on the 14th to
+// everyone who touches it, including a manager in Chennai for whom that instant
+// is 03:30 on the 15th. Without this the same lead answered "when was this
+// created" with two different DATES depending on who was looking, and the
+// next-day sweep — which has always worked on the lead's calendar — looked like
+// it was moving leads a day early.
+//
+// The FORMATS are imported rather than restated. These render exactly what the
+// reader's-clock formatters render; the time zone is the only difference, which
+// is the entire intent.
+
+/**
+ * The clock a lead's timestamps are read on.
+ *
+ * A lead with no zone falls back to Eastern, NOT to the reader's clock, and that
+ * is the deliberate part. The API decides a zone-less lead's calendar day in
+ * Eastern too — `ianaFor` defaults there, which is what the next-day sweep uses
+ * to work out whether that lead's day has turned. Rendering the same lead on the
+ * reader's clock would put the screen back in disagreement with the queue for
+ * exactly the leads whose zone nobody has set, which is the failure this whole
+ * change exists to remove. Display mirrors the computation.
+ *
+ * The fallback is a rendering default and nothing more. Scheduling refuses
+ * outright on a lead with no zone rather than guessing one — a guessed zone is a
+ * call placed at the wrong hour — and `zoneNote` says plainly when a displayed
+ * time is resting on the default.
+ */
+const leadZone = (tz?: string | null): string => (hasLeadZone(tz) ? IANA[tz] : IANA[DEFAULT_TZ]);
+
+/** `Aug 5, 2026` on the lead's clock. Same format as `formatDate`. */
+export const leadDate = (v: string | number | Date | null | undefined, tz?: string | null, fallback?: string) =>
+  formatInZone(leadZone(tz), v, DATE_FORMAT, fallback);
+
+/** `Aug 5, 2026, 10:00 AM` on the lead's clock. Same format as `formatDateTime`. */
+export const leadDateTime = (v: string | number | Date | null | undefined, tz?: string | null, fallback?: string) =>
+  formatInZone(leadZone(tz), v, DATE_TIME_FORMAT, fallback);
+
+/** `10:00 AM` on the lead's clock. Same format as `formatTime`. */
+export const leadTime = (v: string | number | Date | null | undefined, tz?: string | null, fallback?: string) =>
+  formatInZone(leadZone(tz), v, TIME_FORMAT, fallback);
+
+/**
+ * Which clock the value beside it is on, in words — for a `title` tooltip.
+ *
+ * The displayed FORMAT deliberately carries no zone suffix: these columns are
+ * meant to read exactly as they always have. That leaves a real question
+ * unanswered on screen — two leads in different zones show times on two
+ * different clocks in the same column — so the answer hangs off the cell, where
+ * it costs no space. The grid and the export also carry a Time Zone column, so
+ * the row itself says which clock it is on.
+ *
+ * A lead with no zone is called out rather than passed off as Eastern. Somebody
+ * reading a date that rests on a default needs to know it does, because the fix
+ * is to set the lead's zone.
+ */
+export function zoneNote(tz?: string | null): string {
+  if (!hasLeadZone(tz)) {
+    return `This lead has no time zone set — shown in ${TIMEZONE_LABELS[DEFAULT_TZ]}, the default. Set the lead's time zone to date it correctly.`;
+  }
+  return `Shown in the lead's time zone: ${TIMEZONE_LABELS[tz]} (${zoneLabel(tz)}).`;
+}
 
 /**
  * A scheduled time as the CUSTOMER sees it, with the zone named. The label is not

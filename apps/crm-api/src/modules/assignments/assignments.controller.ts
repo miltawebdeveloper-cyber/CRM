@@ -17,7 +17,7 @@ export class AssignmentsController {
   ) {}
 
   /**
-   * How many untouched leads the nightly carry-forward would move into today.
+   * How many unfinished leads the carry-forward would move into their new day.
    * Read-only, so it can be checked without changing anything.
    */
   @Roles(Role.admin, Role.team_leader)

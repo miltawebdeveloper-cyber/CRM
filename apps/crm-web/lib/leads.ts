@@ -25,8 +25,22 @@ export interface Lead {
   title: string | null;
   employeeCode: string | null;
   comments: string | null;   // latest remark; full trail via leadsApi.commentHistory
-  /** When the lead last changed hands. Same-day = locked until tomorrow. */
+  /**
+   * The day this lead is currently scheduled to be worked — its active
+   * assignment's stamp. Moves: a reassignment sets it, and the overnight
+   * carry-forward re-stamps an unfinished lead into its next local day. Also
+   * what the same-day reassignment lock reads (same day = locked until tomorrow).
+   *
+   * NOT `createdAt`. That one records when the lead was first created and is
+   * rewritten by nothing, so the pair tells you both when a lead entered the CRM
+   * and which day's queue it is sitting on now.
+   */
   assignedAt?: string | null;
+  /** How the lead came to be scheduled for `assignedAt` — a fresh assignment, a
+   *  handover, or an automatic move into the next day. */
+  assignmentType?: 'new_assignment' | 'reassignment' | 'carry_forward' | null;
+  /** How many times the lead has been moved to a next day without being finished. */
+  carriedForwardCount?: number;
 
   leadCategory: string | null;
   nextFollowUpDate: string | null;
@@ -77,6 +91,15 @@ export interface Lead {
   quoResponse: unknown;
   quoError: string | null;
   quoSyncedAt: string | null;
+  /**
+   * When the lead was ORIGINALLY created — the timestamp Lead Management shows
+   * as Created Date & Time.
+   *
+   * Written once and rewritten by nothing. Reassigning the lead, carrying it
+   * into the next day, editing any field: none of them touch it, so a lead
+   * carried across a fortnight still reports the hour it first arrived. Use
+   * `assignedAt` for the day it is currently being worked.
+   */
   createdAt: string;
 }
 
@@ -100,6 +123,31 @@ export function isAssignedToday(lead: { assignedAt?: string | null }): boolean {
 }
 
 /**
+ * Why this lead is sitting on the date it is scheduled for, in words.
+ *
+ * The grid cell and the exported file both need this sentence and must not
+ * disagree about it — an export is read away from the screen that produced it,
+ * so "Moved to next day ×3" in the file has to mean what the row said.
+ *
+ * The count is of every carry-forward the lead has ever had, not only the
+ * current one, because that is the useful number: a lead moved eight times is a
+ * lead nobody is getting to, and its current row alone cannot say so. Returns
+ * '' for a lead nobody holds, so the caller decides how to show nothing.
+ */
+export function movementLabel(lead: Pick<Lead, 'assignmentType' | 'carriedForwardCount' | 'assignedTo'>): string {
+  const moved = lead.carriedForwardCount ?? 0;
+  const timesMoved = moved === 1 ? 'moved to next day once' : `moved to next day ${moved}×`;
+  if (lead.assignmentType === 'carry_forward') {
+    return moved > 1 ? `Moved to next day (${moved}×)` : 'Moved to next day';
+  }
+  if (lead.assignmentType === 'reassignment') return moved ? `Reassigned · ${timesMoved}` : 'Reassigned';
+  if (lead.assignmentType === 'new_assignment') return moved ? `Assigned · ${timesMoved}` : 'Assigned';
+  // No assignment row: either the lead has no owner, or it was assigned by a
+  // route that predates the history table and hasn't been re-stamped yet.
+  return lead.assignedTo ? 'Assigned' : '';
+}
+
+/**
  * One entry in a lead's comment trail. Manual edits and call notes share the same
  * feed; `source` says which one it came from.
  */
@@ -116,12 +164,24 @@ export interface LeadAssignment {
   id: string;
   leadId: string;
   leadName: string;
+  /**
+   * The lead's own time zone, repeated on every row so each stamp below can be
+   * read on the LEAD's clock. Null when the lead has no zone set, which is the
+   * one case that falls back to the reader's.
+   */
+  timezone: string | null;
   /** Null on a first assignment — there was nobody to take it from. */
   previousEmployee: string | null;
   newEmployee: string;
   assignedBy: string;
   assignedAt: string;
-  type: 'new_assignment' | 'reassignment';
+  /**
+   * `carry_forward` is not a handover: nobody moved the lead, an automatic sweep
+   * re-stamped it for a new day because its work was still outstanding. It is a
+   * separate type precisely so the trail can say so, and so the once-a-day
+   * reassignment lock can ignore it.
+   */
+  type: 'new_assignment' | 'reassignment' | 'carry_forward';
   remarks: string | null;
   /** The row naming the lead's owner right now. */
   current: boolean;
@@ -210,6 +270,16 @@ export interface LeadListQuery {
   employeeId?: string;
   createdFrom?: string;
   createdTo?: string;
+  /**
+   * Which lead date the `createdFrom`/`createdTo` range applies to.
+   *
+   * `created` (the default) is when the lead was first created; `scheduled` is
+   * the day it is currently queued for. Filtering a day on `created` and reading
+   * it as "today's leads" quietly omits every lead created earlier and carried
+   * forward into today — which is most of a working day, and was missing from
+   * the export along with it.
+   */
+  dateField?: 'created' | 'scheduled';
   /** Closed Leads dates rows by when they closed, not when they were created. */
   closedFrom?: string;
   closedTo?: string;
@@ -231,7 +301,7 @@ export interface LeadPage {
 
 const LIST_KEYS: (keyof LeadListQuery)[] = [
   'mine', 'closed', 'fromLeadId', 'toLeadId', 'limit', 'q', 'status', 'state', 'city',
-  'timezone', 'callStatus', 'assigned', 'employeeId', 'createdFrom', 'createdTo', 'closedFrom', 'closedTo',
+  'timezone', 'callStatus', 'assigned', 'employeeId', 'createdFrom', 'createdTo', 'dateField', 'closedFrom', 'closedTo',
   'closedBy', 'page', 'pageSize', 'sortBy', 'sortDir', 'idsOnly',
 ];
 

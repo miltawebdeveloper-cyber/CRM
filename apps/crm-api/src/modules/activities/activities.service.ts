@@ -31,7 +31,10 @@ export class ActivitiesService {
       take: Math.min(limit, 200),
       include: {
         user: { select: { id: true, name: true, email: true } },
-        lead: { select: { id: true, leadId: true, businessName: true } },
+        // `timezone` so the log can stamp each entry on the LEAD's clock rather
+        // than the reader's. Without it a manager in India reads an American
+        // lead's afternoon activity as having happened the following day.
+        lead: { select: { id: true, leadId: true, businessName: true, timezone: true } },
         assignedTo: { select: { id: true, name: true, email: true } },
       },
     });

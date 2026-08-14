@@ -3,8 +3,8 @@
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, Lock, AlertTriangle } from 'lucide-react';
-import { leadsApi, type CreateLeadInput, type DuplicateMatch, type Lead, type LeadListQuery } from '@/lib/leads';
+import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, Lock, AlertTriangle, CalendarClock } from 'lucide-react';
+import { leadsApi, movementLabel, type CreateLeadInput, type DuplicateMatch, type Lead, type LeadListQuery } from '@/lib/leads';
 import { usersApi } from '@/lib/users';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { LeadAssignDialog } from '@/components/lead-assign-dialog';
@@ -19,17 +19,17 @@ import { StatusPill } from '@/components/status-pill';
 import { TimezoneChip } from '@/components/timezone-chip';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { LEAD_TIMEZONES, TIMEZONE_FILTER_OPTIONS_COMPACT } from '@/lib/timezone';
+import { LEAD_TIMEZONES, TIMEZONE_FILTER_OPTIONS_COMPACT, leadDate, leadDateTime, zoneNote } from '@/lib/timezone';
 import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
 import { type SortState } from '@/lib/use-column-prefs';
 import { downloadCsv, downloadXlsx } from '@/lib/export';
+import { EXPORT_HEADERS, exportRows } from '@/lib/lead-export';
 import { EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { usePersistedState } from '@/lib/use-persisted-state';
 import { useDebounced } from '@/lib/use-debounced';
 import { useInfiniteLeads, useLeadScrollSentinel } from '@/lib/use-infinite-leads';
 import { pushToast } from '@/lib/toast';
-import { formatDate } from '@/lib/display-settings';
 
 /** Ceiling for an export — the API's own `limit` cap, and five times what the
  *  module could reach before. Beyond it the user is told what was left out
@@ -66,6 +66,19 @@ const EMPTY: CreateLeadInput = {
   lostReason: '',
 };
 
+/**
+ * What the date filter beside this one is filtering on.
+ *
+ * "Created Date" is the lead's original arrival — the date it was first created,
+ * which nothing afterwards rewrites. "Scheduled Date" is the day it is currently
+ * queued to be worked, which moves when the lead is reassigned or carried into
+ * the next day. Both are shown as columns, and both are exported.
+ */
+const DATE_FIELD_OPTS = [
+  { label: 'By Created Date', value: 'created' },
+  { label: 'By Scheduled Date', value: 'scheduled' },
+];
+
 // No 'Closed' option — closed leads live in the Closed Leads module and are
 // filtered out of this list by the API.
 const STATUS_OPTS = [
@@ -90,6 +103,20 @@ export default function LeadsPage() {
   const [employeeId, setEmployeeId] = useState('');
   // Persisted so the chosen date filter survives navigating within the module.
   const [dateFilter, setDateFilter] = usePersistedState<DateFilterValue>('leads:date-filter', EMPTY_DATE_FILTER);
+  /**
+   * Which of a lead's two dates the date filter above applies to.
+   *
+   * A lead carries both — when it was created, and which day it is currently
+   * scheduled to be worked — and picking a day means a different set of leads
+   * depending on which one you mean. On `created` (the default, and how this
+   * filter has always behaved) "today" is the leads that arrived today. On
+   * `scheduled` it is the leads on today's queue, which includes every lead
+   * created earlier that was carried into today because its call never
+   * completed. That second set is the one a manager means by "today's leads",
+   * and exporting the first while calling it the second is what left carried
+   * leads out of the file.
+   */
+  const [dateField, setDateField] = usePersistedState<'created' | 'scheduled'>('leads:date-field', 'created');
   const [q, setQ] = useState('');
   // Lead lists open in IMPORT order — row 1 of the uploaded file first — until
   // the user sorts by something else. Declared here because the list query below
@@ -131,9 +158,10 @@ export default function LeadsPage() {
     employeeId: employeeId || undefined,
     createdFrom: dateFilter.from || undefined,
     createdTo: dateFilter.to || undefined,
+    dateField,
     sortBy: sort.key,
     sortDir: sort.dir,
-  }), [debouncedQ, tz, state, city, status, callStatus, employeeId, dateFilter.from, dateFilter.to, sort.key, sort.dir]);
+  }), [debouncedQ, tz, state, city, status, callStatus, employeeId, dateFilter.from, dateFilter.to, dateField, sort.key, sort.dir]);
 
   // Changing a filter or the sort changes the query key, so the list starts
   // again from the top on its own — no page number to reset.
@@ -200,74 +228,15 @@ export default function LeadsPage() {
     onError: () => setSyncMsg('Sync failed — check the API is running and OpenPhone is configured.'),
   });
 
-  const EXPORT_HEADERS = [
-    'Lead ID',
-    'Lead Generation ID',
-    'Created Date',
-    'Lead Source',
-    'Company Name',
-    'Contact Person',
-    'Designation',
-    'Phone',
-    'Alt Phone',
-    'Email',
-    'Website',
-    'Social Media',
-    'Country',
-    'State',
-    'City',
-    'Time Zone',
-    'Industry',
-    'Company Size',
-    'Founded Year',
-    'Address',
-    'Assigned To',
-    'Call Status',
-    'First Contact',
-    'Last Contact',
-    'Next Follow-up',
-    'Follow-up Count',
-    'Meeting Date',
-    'Lost Reason',
-    'Comments'
-  ];
   // Export covers the whole FILTERED result set, not the page on screen.
   //
   // It used to map over `leads`, which was every row the page had downloaded and
   // filtered — the same thing. Now that the grid holds one page, mapping it
   // would quietly export fifty rows and call it the export. So it asks the API
   // for the same query without paging, and only then builds the file.
-  const exportRows = (rows: Lead[]) => rows.map((l) => [
-    l.leadId,
-    l.leadGenerationId ?? '',
-    l.createdAt ? formatDate(l.createdAt) : '',
-    l.leadSource ?? '',
-    l.businessName,
-    l.contactName ?? '',
-    l.contactName2 ?? '',
-    l.phone,
-    l.altPhone ?? '',
-    l.email ?? '',
-    l.website ?? '',
-    l.socialMedia ?? '',
-    l.country ?? '',
-    l.state,
-    l.city,
-    l.timezone ?? '',
-    l.industry ?? '',
-    l.companySize ?? '',
-    l.foundedYear ?? '',
-    l.address ?? '',
-    l.assignedTo?.name ?? '',
-    l.callStatus ?? '',
-    l.firstContact ? formatDate(l.firstContact) : '',
-    l.lastContact ? formatDate(l.lastContact) : '',
-    l.nextFollowUpDate ? formatDate(l.nextFollowUpDate) : '',
-    l.followupCount ?? '',
-    l.meetingDate ? formatDate(l.meetingDate) : '',
-    l.lostReason ?? '',
-    l.comments ?? ''
-  ]);
+  //
+  // The columns themselves live in `lib/lead-export`, where each heading and the
+  // value that fills it are declared together — see the note there.
 
   // States cascade from the selected timezone; cities from timezone + state —
   // the cascade the API applies when it groups them, so these read the same as
@@ -275,10 +244,13 @@ export default function LeadsPage() {
   const stateOpts = optionsFrom(filterOpts?.states ?? [], 'All States');
   const cityOpts = optionsFrom(filterOpts?.cities ?? [], 'All Cities');
 
-  // KPI cards respect the same date filter as the table (backend scopes by createdAt).
+  // KPI cards respect the same date filter as the table, ON THE SAME DATE —
+  // `dateField` goes with the range, so switching the grid to scheduled dates
+  // moves the cards with it rather than leaving them counting leads by when they
+  // were created while the table below lists leads by when they are queued.
   const { data: s } = useQuery({
-    queryKey: ['metrics', 'summary', dateFilter.from, dateFilter.to],
-    queryFn: () => metricsApi.summary({ from: dateFilter.from || undefined, to: dateFilter.to || undefined }),
+    queryKey: ['metrics', 'summary', dateFilter.from, dateFilter.to, dateField],
+    queryFn: () => metricsApi.summary({ from: dateFilter.from || undefined, to: dateFilter.to || undefined, dateField }),
     retry: false,
   });
 
@@ -367,7 +339,64 @@ export default function LeadsPage() {
       ),
     },
     { key: 'leadGenerationId', header: 'Lead Generation ID', cellClassName: 'text-muted-foreground', render: (l) => l.leadGenerationId ?? '—', searchable: true, sortable: true, searchValue: (l) => l.leadGenerationId },
-    { key: 'createdDate', header: 'Created Date', cellClassName: 'text-muted-foreground', render: (l) => l.createdAt ? formatDate(l.createdAt) : '—' },
+    /**
+     * The original creation stamp, to the minute.
+     *
+     * This is where the module's plain "Created Date" column used to be, and it
+     * has taken that column's place: the date-only version was WITHDRAWN
+     * TEMPORARILY rather than kept alongside, because the two showed the same
+     * instant and the grid is wide enough already. Restoring it is one line —
+     * `{ key: 'createdDate', header: 'Created Date', … formatDate(l.createdAt) }`
+     * back in front of this one. The export still writes both.
+     *
+     * The date alone was never enough for the question this answers. A lead
+     * reassigned in the afternoon, or carried into the next day, is
+     * indistinguishable on the date from one created that morning. The time is
+     * the evidence that the record is the ORIGINAL — and it survives every
+     * reassignment and every next-day move, because nothing in the CRM writes
+     * `createdAt` after the lead is created.
+     *
+     * `key` is `createdAt` deliberately: the grid sends the column key as the
+     * server's sort field, and that is the column the server orders by.
+     */
+    {
+      key: 'createdAt', header: 'Created Date & Time', width: 170, sortable: true,
+      cellClassName: 'text-muted-foreground whitespace-nowrap',
+      searchable: true,
+      searchValue: (l) => leadDateTime(l.createdAt, l.timezone, ''),
+      render: (l) => <span title={zoneNote(l.timezone)}>{leadDateTime(l.createdAt, l.timezone)}</span>,
+    },
+    /**
+     * The other half of the pair: the day this lead is currently scheduled to be
+     * worked, taken from its active assignment.
+     *
+     * Distinct from Created Date & Time in exactly the way the two dates are
+     * distinct. A lead created on the 1st, never finished, and carried forward
+     * every night reads "Jan 1, 09:14" beside today's date — one row saying both
+     * how old the lead is and that it is on today's queue. Before this pair
+     * existed the grid could only show the first, so a carried lead looked like
+     * a stale one nobody had scheduled.
+     */
+    {
+      key: 'scheduledDate', header: 'Scheduled Date', width: 150,
+      cellClassName: 'text-muted-foreground whitespace-nowrap',
+      trackable: true,
+      render: (l) => <span title={zoneNote(l.timezone)}>{leadDate(l.assignedAt, l.timezone)}</span>,
+    },
+    /**
+     * How the lead came to be on that date — assigned, handed over, or moved
+     * forward, with the number of times it has been moved.
+     *
+     * Hidden by default: it is a diagnosis column, wanted when a manager is
+     * asking why a lead is still open rather than on every screen.
+     */
+    {
+      key: 'movement', header: 'Movement', width: 190, defaultHidden: true,
+      cellClassName: 'text-muted-foreground',
+      searchable: true,
+      searchValue: (l) => movementLabel(l),
+      render: (l) => movementLabel(l) || '—',
+    },
     { key: 'leadSource', header: 'Lead Source', cellClassName: 'text-muted-foreground', render: (l) => l.leadSource ?? '—', searchable: true, sortable: true, searchValue: (l) => l.leadSource },
     { key: 'businessName', header: 'Company Name', render: (l) => l.businessName, searchable: true, sortable: true, searchValue: (l) => l.businessName },
     { key: 'contactName', header: 'Contact Person', render: (l) => l.contactName ?? '—', searchable: true, sortable: true, searchValue: (l) => l.contactName },
@@ -417,13 +446,17 @@ export default function LeadsPage() {
       sortable: true,
       searchValue: (l) => l.callStatus,
     },
-    { key: 'firstContact', header: 'First Contact', cellClassName: 'text-muted-foreground', render: (l) => l.firstContact ? formatDate(l.firstContact) : '—' },
-    { key: 'lastContact', header: 'Last Contact', cellClassName: 'text-muted-foreground', render: (l) => l.lastContact ? formatDate(l.lastContact) : '—' },
-    { key: 'followup', header: 'Next Follow-up', cellClassName: 'text-muted-foreground', render: (l) => l.nextFollowUpDate ? formatDate(l.nextFollowUpDate) : '—', trackable: true },
+    // Every date on this row belongs to the lead, so every one of them is read
+    // on the lead's clock — including the follow-up, which is an hour agreed
+    // with the customer and is the one it would be most damaging to state on
+    // anybody else's.
+    { key: 'firstContact', header: 'First Contact', cellClassName: 'text-muted-foreground', render: (l) => <span title={zoneNote(l.timezone)}>{leadDate(l.firstContact, l.timezone)}</span> },
+    { key: 'lastContact', header: 'Last Contact', cellClassName: 'text-muted-foreground', render: (l) => <span title={zoneNote(l.timezone)}>{leadDate(l.lastContact, l.timezone)}</span> },
+    { key: 'followup', header: 'Next Follow-up', cellClassName: 'text-muted-foreground', render: (l) => <span title={zoneNote(l.timezone)}>{leadDate(l.nextFollowUpDate, l.timezone)}</span>, trackable: true },
     { key: 'followupCount', header: 'Follow-up Count', cellClassName: 'text-muted-foreground', render: (l) => l.followupCount ?? '—' },
     // Requested tail order: Meeting Date → Comments → Lost Reason → Actions. Comments
     // and Lost Reason both edit in place; Comments also syncs with call notes.
-    { key: 'meetingDate', header: 'Meeting Date', cellClassName: 'text-muted-foreground', render: (l) => l.meetingDate ? formatDate(l.meetingDate) : '—' },
+    { key: 'meetingDate', header: 'Meeting Date', cellClassName: 'text-muted-foreground', render: (l) => <span title={zoneNote(l.timezone)}>{leadDate(l.meetingDate, l.timezone)}</span> },
     {
       key: 'comments',
       header: 'Comments',
@@ -472,8 +505,16 @@ export default function LeadsPage() {
     },
   ], [router, canManage, dial, callingEnabled]);
 
-  // Shared column prefs for Column Customization (visibility/order) — unchanged.
-  const prefs = useColumnPrefs('leads', columns);
+  // Shared column prefs for Column Customization (visibility/order).
+  //
+  // Revision 1: the date-only "Created Date" was withdrawn and Created Date &
+  // Time, Scheduled Date and Movement put in its place. That is a decision about
+  // what this module shows, not a suggestion — so a saved layout from before it
+  // adopts the new order once, instead of leaving anyone who had ever dragged or
+  // hidden a column looking at the old arrangement with the new columns pushed
+  // off the right-hand edge. Hidden columns and widths are kept; only the
+  // arrangement is taken. See `useColumnPrefs`.
+  const prefs = useColumnPrefs('leads', columns, 1);
 
   // Filtering and sorting used to happen here, over the whole downloaded book —
   // a pass across every lead on every keystroke, followed by a re-render of
@@ -573,6 +614,11 @@ export default function LeadsPage() {
         {isAdmin && <FilterSelect className="min-w-0 flex-1" icon={UserIcon} value={employeeId} onChange={setEmployeeId} options={employeeOpts} />}
         <FilterSelect className="min-w-0 flex-1" icon={Tag} value={status} onChange={setStatus} options={STATUS_OPTS} />
         <FilterSelect className="min-w-0 flex-1" icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={callOutcomeOpts} />
+        {/* Sits immediately before the calendar because it says what the calendar
+            means. Picking a day is ambiguous on its own — created that day, or
+            queued for that day — and these are different sets of leads the
+            moment anything is carried forward. */}
+        <FilterSelect className="min-w-0 flex-1" icon={CalendarClock} value={dateField} onChange={(v) => setDateField(v as 'created' | 'scheduled')} options={DATE_FIELD_OPTS} />
         <DateFilter value={dateFilter} onChange={setDateFilter} />
       </div>
 

@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Phone, MessageSquare, Info, Pencil } from 'lucide-react';
-import { leadsApi, type UpdateLeadInput } from '@/lib/leads';
+import { leadsApi, movementLabel, type UpdateLeadInput } from '@/lib/leads';
 import { communicationsApi } from '@/lib/crm';
 import { useCanCall } from '@/lib/use-can-call';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
@@ -14,7 +14,8 @@ import { ZoomTimeline } from '@/components/zoom-timeline';
 import { FollowupSequence } from '@/components/followup-sequence';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { api } from '@/lib/api';
-import { formatDate, formatDateTime, formatTime } from '@/lib/display-settings';
+import { formatDateTime, formatTime } from '@/lib/display-settings';
+import { leadDate, leadDateTime } from '@/lib/timezone';
 import { LEAD_TIMEZONES } from '@/lib/timezone';
 
 const SMS_TEMPLATES: { label: string; text: (name: string) => string }[] = [
@@ -247,7 +248,13 @@ export default function LeadDetailPage() {
             <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {field('Lead ID', lead.leadId)}
               {field('Lead Generation ID', lead.leadGenerationId)}
-              {field('Created Date', lead.createdAt ? formatDate(lead.createdAt) : null)}
+              {/* The original creation stamp, to the minute, and the day the
+                  lead is currently queued for. Both, because they answer
+                  different questions and drift apart the moment a lead is
+                  reassigned or carried into the next day. */}
+              {field('Created Date & Time', lead.createdAt ? leadDateTime(lead.createdAt, lead.timezone) : null)}
+              {field('Scheduled Date', lead.assignedAt ? leadDate(lead.assignedAt, lead.timezone) : null)}
+              {field('Movement', movementLabel(lead) || null)}
               {field('Lead Source', lead.leadSource)}
               {field('Company Name', lead.businessName)}
               {field('Contact Person', lead.contactName)}
@@ -267,11 +274,11 @@ export default function LeadDetailPage() {
               {field('Address', lead.address)}
               {field('Assigned To', lead.assignedTo?.name)}
               {field('Call Status', lead.callStatus)}
-              {field('First Contact', lead.firstContact ? formatDate(lead.firstContact) : null)}
-              {field('Last Contact', lead.lastContact ? formatDate(lead.lastContact) : null)}
-              {field('Next Follow-up', lead.nextFollowUpDate ? formatDate(lead.nextFollowUpDate) : null)}
+              {field('First Contact', lead.firstContact ? leadDate(lead.firstContact, lead.timezone) : null)}
+              {field('Last Contact', lead.lastContact ? leadDate(lead.lastContact, lead.timezone) : null)}
+              {field('Next Follow-up', lead.nextFollowUpDate ? leadDate(lead.nextFollowUpDate, lead.timezone) : null)}
               {field('Follow-up Count', lead.followupCount != null ? String(lead.followupCount) : null)}
-              {field('Meeting Date', lead.meetingDate ? formatDate(lead.meetingDate) : null)}
+              {field('Meeting Date', lead.meetingDate ? leadDate(lead.meetingDate, lead.timezone) : null)}
               {field('Lost Reason', lead.lostReason)}
               {field('Status', <span className="capitalize">{lead.status.replace('_', ' ')}</span>)}
             </dl>
@@ -390,6 +397,13 @@ export default function LeadDetailPage() {
             </button>
           </div>
 
+          {/* The one panel on this page still read on the READER's clock, and
+              deliberately. Everything above belongs to the lead and is stated on
+              the lead's zone; these two are our integration's own behaviour —
+              when this server last pushed the contact and how each attempt went.
+              Somebody debugging a failed sync is matching them against their own
+              logs and their own clock, and a customer's zone is not where that
+              happened. */}
           <dl className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
             {field('Quo Lead ID', lead.quoExternalId)}
             {field('Last synced', lead.quoSyncedAt ? formatDateTime(lead.quoSyncedAt) : null)}
@@ -471,7 +485,7 @@ export default function LeadDetailPage() {
                       {t.by ? <span className="ml-2 font-normal text-muted-foreground">· {t.by}</span> : ''}
                       {t.kind === 'call' && !inbound && t.from ? <span className="ml-2 font-normal text-muted-foreground">· from <span className="font-mono">{t.from}</span></span> : ''}
                     </span>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">{formatDateTime(t.at)}</span>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">{leadDateTime(t.at, lead.timezone)}</span>
                   </div>
                   {t.body && <p className="mt-1 whitespace-pre-wrap text-[12.5px] text-foreground">{t.body}</p>}
                   {t.aiSummary && <p className="mt-1 text-[12px] text-muted-foreground"><strong>AI summary:</strong> {t.aiSummary}</p>}

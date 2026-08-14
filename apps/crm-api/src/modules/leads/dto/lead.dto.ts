@@ -543,15 +543,37 @@ export class ListLeadsQueryDto {
   @IsUUID()
   employeeId?: string;
 
-  @ApiPropertyOptional({ description: 'Created on or after (ISO date)' })
+  @ApiPropertyOptional({ description: 'Range start (ISO date) — see dateField for which date it applies to' })
   @IsOptional()
   @IsString()
   createdFrom?: string;
 
-  @ApiPropertyOptional({ description: 'Created on or before (ISO date)' })
+  @ApiPropertyOptional({ description: 'Range end (ISO date) — see dateField for which date it applies to' })
   @IsOptional()
   @IsString()
   createdTo?: string;
+
+  /**
+   * Which of the lead's two dates `createdFrom`/`createdTo` filter on.
+   *
+   * A lead carries both, and they answer different questions:
+   *
+   *   `created`   — when the lead was FIRST created. Set once, rewritten by
+   *                 nothing: not by a reassignment, not by being carried into
+   *                 the next day. This is the default, so every existing caller
+   *                 keeps the behaviour it has always had.
+   *   `scheduled` — the day the lead is currently on somebody's queue for,
+   *                 taken from its active assignment. This is the one that
+   *                 moves.
+   *
+   * Filtering a day on `created` and calling the result "today's leads" is the
+   * mistake this option exists to fix: it drops every lead created earlier and
+   * carried forward into today, which for a working book is most of the day.
+   */
+  @ApiPropertyOptional({ description: 'created (default) | scheduled — which date the from/to range applies to' })
+  @IsOptional()
+  @IsIn(['created', 'scheduled'])
+  dateField?: 'created' | 'scheduled';
 
   /** Closed Leads filters on when a lead CLOSED, not when it was created — the
    *  two are months apart for anything that took work to win. */

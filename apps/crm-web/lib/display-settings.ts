@@ -13,8 +13,22 @@
  * line shown beside a customer's time so the rep can see both.
  *
  * The rule, applied throughout:
- *   an appointment WITH someone  → their zone   (lib/timezone.ts)
- *   a record OF something        → the reader's zone (here)
+ *   anything belonging to a LEAD  → the lead's zone (lib/timezone.ts)
+ *   everything else               → the reader's zone (here)
+ *
+ * That first line used to be narrower — only appointments were shown on the
+ * customer's clock, and records ABOUT a lead (when it was created, when it was
+ * handed over, when a call was logged) were shown on the reader's. In a business
+ * that runs American leads from India that split does not survive contact with
+ * the work: a lead created at 6pm Eastern reads as the NEXT DAY to a manager in
+ * Chennai, so its created date, the day it is queued for, and the day the
+ * next-day sweep moves it to were three answers on two different calendars.
+ * Everything a lead owns is now stated on the lead's clock, which is the one the
+ * customer is on and the one the whole queue is already scheduled against.
+ *
+ * What stays here: things that belong to the READER or to the business rather
+ * than to a lead — when they last signed in, the dashboard's own date range,
+ * "today" on a productivity report.
  *
  * Preferences are stored per user via `/me/preferences`, so they follow the
  * person across devices and survive logout — the browser's own zone is only
@@ -157,30 +171,59 @@ const toDate = (v: string | number | Date | null | undefined): Date | null => {
   return Number.isNaN(d.getTime()) ? null : d;
 };
 
-const fmt = (v: string | number | Date | null | undefined, opts: Intl.DateTimeFormatOptions, fallback = '—') => {
+/**
+ * The shapes themselves, named and shared.
+ *
+ * Separated from the formatters below because the same shapes are also rendered
+ * on a clock that is NOT the reader's: a lead's timestamps are shown on the
+ * lead's own clock (see `lib/timezone`), and "same format, different zone" has
+ * to be true by construction rather than by two lists being kept in step. Add a
+ * format here and both readings of it stay identical.
+ */
+export const DATE_FORMAT: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric' };
+export const TIME_FORMAT: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
+export const DATE_TIME_FORMAT: Intl.DateTimeFormatOptions = { ...DATE_FORMAT, ...TIME_FORMAT };
+
+/** The locale every formatter renders in — the user's, falling back to US English. */
+const localeNow = () => (currentLanguage === 'en' ? 'en-US' : currentLanguage);
+
+/**
+ * Render an instant on a NAMED clock, in one of the formats above.
+ *
+ * The zone is a parameter here and a global below, which is the whole
+ * distinction: most of the CRM shows a record on the reader's clock, while
+ * anything belonging to a lead is shown on the lead's. Both go through this, so
+ * neither can drift from the other on formatting.
+ */
+export const formatInZone = (
+  zone: string,
+  v: string | number | Date | null | undefined,
+  opts: Intl.DateTimeFormatOptions,
+  fallback = '—',
+) => {
   const d = toDate(v);
   if (!d) return fallback;
   try {
-    return new Intl.DateTimeFormat(currentLanguage === 'en' ? 'en-US' : currentLanguage, {
-      timeZone: currentZone,
-      ...opts,
-    }).format(d);
+    return new Intl.DateTimeFormat(localeNow(), { timeZone: zone, ...opts }).format(d);
   } catch {
     return d.toISOString().slice(0, 16).replace('T', ' ');
   }
 };
 
+const fmt = (v: string | number | Date | null | undefined, opts: Intl.DateTimeFormatOptions, fallback = '—') =>
+  formatInZone(currentZone, v, opts, fallback);
+
 /** `Aug 5, 2026` */
 export const formatDate = (v: string | number | Date | null | undefined, fallback?: string) =>
-  fmt(v, { year: 'numeric', month: 'short', day: 'numeric' }, fallback);
+  fmt(v, DATE_FORMAT, fallback);
 
 /** `10:00 AM` */
 export const formatTime = (v: string | number | Date | null | undefined, fallback?: string) =>
-  fmt(v, { hour: '2-digit', minute: '2-digit' }, fallback);
+  fmt(v, TIME_FORMAT, fallback);
 
 /** `Aug 5, 2026, 10:00 AM` */
 export const formatDateTime = (v: string | number | Date | null | undefined, fallback?: string) =>
-  fmt(v, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }, fallback);
+  fmt(v, DATE_TIME_FORMAT, fallback);
 
 /** `Aug 5, 10:00 AM EDT` — for anywhere the zone itself is worth stating. */
 export const formatDateTimeWithZone = (v: string | number | Date | null | undefined, fallback?: string) =>

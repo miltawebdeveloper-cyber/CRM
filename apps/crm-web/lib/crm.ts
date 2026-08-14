@@ -100,6 +100,16 @@ export interface BarPoint {
 export interface MetricsRange {
   from?: string;
   to?: string;
+  /**
+   * Which lead date `from`/`to` count against — `created` (default) or
+   * `scheduled`, the day the lead's active assignment puts it on the queue for.
+   *
+   * Lead Management's KPI cards pass whatever its grid is filtered by, so the
+   * cards keep describing the rows underneath them. Without it, switching the
+   * grid to scheduled dates left the cards counting a different set of leads
+   * under the same heading.
+   */
+  dateField?: 'created' | 'scheduled';
 }
 export const metricsApi = {
   summary: async (params?: MetricsRange): Promise<MetricsSummary> => (await api.get('/metrics/summary', { params })).data,
@@ -561,7 +571,9 @@ export interface Activity {
   ipAddress: string | null;
   createdAt: string;
   user: { id: string; name: string; email: string } | null;
-  lead: { id: string; leadId: string; businessName: string } | null;
+  /** `timezone` is the clock this entry's timestamps are stated on — the LEAD's,
+   *  not the reader's. Null when the lead has no zone set. */
+  lead: { id: string; leadId: string; businessName: string; timezone?: string | null } | null;
   callStatus: string | null;
   assignedTo: { id: string; name: string; email: string } | null;
 }

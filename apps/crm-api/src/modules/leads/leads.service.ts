@@ -112,8 +112,32 @@ const LIST_SELECT = {
   assignedToId: true,
   assignedTo: { select: { id: true, name: true, email: true } },
   closedBy: { select: { id: true, name: true, email: true } },
-  // Newest active handover, used to expose `assignedAt` on the row.
-  assignments: { where: { isActive: true }, orderBy: { assignedAt: 'desc' }, take: 1, select: { assignedAt: true } },
+  /**
+   * The row's SCHEDULED date, and how it came to be scheduled for that day.
+   *
+   * This is the second of the module's two dates and must not be confused with
+   * the first. `createdAt` above is when the lead was originally created and is
+   * never rewritten by anything; this is the day the lead is currently on
+   * somebody's queue for, which moves — a manager reassigns it, or the overnight
+   * carry-forward rolls an unfinished lead into its next local day.
+   *
+   * `type` comes with it so the grid can say WHY the lead sits on that date:
+   * `new_assignment`, `reassignment`, or `carry_forward` (moved to the next day).
+   */
+  assignments: {
+    where: { isActive: true },
+    orderBy: { assignedAt: 'desc' },
+    take: 1,
+    select: { assignedAt: true, type: true },
+  },
+  /**
+   * How many times this lead has been rolled into a new day without being
+   * finished — the "moved to the next day" count the grid and the export show.
+   *
+   * Counted here because the row above holds only the ACTIVE assignment, so the
+   * client has no way to work it out: every earlier carry-forward row is closed.
+   */
+  _count: { select: { assignments: { where: { type: AssignmentType.carry_forward } } } },
 } satisfies Prisma.LeadSelect;
 
 /**
@@ -1412,15 +1436,30 @@ export class LeadsService {
       : {};
     const assignedFilter =
       query.assigned === 'assigned' ? { assignedToId: { not: null } } : query.assigned === 'unassigned' ? { assignedToId: null } : {};
-    const createdFilter =
-      query.createdFrom || query.createdTo
-        ? {
-            createdAt: {
-              ...(query.createdFrom ? { gte: new Date(query.createdFrom) } : {}),
-              ...(query.createdTo ? { lte: new Date(`${query.createdTo.slice(0, 10)}T23:59:59.999Z`) } : {}),
-            },
-          }
-        : {};
+    /**
+     * The date range, applied to whichever of the module's two dates was asked
+     * for.
+     *
+     * `created` (the default, and what every existing caller gets) reads
+     * `createdAt` — when the lead was FIRST created, a stamp nothing rewrites.
+     *
+     * `scheduled` reads the active assignment instead — the day the lead is
+     * currently on somebody's queue for. The two are the same day only until the
+     * lead is reassigned or carried into a new day, and the difference is what
+     * this option exists for: filtering "today" on `createdAt` answers "leads
+     * created today" and silently drops every lead carried forward INTO today,
+     * which is most of a rep's actual day. An export of that filter looked
+     * complete and was missing exactly the leads that had moved.
+     */
+    const dateBounds = {
+      ...(query.createdFrom ? { gte: new Date(query.createdFrom) } : {}),
+      ...(query.createdTo ? { lte: new Date(`${query.createdTo.slice(0, 10)}T23:59:59.999Z`) } : {}),
+    };
+    const dateFilter: Prisma.LeadWhereInput = !(query.createdFrom || query.createdTo)
+      ? {}
+      : query.dateField === 'scheduled'
+        ? { assignments: { some: { isActive: true, assignedAt: dateBounds } } }
+        : { createdAt: dateBounds };
 
     // Closed Leads dates its rows by when they closed, which is a different
     // column and often a different month from when they were created.
@@ -1470,7 +1509,7 @@ export class LeadsService {
       ...zoneFilter,
       ...outcomeFilter,
       ...assignedFilter,
-      ...createdFilter,
+      ...dateFilter,
     };
 
     // ── Default ordering: the order the leads arrived in ──
@@ -1539,11 +1578,21 @@ export class LeadsService {
       }),
     ]);
 
-    // Flatten the handover date onto the lead and drop the relation — the client
-    // only needs "when did this change hands", which is what the same-day lock
-    // keys off, not the assignment rows themselves.
+    // Flatten the scheduling facts onto the lead and drop the relations — the
+    // client needs the date the lead is currently scheduled for, how it got
+    // there, and how many times it has been carried into a new day. Not the
+    // assignment rows themselves; the full trail is `assignmentHistory`.
+    //
+    // `createdAt` travels alongside untouched. The pair is the point: one date
+    // says when the lead was created and never changes, the other says which day
+    // it is being worked and moves.
     return {
-      rows: rows.map(({ assignments, ...lead }) => ({ ...lead, assignedAt: assignments[0]?.assignedAt ?? null })),
+      rows: rows.map(({ assignments, _count, ...lead }) => ({
+        ...lead,
+        assignedAt: assignments[0]?.assignedAt ?? null,
+        assignmentType: assignments[0]?.type ?? null,
+        carriedForwardCount: _count.assignments,
+      })),
       total,
       page,
       pageSize,
@@ -1564,7 +1613,11 @@ export class LeadsService {
   async assignmentHistory(id: string) {
     const lead = await this.prisma.lead.findFirst({
       where: { id, deletedAt: null },
-      select: { id: true, leadId: true, businessName: true },
+      // The zone travels with the history so the client renders each stamp on
+      // the LEAD's clock. Sent from here rather than passed in as a prop: this
+      // view is opened from two places, and a zone supplied by the caller is a
+      // zone that can be supplied wrongly.
+      select: { id: true, leadId: true, businessName: true, timezone: true },
     });
     if (!lead) throw new NotFoundException('Lead not found');
 
@@ -1587,9 +1640,11 @@ export class LeadsService {
     return rows.map((r) => ({
       id: r.id,
       // The lead is repeated on every row so a history entry can be read, or
-      // exported, without needing the lead fetched alongside it.
+      // exported, without needing the lead fetched alongside it — including the
+      // zone its timestamps are to be read on.
       leadId: lead.leadId,
       leadName: lead.businessName,
+      timezone: lead.timezone,
       previousEmployee: r.previousCaller?.name ?? null,
       newEmployee: r.caller.name,
       assignedBy: r.assignedBy.name,
@@ -1672,6 +1727,17 @@ export class LeadsService {
       include: {
         assignedTo: { select: { id: true, name: true, email: true } },
         closedBy: { select: { id: true, name: true, email: true } },
+        // The same scheduling pair the grid rows carry, so a lead opened on its
+        // own page reports the day it is queued for and how many times it has
+        // been moved — not only `createdAt`, which says when it arrived and is
+        // the same on a lead carried for a month as on one created this morning.
+        assignments: {
+          where: { isActive: true },
+          orderBy: { assignedAt: 'desc' },
+          take: 1,
+          select: { assignedAt: true, type: true },
+        },
+        _count: { select: { assignments: { where: { type: AssignmentType.carry_forward } } } },
       },
     });
     if (!lead) throw new NotFoundException('Lead not found');
@@ -1680,7 +1746,13 @@ export class LeadsService {
     if (user?.role === Role.employee && lead.assignedToId !== user.id && lead.closedById !== user.id) {
       throw new NotFoundException('Lead not found');
     }
-    return lead;
+    const { assignments, _count, ...rest } = lead;
+    return {
+      ...rest,
+      assignedAt: assignments[0]?.assignedAt ?? null,
+      assignmentType: assignments[0]?.type ?? null,
+      carriedForwardCount: _count.assignments,
+    };
   }
 
   /**

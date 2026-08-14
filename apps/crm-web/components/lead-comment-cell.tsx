@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { History, Loader2 } from 'lucide-react';
 import { leadsApi, type Lead } from '@/lib/leads';
 import { callsApi } from '@/lib/crm';
-import { formatDateTime } from '@/lib/display-settings';
+import { leadDateTime, zoneNote } from '@/lib/timezone';
 
 /**
  * The Comments cell in Lead Management: shows the latest remark, edits in place,
@@ -155,7 +155,11 @@ function CommentHistoryDialog({ lead, onClose }: { lead: Lead; onClose: () => vo
                     {c.source}
                   </span>
                   <span className="font-medium text-foreground">{c.user}</span>
-                  <span>{formatDateTime(c.at)}</span>
+                  {/* The comment trail is part of the lead's history, so it is
+                      stamped on the lead's clock like the rest of it — a remark
+                      left during a call must not read as the following day
+                      beside the call it was left on. */}
+                  <span title={zoneNote(lead.timezone)}>{leadDateTime(c.at, lead.timezone)}</span>
                 </div>
                 <p className="whitespace-pre-wrap text-[12px]">{c.text}</p>
               </div>
