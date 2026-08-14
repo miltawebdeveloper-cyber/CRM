@@ -145,6 +145,12 @@ interface StoredPrefs {
   untracked?: string[];
   /** Searchable-eligible columns the user turned OFF. */
   unsearchable?: string[];
+  /**
+   * Which revision of the table's own layout this was saved against — see the
+   * `layoutRev` argument to `useColumnPrefs`. Absent on anything saved before
+   * the mechanism existed, which reads as revision 0.
+   */
+  layoutRev?: number;
 }
 
 /** Decode the current user's id from the JWT so prefs are per-user. */
@@ -178,6 +184,75 @@ function saveLocal(tableKey: string, value: StoredPrefs) {
   } catch {
     /* ignore quota / serialization errors */
   }
+}
+
+/**
+ * A saved column order, reconciled with the columns that exist today.
+ *
+ * Two things have to happen. Columns the table no longer declares are dropped —
+ * a saved layout outlives the code that produced it. And columns the saved
+ * layout has never seen have to be placed.
+ *
+ * Placing them is the part that was wrong. They used to be appended to the end,
+ * which on a table like Lead Management — thirty-odd columns and a horizontal
+ * scrollbar — puts every new column off the right edge of the screen, in a
+ * position nobody chose, for everyone who has ever dragged a column or hidden
+ * one. The author's declared position was honoured only for users who had never
+ * customised the table at all, which is the smaller half and shrinking. So a
+ * column added "next to Created Date" landed next to Created Date for some
+ * people and three screens away for the rest.
+ *
+ * Each new column is instead inserted after its nearest declared neighbour that
+ * the user actually has, which reads as "where the author put it, adjusted for
+ * whatever this user has done to the rest". Walking the declared order forwards
+ * keeps a run of consecutive new columns in their declared sequence, because by
+ * the time the second is placed the first is already there to anchor it. A
+ * column declared before anything the user has goes to the front.
+ *
+ * Everything the user did themselves is preserved exactly: this only decides
+ * where columns they have never seen go.
+ */
+export function mergeSavedOrder(savedOrder: string[], declaredOrder: string[]): string[] {
+  const declared = new Set(declaredOrder);
+  const merged = savedOrder.filter((k) => declared.has(k));
+  const present = new Set(merged);
+
+  for (let i = 0; i < declaredOrder.length; i++) {
+    const key = declaredOrder[i];
+    if (present.has(key)) continue;
+    // Nearest column declared to its left that this user actually has.
+    let at = 0;
+    for (let j = i - 1; j >= 0; j--) {
+      const idx = merged.indexOf(declaredOrder[j]);
+      if (idx >= 0) {
+        at = idx + 1;
+        break;
+      }
+    }
+    merged.splice(at, 0, key);
+    present.add(key);
+  }
+  return merged;
+}
+
+/**
+ * The order to show, given what the user saved and which revision of the
+ * table's layout they saved it against.
+ *
+ * One function so the rule is stated once and can be read whole: a saved layout
+ * is honoured, unless the table has been restructured since it was saved — in
+ * which case the declared arrangement is adopted, once. See `useColumnPrefs`'s
+ * `layoutRev` for why a module is allowed to do that, and for what it is
+ * deliberately NOT allowed to reset along with it.
+ */
+export function resolveOrder(
+  savedOrder: string[],
+  declaredOrder: string[],
+  savedRev: number | undefined,
+  layoutRev: number,
+): string[] {
+  if ((savedRev ?? 0) < layoutRev) return [...declaredOrder];
+  return mergeSavedOrder(savedOrder, declaredOrder);
 }
 
 export interface ColumnPrefs<T> {
@@ -218,8 +293,26 @@ export interface ColumnPrefs<T> {
  * Per-user, per-table column preferences (visibility + order), persisted to
  * localStorage and applied instantly. New columns added to the app appear
  * automatically; removed columns are dropped from saved prefs gracefully.
+ *
+ * `layoutRev` is how a table says "I have rearranged my columns, adopt it".
+ *
+ * Normally the saved order wins — it is the user's arrangement and nothing
+ * should move it. But a module sometimes restructures its columns as a decision
+ * about the module, not a suggestion: a column withdrawn and others put in its
+ * place. Then the saved order is a layout of a table that no longer exists, and
+ * silently keeping it means the change ships and nobody who has ever touched
+ * that table can see it. Bumping the revision replaces the saved ORDER once,
+ * with the declared one.
+ *
+ * Only the order. Which columns are hidden, how wide they are, and which are
+ * tracked or searchable are all kept — those are preferences about the data,
+ * they stay meaningful across a rearrangement, and throwing them away is the
+ * reason "just tell them to press Reset" is a poor answer.
+ *
+ * Leave it unset for a table whose columns have not been restructured; nothing
+ * about the default behaviour changes.
  */
-export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): ColumnPrefs<T> {
+export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[], layoutRev = 0): ColumnPrefs<T> {
   const pinnedFirst = useMemo(() => columns.filter((c) => c.pinFirst).map((c) => c.key), [columns]);
   /**
    * Put the pinned columns at the front, keeping their declared order among
@@ -262,8 +355,10 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
         return;
       }
       const known = new Set(defaultOrder);
-      const mergedOrder = saved.order.filter((k) => known.has(k));
-      for (const k of defaultOrder) if (!mergedOrder.includes(k)) mergedOrder.push(k); // append new columns
+      // Their arrangement, unless the table has been restructured since they
+      // saved it. Only the ORDER is decided here; everything below is kept
+      // either way. See `resolveOrder`.
+      const mergedOrder = resolveOrder(saved.order, defaultOrder, saved.layoutRev, layoutRev);
       const mergedHidden = saved.hidden.filter((k) => known.has(k));
       // New columns flagged defaultHidden stay hidden unless the user saw them before.
       for (const k of defaultHidden) if (!saved.order.includes(k)) mergedHidden.push(k);
@@ -287,24 +382,27 @@ export function useColumnPrefs<T>(tableKey: string, columns: ColumnDef<T>[]): Co
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableKey, defaultOrder, defaultHidden]);
+  }, [tableKey, defaultOrder, defaultHidden, layoutRev]);
 
   // Latest committed snapshot, so persist can merge a single-field patch without
   // threading every dimension through each callback's closure. Kept in sync via
   // an effect (never mutated during render). Each action changes one dimension
   // and passes it in the patch, so the rest coming from the last commit is correct.
-  const stateRef = useRef<StoredPrefs>({ order, hidden, widths, untracked, unsearchable });
+  const stateRef = useRef<StoredPrefs>({ order, hidden, widths, untracked, unsearchable, layoutRev });
   useEffect(() => {
-    stateRef.current = { order, hidden, widths, untracked, unsearchable };
-  }, [order, hidden, widths, untracked, unsearchable]);
+    stateRef.current = { order, hidden, widths, untracked, unsearchable, layoutRev };
+  }, [order, hidden, widths, untracked, unsearchable, layoutRev]);
 
   const persist = useCallback(
     (patch: Partial<StoredPrefs>) => {
-      const value: StoredPrefs = { ...stateRef.current, ...patch };
+      // Stamped on every save, so a layout adopted once is not re-adopted on the
+      // next load — after which the user's arrangement is theirs again and this
+      // revision leaves it alone.
+      const value: StoredPrefs = { ...stateRef.current, ...patch, layoutRev };
       saveLocal(tableKey, value); // instant
       saveServerPreference(serverKeyFor(tableKey), value); // cross-device (debounced)
     },
-    [tableKey],
+    [tableKey, layoutRev],
   );
 
   const toggle = useCallback(
