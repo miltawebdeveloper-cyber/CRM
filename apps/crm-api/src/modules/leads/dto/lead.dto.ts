@@ -166,6 +166,28 @@ export class CreateLeadDto {
   caller?: string;
 
   /**
+   * When the lead was ORIGINALLY created, for a lead being brought in from
+   * somewhere it already existed.
+   *
+   * Absent — the ordinary case, and every lead typed into the New Lead form —
+   * the database stamps `now()`. An import of a back catalogue is the case this
+   * is for: those leads have a real history, and stamping the whole file with
+   * the minute it was uploaded throws it away and makes every lead in the CRM
+   * look a day old.
+   *
+   * Honoured on CREATE only. Nothing may rewrite an existing lead's creation
+   * timestamp — that is the guarantee Lead Management's Created Date & Time
+   * rests on — so an import row that matches and UPDATES a lead leaves it alone.
+   *
+   * A bare `2026-07-01` is read as midnight on the LEAD's clock, not the
+   * server's, so an imported date means the day the sheet says it does.
+   */
+  @ApiPropertyOptional({ description: 'Original creation date/time (ISO). Applied on create only; never overwrites an existing lead.' })
+  @IsOptional()
+  @IsString()
+  createdAt?: string;
+
+  /**
    * Create this lead even though it matches one already in the CRM.
    *
    * Absent, a create that duplicates an existing lead on phone or email is

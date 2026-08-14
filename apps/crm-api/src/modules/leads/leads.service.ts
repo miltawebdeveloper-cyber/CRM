@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AssignmentType, Timezone, LeadStatus, Role, Prisma } from '@crm/database';
-import { dayInZone, timezoneWhere, tzLabel } from '../../common/timezone';
+import { dayInZone, parseInZone, timezoneWhere, tzLabel } from '../../common/timezone';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto';
@@ -347,6 +347,39 @@ export class LeadsService {
   private createLead(buildData: (leadId: string) => Prisma.LeadCreateInput, explicitLeadId?: string) {
     return this.leadIds.create(buildData, explicitLeadId);
   }
+  /**
+   * A creation timestamp carried in from wherever the lead already existed.
+   *
+   * Only ever spread into a CREATE. Omitting the key entirely when the caller
+   * gave no date is what lets `@default(now())` do its job — passing
+   * `createdAt: undefined` explicitly would be the same thing to Prisma today,
+   * but stating the intent by construction is cheaper than relying on it.
+   *
+   * Read on the LEAD's clock. A sheet saying `2026-07-01` against a Florida lead
+   * means the 1st in Florida; parsed on the server's Indian clock it would land
+   * at 18:30 on 30 June UTC and display as the previous day for the lead — which
+   * is precisely the class of error the module's zone handling exists to remove,
+   * reintroduced at the point the data arrives.
+   *
+   * An unreadable date is ignored rather than fatal: the row still carries a
+   * company and a phone number, and refusing the whole lead over a malformed
+   * date column loses more than it protects. It falls back to `now()`, which is
+   * the same thing the file not having the column at all would have done.
+   */
+  private originalCreatedAt(dto: CreateLeadDto): { createdAt?: Date } {
+    const raw = dto.createdAt?.trim();
+    if (!raw) return {};
+    // A bare `2026-07-01` is midnight ON THE LEAD'S CLOCK, so it is given one
+    // before parsing. Without the added time `parseInZone` does not recognise it
+    // as a wall clock and falls through to `new Date()`, which reads a bare date
+    // as midnight UTC — a Pacific lead would then be stamped at 17:00 the
+    // PREVIOUS day and show a created date one day early, which is the whole
+    // class of bug this module's zone handling exists to remove.
+    const value = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00` : raw;
+    const at = parseInZone(value, dto.timezone ?? null);
+    return at ? { createdAt: at } : {};
+  }
+
   /** Map the optional lead-sheet fields from a DTO to Prisma data. */
   private sheetFields(dto: CreateLeadDto) {
     return {
@@ -416,6 +449,7 @@ export class LeadsService {
         ...(assignedToId ? { assignedTo: { connect: { id: assignedToId } } } : {}),
         ...closureCreateFields(dto.status, assignedToId ?? null),
         ...this.sheetFields(dto),
+        ...this.originalCreatedAt(dto),
       }),
       dto.leadId,
     );
@@ -950,6 +984,12 @@ export class LeadsService {
               ...data,
               ...assignRel,
               ...closureCreateFields(data.status as LeadStatus | undefined, assignedToId ?? null),
+              // The sheet's own creation date, for a back catalogue being
+              // brought in. Only on the CREATE branch: the update branch above
+              // builds `data` without ever setting `createdAt`, so a re-import
+              // cannot rewrite the original stamp of a lead already here — which
+              // is the guarantee Lead Management's Created Date & Time rests on.
+              ...this.originalCreatedAt({ createdAt: row.createdAt, timezone: row.timezone } as CreateLeadDto),
             }) as Prisma.LeadCreateInput,
           row.leadId,
         );

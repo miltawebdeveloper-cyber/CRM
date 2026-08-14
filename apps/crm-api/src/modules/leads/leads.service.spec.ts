@@ -336,3 +336,120 @@ describe('LeadsService — the scheduling pair on every row', () => {
     expect(lead).not.toHaveProperty('_count');
   });
 });
+
+/**
+ * An imported back catalogue keeps its own creation dates.
+ *
+ * Lead Management leans hard on Created Date & Time being the moment the lead
+ * really arrived — it is the column that tells a lead carried forward for a
+ * fortnight apart from one raised this morning. Import a year of history with
+ * every row stamped at the minute the file was uploaded and that column says
+ * nothing about any of them.
+ *
+ * The template offered a "Created Date" column the whole time. It was collected
+ * by the browser, sent on every row, and silently dropped: `createdAt` was not
+ * on the DTO, and `rows` is not validated per-item, so nothing rejected it and
+ * nothing wrote it either.
+ */
+describe('LeadsService — the creation date a lead arrives with', () => {
+  function harness() {
+    const create = jest.fn(async (args: { data: Record<string, unknown> }) => ({
+      id: 'lead-1',
+      leadId: 'L-2026-1',
+      status: 'new',
+      ...args.data,
+    }));
+    const prisma = {
+      lead: { create, findFirst: jest.fn(async () => null), findMany: jest.fn(async () => []) },
+      $transaction: jest.fn(async (fn: unknown) => (typeof fn === 'function' ? (fn as (p: unknown) => unknown)({ lead: { create } }) : fn)),
+    } as unknown as PrismaService;
+    // `createLead` delegates to LeadIdService, which allocates the next id and
+    // performs the insert. Standing in for it here keeps the built data visible.
+    const leadIds = {
+      create: jest.fn(async (buildData: (id: string) => Record<string, unknown>, explicitId?: string) =>
+        create({ data: buildData(explicitId ?? 'L-2026-1') }),
+      ),
+    } as unknown as LeadIdService;
+    const service = new LeadsService(prisma, {} as NotificationsService, leadIds);
+    return { service, create };
+  }
+
+  /** `originalCreatedAt` is the whole decision; reached directly. */
+  const resolve = (createdAt?: string, timezone?: string) => {
+    const { service } = harness();
+    const fn = (service as unknown as {
+      originalCreatedAt: (d: Record<string, unknown>) => { createdAt?: Date };
+    }).originalCreatedAt;
+    return fn.call(service, { createdAt, timezone });
+  };
+
+  it('leaves the column to the database when the sheet gives no date', () => {
+    // The ordinary case, and every lead typed into the New Lead form: the key is
+    // absent entirely, so `@default(now())` decides.
+    expect(resolve(undefined)).toEqual({});
+    expect(resolve('')).toEqual({});
+    expect(resolve('   ')).toEqual({});
+  });
+
+  it('reads a bare date as midnight on the LEAD\'s clock, not UTC', () => {
+    // The case that made this worth writing a helper for. Parsed as UTC, a bare
+    // `2026-07-01` against a Pacific lead lands at 17:00 on 30 June local — and
+    // Lead Management, which now dates leads on their own zone, would show the
+    // whole imported file one day early.
+    const { createdAt } = resolve('2026-07-01', 'PST');
+    expect(createdAt).toBeInstanceOf(Date);
+    // Midnight Pacific on 1 July is 07:00 UTC (PDT, UTC-7).
+    expect(createdAt!.toISOString()).toBe('2026-07-01T07:00:00.000Z');
+
+    // Same date, Eastern lead: midnight EDT is 04:00 UTC.
+    expect(resolve('2026-07-01', 'EST').createdAt!.toISOString()).toBe('2026-07-01T04:00:00.000Z');
+  });
+
+  it('keeps the hour when the sheet gives one', () => {
+    // 09:30 against an EST lead means half past nine in New York (13:30 UTC in
+    // July), not half past nine wherever the server happens to run.
+    expect(resolve('2026-07-01 09:30', 'EST').createdAt!.toISOString()).toBe('2026-07-01T13:30:00.000Z');
+    expect(resolve('2026-07-01T09:30', 'EST').createdAt!.toISOString()).toBe('2026-07-01T13:30:00.000Z');
+  });
+
+  it('follows daylight time rather than a fixed offset', () => {
+    // January is EST (UTC-5); July is EDT (UTC-4). A tabulated offset would put
+    // every winter import an hour out.
+    expect(resolve('2026-01-15 09:30', 'EST').createdAt!.toISOString()).toBe('2026-01-15T14:30:00.000Z');
+  });
+
+  it('falls back to now() on a date it cannot read, rather than failing the row', () => {
+    // The row still carries a company and a phone number. Losing the lead over a
+    // malformed date column protects nothing — and the result is exactly what
+    // the file not having the column at all would have given.
+    expect(resolve('not a date')).toEqual({});
+    expect(resolve('31/07/2026')).toEqual({});
+  });
+
+  it('applies the date when a lead is created', async () => {
+    const { service, create } = harness();
+
+    await service.create({
+      businessName: 'Acme Tax LLC',
+      phone: '3055551234',
+      state: 'FL',
+      city: 'Miami',
+      timezone: 'EST',
+      createdAt: '2026-07-01',
+    } as never);
+
+    const data = create.mock.calls[0][0].data;
+    expect(data.createdAt).toBeInstanceOf(Date);
+    expect((data.createdAt as Date).toISOString()).toBe('2026-07-01T04:00:00.000Z');
+  });
+
+  it('omits the column entirely for a lead created without one', async () => {
+    // Not `createdAt: undefined` — the key must be absent, so the database
+    // default is what fills it.
+    const { service, create } = harness();
+
+    await service.create({ businessName: 'Bare Co', phone: '3055550000', state: 'FL', city: 'Miami' } as never);
+
+    expect(create.mock.calls[0][0].data).not.toHaveProperty('createdAt');
+  });
+});

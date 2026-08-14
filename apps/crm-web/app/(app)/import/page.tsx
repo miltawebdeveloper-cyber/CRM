@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, Check, AlertTriangle, Undo2, Filter, Loader2, Download, GitCompare, History } from 'lucide-react';
+import { Upload, Check, AlertTriangle, Undo2, Filter, Loader2, Download, GitCompare, History, Info } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { importApi, type LeadRow, type ImportCheckResult, type ImportMatchedLead } from '@/lib/crm';
 import { leadsApi } from '@/lib/leads';
@@ -40,7 +40,10 @@ function errorText(err: unknown): string {
 const COLUMNS: { key: keyof LeadRow; label: string; aliases: string[] }[] = [
   { key: 'leadId', label: 'Lead ID', aliases: ['lead id', 'leadid'] },
   { key: 'leadGenerationId', label: 'Lead Generation ID', aliases: ['lead generation id', 'leadgenerationid', 'lead gen id'] },
-  { key: 'createdAt', label: 'Created Date', aliases: ['created date', 'createddate', 'created_at'] },
+  // Named as Lead Management names it. The old "Created Date" heading is kept
+  // as an alias, so sheets built against the previous template still map — and
+  // so does a file exported from Lead Management, which writes both headings.
+  { key: 'createdAt', label: 'Created Date & Time', aliases: ['created date & time', 'created date and time', 'created datetime', 'created date', 'createddate', 'created_at'] },
   { key: 'leadSource', label: 'Lead Source', aliases: ['lead source', 'leadsource'] },
   { key: 'businessName', label: 'Company Name', aliases: ['company name', 'company', 'business name', 'businessname', 'business'] },
   { key: 'contactName', label: 'Contact Person', aliases: ['contact person', 'contactname', 'contact person 1', 'primary contact'] },
@@ -66,7 +69,29 @@ const COLUMNS: { key: keyof LeadRow; label: string; aliases: string[] }[] = [
   { key: 'followupCount', label: 'Follow-up Count', aliases: ['follow-up count', 'followup count'] },
   { key: 'meetingDate', label: 'Meeting Date', aliases: ['meeting date', 'meetingdate'] },
   { key: 'lostReason', label: 'Lost Reason', aliases: ['lost reason', 'lostreason'] },
+  // Lead Management exports Comments and the API has always accepted them; the
+  // template simply never offered the column, so the one field carrying what a
+  // rep actually wrote could not make the round trip.
+  { key: 'comments', label: 'Comments', aliases: ['comments', 'comment', 'remarks', 'notes'] },
 ];
+
+/**
+ * Headings a Lead Management export carries that an import cannot write.
+ *
+ * Each is DERIVED from assignment history rather than stored on the lead:
+ * Scheduled Date is the day the lead's active assignment puts it on the queue
+ * for, and Movement and its count describe how it got there. Writing them would
+ * mean fabricating assignment rows, so an export re-imported as an update
+ * leaves them exactly as the CRM computed them.
+ *
+ * Deliberately absent from the fillable Leads sheet. A column in a template is a
+ * column people fill in, and one that silently does nothing is the trap "Created
+ * Date" sat in for as long as it did — offered, filled in, ignored.
+ *
+ * Listed here so the mapping panel can say "recognised, not imported" about them
+ * specifically, rather than lumping them in with a genuine typo in a heading.
+ */
+const EXPORT_ONLY_HEADERS: string[] = ['Scheduled Date', 'Movement', 'Times Moved to Next Day'];
 
 const STATUS_MAP: Record<string, string> = {
   new: 'new',
@@ -129,12 +154,28 @@ function parseFile(text: string): ParsedFile {
   return { headers: splitCsvLine(lines[0]), cells: lines.slice(1).map(splitCsvLine) };
 }
 
+/**
+ * Bind each CRM field to a column in the file.
+ *
+ * Aliases are tried IN THE ORDER THEY ARE DECLARED, and the first one present in
+ * the file wins — so the alias list is a preference list, not a set. It has to
+ * be: a Lead Management export carries both "Created Date" and "Created Date &
+ * Time", the same instant at two precisions, and scanning the file's headings
+ * instead would bind whichever came first in the sheet and silently drop the
+ * hour from every row of a re-imported export.
+ */
 function autoMap(headers: string[]): Mapping {
   const norm = headers.map(normHeader);
   const mapping: Mapping = {};
   for (const col of COLUMNS) {
-    const aliases = col.aliases.map(normHeader);
-    mapping[col.key] = norm.findIndex((h) => h !== '' && aliases.includes(h));
+    mapping[col.key] = NOT_MAPPED;
+    for (const alias of [col.label, ...col.aliases].map(normHeader)) {
+      const i = norm.findIndex((h) => h !== '' && h === alias);
+      if (i >= 0) {
+        mapping[col.key] = i;
+        break;
+      }
+    }
   }
   return mapping;
 }
@@ -175,6 +216,7 @@ function buildRows(file: ParsedFile, mapping: Mapping): LeadRow[] {
       followupCount: row.followupCount ? parseInt(row.followupCount, 10) : undefined,
       meetingDate: row.meetingDate,
       lostReason: row.lostReason,
+      comments: row.comments,
     };
   });
 }
@@ -230,8 +272,8 @@ const TEMPLATE_HEADERS = COLUMNS.map((c) => c.label);
  * drift into disagreeing about what a valid file looks like.
  */
 const TEMPLATE_EXAMPLE: string[][] = [
-  ['L-99001', 'GEN-8802', '2026-07-01', 'Google Ads', 'Acme Tax LLC', 'John Carter', 'Finance Manager', '+13055551234', '+13055555678', 'john@acme.com', 'https://acmetax.com', '@acmetax', 'USA', 'Florida', 'Miami', 'EST', 'Accounting', '10-50', '2010', '123 Main St', 'Lisa - MAS21072', 'Contacted', '2026-06-01', '2026-07-01', '2026-07-15', '3', '2026-07-10', ''],
-  ['L-99002', 'GEN-8803', '2026-07-02', 'Referral', 'Bay Books Inc', 'Mia Wong', 'Operations Head', '+14155559876', '', 'mia@baybooks.com', 'https://baybooks.com', '', 'USA', 'California', 'San Francisco', 'PST', 'Bookkeeping', '50-200', '1995', '456 Market St', 'caller2@crm.local', 'In Progress', '2026-06-05', '2026-07-02', '2026-07-20', '5', '2026-07-12', ''],
+  ['L-99001', 'GEN-8802', '2026-07-01 09:30', 'Google Ads', 'Acme Tax LLC', 'John Carter', 'Finance Manager', '+13055551234', '+13055555678', 'john@acme.com', 'https://acmetax.com', '@acmetax', 'USA', 'Florida', 'Miami', 'EST', 'Accounting', '10-50', '2010', '123 Main St', 'Lisa - MAS21072', 'Contacted', '2026-06-01', '2026-07-01', '2026-07-15', '3', '2026-07-10', '', 'Spoke to John, asked us to call back after their quarter end.'],
+  ['L-99002', 'GEN-8803', '2026-07-02', 'Referral', 'Bay Books Inc', 'Mia Wong', 'Operations Head', '+14155559876', '', 'mia@baybooks.com', 'https://baybooks.com', '', 'USA', 'California', 'San Francisco', 'PST', 'Bookkeeping', '50-200', '1995', '456 Market St', 'caller2@crm.local', 'In Progress', '2026-06-05', '2026-07-02', '2026-07-20', '5', '2026-07-12', '', ''],
 ];
 
 /** What the API does with each column, for the template's guide sheet. */
@@ -242,10 +284,17 @@ const TEMPLATE_NOTES: string[][] = [
   ['Email', 'john@acme.com', 'The duplicate check ignores +tags, and dots on Gmail addresses only.'],
   ['Time Zone', TIMEZONE_CODES.join(' / '), 'Must be one of these codes. Anything else is left BLANK rather than guessed — a lead with no zone is asked for one before a callback can be booked, which is safer than booking on the wrong clock.'],
   ['Assigned To', 'Lisa   ·   lisa@crm.local   ·   Lisa - MAS21072', "The employee's name or login email; a trailing \" - CODE\" is ignored. A name that matches nobody is reported row by row and the lead imports unassigned. An import never takes a lead off the employee already holding it."],
-  ['Dates', '2026-07-15', 'Created Date, First Contact, Last Contact, Next Follow-up, Meeting Date. Use YYYY-MM-DD; a date that cannot be read is left blank rather than failing the row.'],
+  ['Dates', '2026-07-15', 'First Contact, Last Contact, Next Follow-up, Meeting Date. Use YYYY-MM-DD; a date that cannot be read is left blank rather than failing the row.'],
+  ['Created Date & Time', '2026-07-01 09:30', "The lead's ORIGINAL creation date, for a back catalogue being brought in — leave it blank and the lead is stamped with the moment it was imported. YYYY-MM-DD, or add HH:MM to keep the hour. Read on the LEAD's own time zone, so 09:30 against an EST lead means half past nine in New York. Applied only when the row CREATES a lead: a row matching a lead already in the CRM updates its fields and never rewrites what it says here."],
+  ['Comments', 'Asked us to call back after quarter end.', "The latest remark on the lead. Lead Management shows it in the Comments column and keeps the full trail alongside call notes."],
   ['Follow-up Count', '3', 'Whole number.'],
   ['Lead ID', 'L-99001', 'Leave blank and the CRM assigns the next one. A value matching an existing lead updates that lead.'],
   ['Status', '(not a column)', 'Not imported from a file — every lead this creates starts as New, and status is moved from the CRM.'],
+  [
+    EXPORT_ONLY_HEADERS.join(', '),
+    '(export only)',
+    'These appear in a Lead Management export and are accepted here so an exported file uploads without complaint, but they are never written. Each is worked out from the lead\'s assignment history rather than stored on it: Scheduled Date is the day the lead is currently queued for, and Movement counts how many times it has been carried to the next day. They are not columns on the Leads tab because filling one in would have no effect.',
+  ],
 ];
 
 const csvCell = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
@@ -434,9 +483,28 @@ export default function ImportPage() {
     },
   });
 
-  const unmapped = useMemo(() => {
+  /**
+   * File columns nothing is reading, split by whether that is a problem.
+   *
+   * `unmapped` is the warning worth showing: a heading the CRM did not
+   * recognise, which is usually a typo or a column somebody meant to map.
+   *
+   * `recognised` is not a problem at all, and lumping it into the same amber
+   * warning is how a warning stops being read. The commonest file uploaded here
+   * is a lightly edited Lead Management export, and such a file always carries
+   * some of these: columns the CRM DERIVES and no import can write (Scheduled
+   * Date and the movement counts), and columns already supplied by a better one
+   * (the export writes both "Created Date" and "Created Date & Time", and the
+   * mapping takes the precise one). Nothing is lost in either case.
+   */
+  const { unmapped, recognised } = useMemo(() => {
     const used = new Set(Object.values(mapping).filter((i) => i >= 0));
-    return file.headers.filter((h, i) => h.trim() !== '' && !used.has(i));
+    const spare = file.headers.filter((h, i) => h.trim() !== '' && !used.has(i));
+    const known = new Set(
+      [...COLUMNS.flatMap((c) => [c.label, ...c.aliases]), ...EXPORT_ONLY_HEADERS].map(normHeader),
+    );
+    const isKnown = (h: string) => known.has(normHeader(h));
+    return { unmapped: spare.filter((h) => !isKnown(h)), recognised: spare.filter(isKnown) };
   }, [file, mapping]);
 
   function load(text: string) {
@@ -722,6 +790,21 @@ export default function ImportPage() {
               <span>
                 Not imported — no CRM field is pointed at {unmapped.length > 1 ? 'these columns' : 'this column'}:{' '}
                 {unmapped.join(', ')}. Pick {unmapped.length > 1 ? 'them' : 'it'} above if you want {unmapped.length > 1 ? 'them' : 'it'} imported.
+              </span>
+            </div>
+          )}
+
+          {/* Stated plainly rather than warned about. These arrive in any file
+              that started life as a Lead Management export, and there is nothing
+              for the user to fix or decide. */}
+          {recognised.length > 0 && (
+            <div className="mt-3 flex items-start gap-2 rounded-md border bg-muted/40 px-3 py-2 text-[12px] text-muted-foreground">
+              <Info className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                Recognised, nothing to do: {recognised.join(', ')}. Lead Management exports{' '}
+                {recognised.length > 1 ? 'these' : 'this'} but an import cannot write{' '}
+                {recognised.length > 1 ? 'them' : 'it'} — either the CRM works it out from the lead&apos;s assignment
+                history, or another column above is already supplying the same field.
               </span>
             </div>
           )}
