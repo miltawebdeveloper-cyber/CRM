@@ -74,6 +74,14 @@ const FLUSH = [
   'call_insights',
   'call_recordings',
   'notes',
+  // The per-lead follow-up sequence (Follow-Up 1 → 5 and what happened on each).
+  // Added by a migration after this script was last touched, so it sat in
+  // neither list — and because it carries a foreign key to `leads`, its absence
+  // did not merely leave stale rows behind: Postgres refuses to truncate `leads`
+  // at all while a referencing table is missing from the statement, so the whole
+  // flush aborted. Which is the loud failure the no-CASCADE decision above was
+  // written to produce, working exactly as intended.
+  'lead_followups',
   'messages',
   'quo_sync_logs',
   'zoom_meetings',
