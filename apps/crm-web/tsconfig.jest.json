@@ -1,0 +1,16 @@
+{
+  // Test-time compiler settings for ts-jest. The app's own tsconfig targets a
+  // bundler that never runs here — Next compiles the app, jest does not — so the
+  // module system is switched to the one Node can require, and emit is turned
+  // back on because ts-jest needs output. Everything else is inherited, so the
+  // tests typecheck against the same strictness the app does.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": ".",
+    "noEmit": false,
+    "incremental": false,
+    "types": ["node", "jest"]
+  }
+}
