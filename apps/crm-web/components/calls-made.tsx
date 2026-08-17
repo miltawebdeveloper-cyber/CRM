@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Phone, PhoneOutgoing, PhoneIncoming, PhoneMissed, PhoneOff, CheckCircle2, Clock, Timer, Download, MapPin, Building2, Tag, PhoneCall, User as UserIcon, Info, ClipboardCheck, Hourglass, HelpCircle } from 'lucide-react';
+import { Phone, PhoneOutgoing, PhoneIncoming, PhoneMissed, PhoneOff, CheckCircle2, Clock, Timer, Upload, MapPin, Building2, Tag, PhoneCall, User as UserIcon, Info, ClipboardCheck, Hourglass, HelpCircle } from 'lucide-react';
 import { callsApi, outcomesApi, formatDuration, type CallRecord } from '@/lib/crm';
 import { OutcomePill } from '@/components/outcome-pill';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
@@ -464,14 +464,14 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
               disabled={filteredRecords.length === 0}
               className="inline-flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[12.5px] font-medium hover:bg-muted disabled:opacity-50"
             >
-              <Download className="h-3.5 w-3.5 text-muted-foreground" /> Export CSV
+              <Upload className="h-3.5 w-3.5 text-muted-foreground" /> Export CSV
             </button>
             <button
               onClick={() => downloadXlsx(exportName, EXPORT_HEADERS, exportRows())}
               disabled={filteredRecords.length === 0}
               className="inline-flex items-center gap-[7px] rounded-md border bg-card px-3 py-2 text-[12.5px] font-medium hover:bg-muted disabled:opacity-50"
             >
-              <Download className="h-3.5 w-3.5 text-muted-foreground" /> Export Excel
+              <Upload className="h-3.5 w-3.5 text-muted-foreground" /> Export Excel
             </button>
           </>
         }

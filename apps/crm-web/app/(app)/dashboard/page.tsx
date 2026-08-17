@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { RefreshCw, Download, PhoneCall, Target, Percent, Phone, PhoneMissed, CheckCircle2, Hourglass, Users, UserPlus, TrendingUp, Video } from 'lucide-react';
+import { RefreshCw, Upload, PhoneCall, Target, Percent, Phone, PhoneMissed, CheckCircle2, Hourglass, Users, UserPlus, TrendingUp, Video } from 'lucide-react';
 import Link from 'next/link';
 import { leadsApi, type Lead } from '@/lib/leads';
 import { metricsApi, tasksApi, callsApi, communicationsApi, type Task, type Followup, type MissedCall } from '@/lib/crm';
@@ -210,7 +210,7 @@ export default function DashboardPage() {
             ])}
             className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"
           >
-            <Download className="h-4 w-4" /> Export
+            <Upload className="h-4 w-4" /> Export
           </button>
           <Link href="/calling" className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground shadow-sm hover:opacity-90">
             <PhoneCall className="h-4 w-4" /> Start calling

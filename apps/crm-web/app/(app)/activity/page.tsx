@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Phone, Users, NotebookPen, CheckCircle2, Download } from 'lucide-react';
+import { Phone, Users, NotebookPen, CheckCircle2, Upload } from 'lucide-react';
 import { activitiesApi, type Activity } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
 import { OutcomePill } from '@/components/outcome-pill';
@@ -80,7 +80,7 @@ export default function ActivityPage() {
           }
           disabled={activities.length === 0}
           className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
-        ><Download className="h-4 w-4" /> Export</button>
+        ><Upload className="h-4 w-4" /> Export</button>
       </PageHead>
 
       {/* Summary cards come from the shared KpiCard, like every other module. This

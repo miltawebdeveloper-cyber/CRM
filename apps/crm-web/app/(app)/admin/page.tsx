@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Users, Activity, Database, ShieldCheck, Import as ImportIcon, Download, Trash2, type LucideIcon } from 'lucide-react';
+import { Users, Activity, Database, ShieldCheck, Import as ImportIcon, Upload, Trash2, type LucideIcon } from 'lucide-react';
 import { activitiesApi, metricsApi } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { PageHead } from '@/components/page-head';
@@ -30,7 +30,7 @@ const CONTROLS: [string, string, boolean][] = [
 ];
 const DM: { icon: LucideIcon; t: string; d: string; href?: string }[] = [
   { icon: ImportIcon, t: 'Import Leads', d: 'Bulk CSV / Excel upload', href: '/import' },
-  { icon: Download, t: 'Export Data', d: 'Download full database' },
+  { icon: Upload, t: 'Export Data', d: 'Download full database' },
   { icon: Database, t: 'Backup Now', d: 'Manual database snapshot' },
   // Was labelled "AI duplicate detection" and wired to nothing — a tile that
   // promised a feature and did not move when clicked. The screen behind it now

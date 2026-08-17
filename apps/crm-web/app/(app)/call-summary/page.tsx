@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download } from 'lucide-react';
+import { Upload } from 'lucide-react';
 import { productivityApi, type DailySummaryRow } from '@/lib/crm';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 
@@ -51,7 +51,7 @@ export default function CallSummaryPage() {
           disabled={rows.length === 0}
           className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
         >
-          <Download className="h-4 w-4" /> Export CSV
+          <Upload className="h-4 w-4" /> Export CSV
         </button>
       </div>
 

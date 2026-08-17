@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Import as ImportIcon, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, Lock, AlertTriangle, CalendarClock } from 'lucide-react';
+import { Import as ImportIcon, Upload, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, Lock, AlertTriangle, CalendarClock } from 'lucide-react';
 import { leadsApi, movementLabel, type CreateLeadInput, type DuplicateMatch, type Lead, type LeadListQuery } from '@/lib/leads';
 import { usersApi } from '@/lib/users';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
@@ -554,14 +554,14 @@ export default function LeadsPage() {
           disabled={total === 0 || exporting}
           className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
         >
-          <Download className="h-4 w-4" /> {exporting ? 'Preparing…' : 'Export CSV'}
+          <Upload className="h-4 w-4" /> {exporting ? 'Preparing…' : 'Export CSV'}
         </button>
         <button
           onClick={() => runExport((rows) => downloadXlsx('leads', EXPORT_HEADERS, rows))}
           disabled={total === 0 || exporting}
           className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
         >
-          <Download className="h-4 w-4" /> Export Excel
+          <Upload className="h-4 w-4" /> Export Excel
         </button>
         {canManage && (
           <button

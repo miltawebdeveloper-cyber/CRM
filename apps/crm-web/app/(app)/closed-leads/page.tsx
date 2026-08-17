@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Download, Eye, Clock, MapPin, Building2, PhoneCall, Info } from 'lucide-react';
+import { Upload, Eye, Clock, MapPin, Building2, PhoneCall, Info } from 'lucide-react';
 import { leadsApi, type Lead, type LeadListQuery } from '@/lib/leads';
 import { useDebounced } from '@/lib/use-debounced';
 import { useInfiniteLeads, useLeadScrollSentinel } from '@/lib/use-infinite-leads';
@@ -226,14 +226,14 @@ export default function ClosedLeadsPage() {
           disabled={total === 0 || exporting}
           className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
         >
-          <Download className="h-4 w-4" /> {exporting ? 'Preparing…' : 'Export CSV'}
+          <Upload className="h-4 w-4" /> {exporting ? 'Preparing…' : 'Export CSV'}
         </button>
         <button
           onClick={() => runExport((rows) => downloadXlsx('onboarding-leads', EXPORT_HEADERS, rows))}
           disabled={total === 0 || exporting}
           className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
         >
-          <Download className="h-4 w-4" /> Export Excel
+          <Upload className="h-4 w-4" /> Export Excel
         </button>
       </PageHead>
 
