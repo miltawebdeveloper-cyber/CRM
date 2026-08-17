@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, Lock, AlertTriangle, CalendarClock } from 'lucide-react';
+import { Import as ImportIcon, Download, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, Lock, AlertTriangle, CalendarClock } from 'lucide-react';
 import { leadsApi, movementLabel, type CreateLeadInput, type DuplicateMatch, type Lead, type LeadListQuery } from '@/lib/leads';
 import { usersApi } from '@/lib/users';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
@@ -546,7 +546,7 @@ export default function LeadsPage() {
       <PageHead>
         {canManage && (
           <button onClick={() => router.push('/import')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted">
-            <Upload className="h-4 w-4" /> Import CSV
+            <ImportIcon className="h-4 w-4" /> Import CSV
           </button>
         )}
         <button

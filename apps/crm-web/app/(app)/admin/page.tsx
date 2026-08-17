@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { Users, Activity, Database, ShieldCheck, Upload, Download, Trash2 } from 'lucide-react';
+import { Users, Activity, Database, ShieldCheck, Import as ImportIcon, Download, Trash2, type LucideIcon } from 'lucide-react';
 import { activitiesApi, metricsApi } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { PageHead } from '@/components/page-head';
@@ -28,8 +28,8 @@ const CONTROLS: [string, string, boolean][] = [
   ['Daily backups', 'Automatic database backup at 2 AM EST', true],
   ['Maintenance mode', 'Temporarily disable access for non-admins', false],
 ];
-const DM: { icon: typeof Upload; t: string; d: string; href?: string }[] = [
-  { icon: Upload, t: 'Import Leads', d: 'Bulk CSV / Excel upload', href: '/import' },
+const DM: { icon: LucideIcon; t: string; d: string; href?: string }[] = [
+  { icon: ImportIcon, t: 'Import Leads', d: 'Bulk CSV / Excel upload', href: '/import' },
   { icon: Download, t: 'Export Data', d: 'Download full database' },
   { icon: Database, t: 'Backup Now', d: 'Manual database snapshot' },
   // Was labelled "AI duplicate detection" and wired to nothing — a tile that

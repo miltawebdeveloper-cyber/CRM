@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, Check, AlertTriangle, Undo2, Filter, Loader2, Download, GitCompare, History, Info } from 'lucide-react';
+import { Import as ImportIcon, Check, AlertTriangle, Undo2, Filter, Loader2, Download, GitCompare, History, Info } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { importApi, type LeadRow, type ImportCheckResult, type ImportMatchedLead } from '@/lib/crm';
 import { leadsApi } from '@/lib/leads';
@@ -621,7 +621,7 @@ export default function ImportPage() {
 
       <div className="grid gap-[18px] lg:grid-cols-2">
         <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[var(--brand-edge)] bg-background p-[34px] text-center transition-colors hover:border-[var(--brand-lime)]">
-          <div className="mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-[var(--brand-surface)] text-[var(--brand-on-surface)]"><Upload className="h-6 w-6" /></div>
+          <div className="mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-[var(--brand-surface)] text-[var(--brand-on-surface)]"><ImportIcon className="h-6 w-6" /></div>
           <div className="font-semibold">Drop your file here or <span className="text-primary">browse</span></div>
           <div className="mt-1 text-[12px] text-muted-foreground">CSV or Excel (.xlsx/.xls) up to 25MB</div>
           <div className="mt-1 text-[11.5px] text-muted-foreground">Don&apos;t have a file yet? Download the template above.</div>
@@ -817,7 +817,7 @@ export default function ImportPage() {
           <div className="flex items-center justify-between border-b px-[18px] py-4">
             <div><h3 className="font-display text-[14px] font-semibold">Preview</h3><div className="text-xs text-muted-foreground">{rows.length} rows · first 10 shown</div></div>
             <button onClick={startImport} disabled={importing} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground disabled:opacity-60">
-              {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImportIcon className="h-4 w-4" />}
               {check.isPending ? 'Checking Duplicates…' : importMut.isPending ? 'Importing…' : `Import ${rows.length} Leads`}
             </button>
           </div>
@@ -880,7 +880,7 @@ export default function ImportPage() {
                 disabled={importing}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--brand-lime)] bg-[var(--brand-surface-2)] px-3.5 py-2 text-[12px] font-semibold text-[var(--brand-on-surface)] shadow-2xs hover:bg-[#e6f2d2] disabled:opacity-50"
               >
-                <Check className="h-4 w-4" /> Import All Leads
+                <ImportIcon className="h-4 w-4" /> Import All Leads
               </button>
               <button
                 type="button"
@@ -888,7 +888,7 @@ export default function ImportPage() {
                 disabled={importing}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--brand-lime)] bg-[var(--brand-surface-2)] px-3.5 py-2 text-[12px] font-semibold text-[var(--brand-on-surface)] shadow-2xs hover:bg-[#e6f2d2] disabled:opacity-50"
               >
-                <Check className="h-4 w-4" /> Import All Duplicates
+                <ImportIcon className="h-4 w-4" /> Import All Duplicates
               </button>
               <button
                 type="button"
@@ -1094,7 +1094,7 @@ export default function ImportPage() {
                 disabled={importing}
                 className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-[12.5px] font-semibold text-primary-foreground shadow-sm hover:opacity-90 disabled:opacity-60"
               >
-                {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImportIcon className="h-4 w-4" />}
                 Complete Import Based on Review Choices
               </button>
             </div>
