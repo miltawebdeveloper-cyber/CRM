@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Phone, Check, Target, CheckCircle2, Clock, Percent, Video, ExternalLink, MessageSquare, Mail, Briefcase, Factory, UserRound, Search, Send, X, Loader2, ArrowRight } from 'lucide-react';
+import { Phone, Check, Target, CheckCircle2, Clock, Percent, Video, ExternalLink, MessageSquare, Mail, Briefcase, Factory, UserRound, Search, Send, X, Loader2, ArrowRight, History, ChevronDown, ChevronRight } from 'lucide-react';
 import { useMutation } from '@tanstack/react-query';
 import { callsApi, communicationsApi, outcomesApi, formatDuration, type CallPhase } from '@/lib/crm';
 import { api } from '@/lib/api';
@@ -27,6 +27,7 @@ import { launchQuoCall } from '@/lib/dialer';
 import { dayInLeadZone, formatScheduleInLeadZone, nowInLeadZone, zoneLabel, TIMEZONE_FILTER_OPTIONS_COMPACT } from '@/lib/timezone';
 import { usePersistedState } from '@/lib/use-persisted-state';
 import { CallbackScheduler, callbackInputError } from '@/components/callback-scheduler';
+import { LeadCommentTrail, useLeadCommentCount } from '@/components/lead-comment-trail';
 import { invalidateCallActivity } from '@/lib/sync';
 import { useShortcutHint } from '@/components/command-palette';
 import { formatTime } from '@/lib/display-settings';
@@ -176,6 +177,16 @@ export default function CallingPage() {
    * rather than on whatever the queue would hand out to a fresh arrival.
    */
   const [session, setSession] = usePersistedState<QueueSession | null>('calling:queue-session', null);
+  /**
+   * Whether the lead's existing comments are open above the write-up box.
+   *
+   * Persisted rather than per-lead, and closed by default: it is the agent's
+   * choice about how they work, not a property of whichever lead is on screen,
+   * and the panel's own comment on the layout is that pushing Save below the
+   * fold is a real cost. An agent who wants the history in front of them every
+   * time opens it once.
+   */
+  const [showTrail, setShowTrail] = usePersistedState<boolean>('calling:show-comment-trail', false);
   // When the agent started working the lead now on screen. With live calling off
   // there is no call to time, so this stands in as the duration: it starts the
   // moment a lead is put in front of them and stops when they press Save. Kept in
@@ -415,6 +426,11 @@ export default function CallingPage() {
     // still wins above, so a lead already being worked is never pulled away by
     // a zone change mid-write-up.
     zoneQueue[0];
+
+  // How many remarks this lead already carries, for the label on the collapsed
+  // trail. Reads the same cache entry the trail does, so it costs one request
+  // per lead however many places ask.
+  const trailCount = useLeadCommentCount(current?.id);
 
   /** Clear the write-up so the next lead arrives to empty fields. */
   function resetWriteUp() {
@@ -1485,6 +1501,40 @@ export default function CallingPage() {
                   <p className="mt-1.5 text-[10.5px] text-[var(--tone-blue-fg-2)]">
                     Booked in the lead&apos;s time zone ({current?.timezone ?? 'EST'} / {leadZone}). Saved to the Zoom dashboard and pinned in the Call Panel at the scheduled time.
                   </p>
+                </div>
+              )}
+              {/* The lead's existing comments, above the box the next one is
+                  typed into — the same trail Lead Management's Comments column
+                  opens, rendered by the same component and read from the same
+                  query key, so the two modules cannot show different histories
+                  of one lead. Read-only: the box below is the only way to add
+                  to it, which is what keeps a remark from being written twice.
+
+                  It matters most here. The agent is about to dial, and what was
+                  agreed last time is the thing they need in front of them; until
+                  now the panel showed a blank box and the trail was only
+                  reachable from another screen. */}
+              {current && (
+                <div className="mb-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowTrail(!showTrail)}
+                    aria-expanded={showTrail}
+                    className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[10.5px] uppercase tracking-[.08em] text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    {showTrail ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                    <History className="h-3.5 w-3.5" />
+                    Previous comments
+                    {trailCount > 0 && <span className="rounded-full bg-muted px-1.5 py-0.5 tabular-nums text-foreground">{trailCount}</span>}
+                  </button>
+                  {showTrail && (
+                    <LeadCommentTrail
+                      leadId={current.id}
+                      timezone={current.timezone}
+                      emptyText="No comments recorded yet — yours will be the first."
+                      className="mt-1.5 max-h-[200px] overflow-y-auto rounded-lg border bg-background p-2"
+                    />
+                  )}
                 </div>
               )}
               <div className="mb-1.5 flex items-center gap-2 text-[10.5px] uppercase tracking-[.08em] text-muted-foreground">

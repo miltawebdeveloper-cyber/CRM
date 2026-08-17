@@ -67,3 +67,42 @@ const CALL_ACTIVITY_KEYS: string[][] = [
 export function invalidateCallActivity(qc: QueryClient) {
   for (const queryKey of CALL_ACTIVITY_KEYS) qc.invalidateQueries({ queryKey });
 }
+
+/**
+ * What has to be re-read when a comment is written against a lead.
+ *
+ * A comment is not a call, but it is shared. Lead Management's Comments column,
+ * its history dialog and the Calling Panel's write-up are three views of one
+ * trail (`notes` rows on the lead), so a remark typed in one has to show up in
+ * the others without a reload — the reason this is a named set rather than the
+ * two keys whichever component happened to remember.
+ *
+ * That is the bug it fixes: the Comments cell invalidated `leads` and its own
+ * `lead-comments`, and nothing else, so a comment typed in Lead Management was
+ * invisible to a Calling Panel already open on the same lead until its 15s queue
+ * poll happened to come round — and invisible to the lead's detail page until it
+ * was navigated away from and back.
+ *
+ * Every key here is also in `CALL_ACTIVITY_KEYS` above: a call disposition
+ * writes a comment too, so saving from the panel already covers all of this.
+ * This is the smaller set for a write that is ONLY a comment.
+ */
+const LEAD_COMMENT_KEYS: string[][] = [
+  ['leads'], // Lead Management + Closed Leads — the Comments column
+  ['lead'], // a single lead: detail page and its timeline
+  ['lead-comments'], // the shared trail both modules render
+  ['caller-leads'], // the Calling Panel queue, which carries the latest remark
+  ['activities'], // Lead Activity Log
+];
+
+/**
+ * Refresh every module that shows a lead's comments.
+ *
+ * Call this after any write that adds a remark and nothing else. Keys are bare
+ * roots, so React Query's prefix matching covers the per-lead variants
+ * (`['lead-comments', id]`, `['lead', id, 'timeline']`) without this having to
+ * know which lead is on screen.
+ */
+export function invalidateLeadComment(qc: QueryClient) {
+  for (const queryKey of LEAD_COMMENT_KEYS) qc.invalidateQueries({ queryKey });
+}

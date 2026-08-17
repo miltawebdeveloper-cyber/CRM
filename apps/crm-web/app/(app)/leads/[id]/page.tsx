@@ -14,6 +14,7 @@ import { ZoomTimeline } from '@/components/zoom-timeline';
 import { FollowupSequence } from '@/components/followup-sequence';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { api } from '@/lib/api';
+import { invalidateLeadComment } from '@/lib/sync';
 import { formatDateTime, formatTime } from '@/lib/display-settings';
 import { leadDate, leadDateTime } from '@/lib/timezone';
 import { LEAD_TIMEZONES } from '@/lib/timezone';
@@ -61,13 +62,15 @@ export default function LeadDetailPage() {
     },
     meta: { successMessage: 'Changes saved' },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['lead', id] });
-      qc.invalidateQueries({ queryKey: ['lead', id, 'activities'] });
-      qc.invalidateQueries({ queryKey: ['leads'] });
+      // The form carries a Comments field, and saving it APPENDS to the lead's
+      // shared trail server-side — so this refreshes every module that shows
+      // comments, the Calling Panel included, rather than just this page. Covers
+      // ['lead'], ['leads'], ['lead-comments'], ['caller-leads'] and
+      // ['activities']; see lib/sync.ts.
+      invalidateLeadComment(qc);
       // The edit form can reassign the lead (`caller`) and can close it, so the
-      // owner's queue and KPI cards both move with this save.
+      // owner's assignment summary and KPI cards move with this save too.
       qc.invalidateQueries({ queryKey: ['assignments-summary'] });
-      qc.invalidateQueries({ queryKey: ['caller-leads'] });
       qc.invalidateQueries({ queryKey: ['caller-dash'] });
       setEditing(false);
     },

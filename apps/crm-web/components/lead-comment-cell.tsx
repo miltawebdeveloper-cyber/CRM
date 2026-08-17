@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { History, Loader2 } from 'lucide-react';
-import { leadsApi, type Lead } from '@/lib/leads';
+import { type Lead } from '@/lib/leads';
 import { callsApi } from '@/lib/crm';
-import { leadDateTime, zoneNote } from '@/lib/timezone';
+import { LeadCommentTrail } from '@/components/lead-comment-trail';
+import { invalidateLeadComment } from '@/lib/sync';
 
 /**
  * The Comments cell in Lead Management: shows the latest remark, edits in place,
@@ -50,9 +51,12 @@ export function LeadCommentCell({ lead }: { lead: Lead }) {
    */
   const save = useMutation({
     mutationFn: (text: string) => callsApi.addLeadNote(lead.id, text),
+    // Every module reading this lead's comments is refreshed, not just this
+    // column and its dialog — a Calling Panel open on the same lead has to show
+    // the remark too, and it used to wait on its own 15s queue poll to notice.
+    // See lib/sync.ts.
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['leads'] });
-      qc.invalidateQueries({ queryKey: ['lead-comments', lead.id] });
+      invalidateLeadComment(qc);
       setEditing(false);
     },
   });
@@ -123,13 +127,14 @@ export function LeadCommentCell({ lead }: { lead: Lead }) {
   );
 }
 
-/** The full trail for one lead: every remark, who left it and where it came from. */
+/**
+ * The full trail for one lead, in a dialog.
+ *
+ * The list itself is `LeadCommentTrail`, the same component the Calling Panel
+ * renders — one implementation of "the comment history", so the two modules
+ * cannot drift apart in what they show or how they stamp it.
+ */
 function CommentHistoryDialog({ lead, onClose }: { lead: Lead; onClose: () => void }) {
-  const { data = [], isLoading } = useQuery({
-    queryKey: ['lead-comments', lead.id],
-    queryFn: () => leadsApi.commentHistory(lead.id),
-  });
-
   return (
     <>
       <div onClick={(e) => { e.stopPropagation(); onClose(); }} className="fixed inset-0 z-40 bg-black/30" />
@@ -140,30 +145,7 @@ function CommentHistoryDialog({ lead, onClose }: { lead: Lead; onClose: () => vo
             <p className="mt-0.5 truncate text-xs text-muted-foreground">{lead.businessName} · {lead.leadId}</p>
           </div>
           <div className="flex-1 overflow-y-auto p-4">
-            {isLoading && <p className="py-6 text-center text-[12px] text-muted-foreground">Loading…</p>}
-            {!isLoading && data.length === 0 && (
-              <p className="py-6 text-center text-[12px] text-muted-foreground">No comments recorded yet.</p>
-            )}
-            {data.map((c) => (
-              <div key={c.id} className="mb-2 rounded-lg border px-3 py-2">
-                <div className="mb-1 flex items-center gap-2 text-[10.5px] text-muted-foreground">
-                  <span
-                    className={`rounded-full px-1.5 py-0.5 font-medium ${
-                      c.source === 'Call Notes' ? 'bg-[var(--brand-surface)] text-[var(--brand-on-surface)]' : 'bg-muted text-foreground'
-                    }`}
-                  >
-                    {c.source}
-                  </span>
-                  <span className="font-medium text-foreground">{c.user}</span>
-                  {/* The comment trail is part of the lead's history, so it is
-                      stamped on the lead's clock like the rest of it — a remark
-                      left during a call must not read as the following day
-                      beside the call it was left on. */}
-                  <span title={zoneNote(lead.timezone)}>{leadDateTime(c.at, lead.timezone)}</span>
-                </div>
-                <p className="whitespace-pre-wrap text-[12px]">{c.text}</p>
-              </div>
-            ))}
+            <LeadCommentTrail leadId={lead.id} timezone={lead.timezone} />
           </div>
           <div className="flex justify-end border-t px-5 py-3">
             <button onClick={onClose} className="rounded-md border bg-card px-3 py-2 text-[12.5px] font-medium hover:bg-muted">Close</button>
