@@ -5,10 +5,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Mail, Plus, Trash2, Check } from 'lucide-react';
 import { notificationsApi, type CallbackEmailType, type EmailSettings } from '@/lib/crm';
 
-const TYPE_LABELS: { key: CallbackEmailType; label: string; desc: string }[] = [
-  { key: 'callback_reminder', label: 'Upcoming Callback Reminder', desc: 'Sent ~1 day before a scheduled callback' },
-  { key: 'callback_due', label: 'Callback Due Today', desc: 'Sent when a callback becomes due' },
-  { key: 'callback_missed', label: 'Missed Callback Notification', desc: 'Sent when a callback is not completed in time' },
+/**
+ * The three callback events, and which of them reaches an inbox.
+ *
+ * Only a missed callback is emailed. The other two raise the CRM notification —
+ * the bell, the popup and the Follow-Ups list — and stop there, which is why
+ * they are shown without a switch: the API enforces that rule regardless of
+ * what is stored (`CALLBACK_EMAIL_TYPES` in notifications.service.ts), so a
+ * toggle here would be a control that does nothing.
+ */
+const TYPE_LABELS: { key: CallbackEmailType; label: string; desc: string; emails: boolean }[] = [
+  { key: 'callback_reminder', label: 'Upcoming Callback Reminder', desc: 'Raised in the CRM ~1 day before a scheduled callback, and when one is booked', emails: false },
+  { key: 'callback_due', label: 'Callback Due Now', desc: 'Raised in the CRM when a callback reaches its scheduled time', emails: false },
+  { key: 'callback_missed', label: 'Missed Callback Notification', desc: 'Emailed to the recipients above when a callback is still not completed an hour after its scheduled time', emails: true },
 ];
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -77,7 +86,7 @@ export function EmailNotificationSettings() {
         <Mail className="h-4 w-4 text-[var(--brand)]" />
         <div>
           <h3 className="font-display text-[14px] font-semibold">Email Notification Settings</h3>
-          <div className="text-xs text-muted-foreground">Recipients & types for callback emails — editable without code changes</div>
+          <div className="text-xs text-muted-foreground">Who receives the missed-callback email — editable without code changes</div>
         </div>
       </div>
 
@@ -119,13 +128,23 @@ export function EmailNotificationSettings() {
         {/* Type toggles */}
         <div>
           <div className="mb-1 text-[11.5px] font-semibold uppercase tracking-[.06em] text-muted-foreground">Notification Types</div>
-          {TYPE_LABELS.map(({ key, label, desc }) => (
+          <p className="mb-1 text-[12px] text-muted-foreground">
+            Only a <b className="font-semibold text-foreground">missed</b> callback is emailed. Scheduling one, the day-before
+            reminder and the due-now prompt all raise the CRM notification and nothing else.
+          </p>
+          {TYPE_LABELS.map(({ key, label, desc, emails }) => (
             <div key={key} className="flex items-center justify-between gap-4 border-b py-3 last:border-0">
               <div>
                 <div className="text-[13px] font-semibold">{label}</div>
                 <div className="text-[12px] text-muted-foreground">{desc}</div>
               </div>
-              <Toggle on={types[key]} onChange={(v) => setTypes((t) => ({ ...t, [key]: v }))} />
+              {emails ? (
+                <Toggle on={types[key]} onChange={(v) => setTypes((t) => ({ ...t, [key]: v }))} />
+              ) : (
+                <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
+                  CRM only
+                </span>
+              )}
             </div>
           ))}
         </div>

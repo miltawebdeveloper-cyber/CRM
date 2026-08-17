@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { NotificationType, Role, Timezone } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { dayInZone, formatInZone } from '../../common/timezone';
+import { dayInZone, formatInZone, TIMEZONE_LABELS, UNSET_TIMEZONE_LABEL } from '../../common/timezone';
 import { callbackStatus, type CallbackStatus } from './callback-status';
 
 const HOUR = 60 * 60 * 1000;
@@ -17,14 +17,22 @@ const MISSED_GRACE_MS = 1 * HOUR;
  */
 const fmt = (d: Date, tz?: Timezone | null) => formatInZone(d, tz);
 
+/** The lead's zone written out in full, for the missed-callback e-mail. */
+const zoneName = (tz?: Timezone | null) => (tz ? TIMEZONE_LABELS[tz] : UNSET_TIMEZONE_LABEL);
+
 /**
  * Callback reminder engine (req 4). A cron job scans active callbacks
- * (callbackAt set, not yet completed) and fires three one-shot reminders:
+ * (callbackAt set, not yet completed) and fires three one-shot milestones:
  *   • day-before  — ~24h out
  *   • due         — scheduled time reached
  *   • missed      — still open >1h after the scheduled time
- * Each reminder stamps a column on the lead so it never repeats; completing
- * the call (callbackCompletedAt) drops the lead from the active set.
+ * Each stamps a column on the lead so it never repeats; completing the call
+ * (callbackCompletedAt) drops the lead from the active set before any of them.
+ *
+ * WHICH OF THESE EMAIL: only `missed`. The other two raise the CRM notification
+ * and stop there, and so does booking the callback in the first place — see
+ * `CALLBACK_EMAIL_TYPES` in notifications.service.ts, which is where that rule
+ * is enforced for every caller rather than being restated at each one.
  */
 @Injectable()
 export class CallbacksService {
@@ -47,7 +55,11 @@ export class CallbacksService {
       where: { callbackAt: { not: null }, callbackCompletedAt: null, deletedAt: null },
       select: {
         id: true,
+        // Carried for the missed-callback e-mail, which has to identify the lead
+        // and the person to ring well enough to act on without opening the CRM.
+        leadId: true,
         businessName: true,
+        contactName: true,
         phone: true,
         timezone: true,
         callbackAt: true,
@@ -75,20 +87,55 @@ export class CallbacksService {
 
       // Missed (>1h overdue) takes priority over Due so we don't double-fire.
       if (diffMs <= -MISSED_GRACE_MS && !lead.callbackReminderMissedAt) {
-        // Spec body (req 9): customer, phone, scheduled time, assigned user, missed time.
+        // CLAIM THE ALERT BEFORE SENDING IT. This is the one notification in the
+        // system that reaches an inbox, so "don't send it twice" has to survive
+        // more than a well-behaved loop: the stamp used to be written in the
+        // batched update at the bottom, which left the whole send-then-stamp
+        // sequence open to a crash, a redeploy mid-scan, or a run still going
+        // when the next 10-minute tick starts — any of which re-sent the same
+        // alert. `updateMany` filtered on the column still being null is atomic
+        // in the database, so exactly one caller can ever win it, and only the
+        // winner mails.
+        const claimed = await this.prisma.lead.updateMany({
+          where: { id: lead.id, callbackReminderMissedAt: null },
+          data: {
+            callbackReminderMissedAt: now,
+            // A callback that was never even marked due has now gone straight
+            // past both milestones; stamping it here stops the Due branch
+            // firing afterwards for an appointment that is already missed.
+            ...(lead.callbackReminderDueAt ? {} : { callbackReminderDueAt: now }),
+          },
+        });
+        if (claimed.count === 0) continue; // another run got there first
+
+        // Everything the recipient needs to act without opening the CRM, and
+        // labelled so it cannot be mistaken for a reminder about a call that is
+        // still to come: what was missed, for whom, by whom, and when — stated
+        // on the CUSTOMER's clock with the zone named, because that is the
+        // appointment that was actually broken.
         const body =
-          `The scheduled callback for ${lead.businessName} at ${fmt(cb, tz)} was not completed. ` +
-          `Please take the necessary follow-up action.\n\n` +
+          `MISSED CALLBACK — the scheduled callback for ${lead.businessName} at ${fmt(cb, tz)} ` +
+          `was not completed. Please take the necessary follow-up action.\n\n` +
+          `Callback Status: Missed\n` +
+          `Lead ID: ${lead.leadId}\n` +
           `Customer Name: ${lead.businessName}\n` +
+          (lead.contactName ? `Contact Name: ${lead.contactName}\n` : '') +
           `Phone Number: ${lead.phone}\n` +
+          `Assigned Agent: ${assignedName}\n` +
           `Scheduled Callback: ${fmt(cb, tz)}\n` +
-          `Assigned User: ${assignedName}\n` +
+          `Lead Time Zone: ${zoneName(tz)}\n` +
           `Missed Time: ${fmt(now, tz)}`;
-        await this.fire(lead.assignedToId, email, NotificationType.callback_missed, 'Missed Callback Alert', body);
-        updates.callbackReminderMissedAt = now;
-        if (!lead.callbackReminderDueAt) updates.callbackReminderDueAt = now;
+        await this.fire(lead.assignedToId, email, NotificationType.callback_missed, 'Missed Callback', body);
         fired++;
-      } else if (diffMs <= 0 && !lead.callbackReminderDueAt) {
+        // The claim above already wrote this lead's stamps, so it skips the
+        // batched update at the bottom of the loop.
+        continue;
+      } else if (diffMs <= 0 && !lead.callbackReminderDueAt && !lead.callbackReminderMissedAt) {
+        // Never "due now" for a callback already reported missed. The missed
+        // branch above stamps both columns together, so a lead that has one
+        // without the other is an older row — and telling a rep a call is due
+        // an hour after telling them they missed it is a notification that
+        // contradicts the one before it.
         await this.fire(
           lead.assignedToId,
           email,

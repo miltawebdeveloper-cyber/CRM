@@ -21,6 +21,46 @@ const DEFAULT_TYPES: Record<ToggleableType, boolean> = {
   callback_missed: true,
 };
 
+/**
+ * Which callback events reach an inbox, and which stay inside the CRM.
+ *
+ * ONLY A MISSED CALLBACK IS EMAILED. Booking a callback, the day-before nudge,
+ * the "due now" prompt and an automatic roll-over to the next working day are
+ * all things the rep is already looking at — they raise the bell, the popup and
+ * the Follow-Ups list, and that is the whole of it.
+ *
+ * Every one of them used to send mail as well. A rep booking twenty callbacks
+ * in a sitting generated twenty emails to themselves AND to every address on the
+ * distribution list, plus another as each one came due — so the one message that
+ * actually needed somebody to act, the missed alert, arrived in a folder nobody
+ * read any more. Reserving mail for the exception is what makes it mean
+ * something.
+ *
+ * This is a rule about the events, not a preference, which is why it lives here
+ * and not in the admin settings: no toggle can turn "callback scheduled" back
+ * into an email. The admin switch below still applies on top, so the missed
+ * alert can be turned off, and is the only one of the three that does anything.
+ */
+const CALLBACK_EMAIL_TYPES: Record<ToggleableType, boolean> = {
+  callback_reminder: false, // scheduled · day-before · rolled over — CRM only
+  callback_due: false, // the scheduled time arrived — CRM only
+  callback_missed: true, // not completed in time — the one that emails
+};
+
+/** Whether this notification type is one of the callback events. */
+function isCallbackType(type: string): type is ToggleableType {
+  return type in CALLBACK_EMAIL_TYPES;
+}
+
+/**
+ * Whether a callback event carries an email at all, before the admin toggle.
+ * Exported so the admin screen can say which switches are live rather than
+ * offering three that look identical and behave differently.
+ */
+export function callbackTypeSendsEmail(type: ToggleableType): boolean {
+  return CALLBACK_EMAIL_TYPES[type];
+}
+
 @Injectable()
 export class NotificationsService {
   constructor(
@@ -103,10 +143,15 @@ export class NotificationsService {
   }
 
   /**
-   * Create an in-app notification for one user AND send the matching email.
-   * `email` is the assigned user's address; the configured distribution list
-   * (req 7) is emailed in addition. Emails for toggleable callback types are
-   * suppressed when the admin has disabled that type. Email is best-effort.
+   * Create an in-app notification for one user, and send the matching email if
+   * this event is one that carries one.
+   *
+   * The in-app half always happens — that is the CRM notification every callback
+   * raises, and nothing below can suppress it. The email half is the exception:
+   * of the callback events only a missed callback sends one (see
+   * `CALLBACK_EMAIL_TYPES`), and the admin can switch even that off. `email` is
+   * the assigned user's address; the configured distribution list (req 7) is
+   * emailed in addition. Email is best-effort and never fails the caller.
    */
   async notifyAndEmail(
     userId: string | null,
@@ -121,6 +166,10 @@ export class NotificationsService {
     if (opts.alsoManagers) {
       await this.notifyManagers(type, title, body);
     }
+
+    // A callback event that is CRM-only stops here, having done its real job.
+    // Checked before the settings are even read: this is not a preference.
+    if (isCallbackType(type) && !CALLBACK_EMAIL_TYPES[type]) return;
 
     const settings = await this.getEmailSettings();
     // Toggleable callback types respect the admin switch; other types always send.
