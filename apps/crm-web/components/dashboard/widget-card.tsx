@@ -51,7 +51,15 @@ export function WidgetCard<T>({
   const cols = prefs.visible;
 
   return (
-    <section className="flex flex-col rounded-lg border bg-card shadow-sm">
+    // `min-w-0` is what makes the scroll container below actually scroll. This
+    // section is a grid item on the dashboard, and a grid item's default
+    // `min-width: auto` is its MIN-CONTENT width — which, with every cell
+    // `whitespace-nowrap`, is the table's full width. So a single long note or
+    // business name stretched the tile, inflated its `1fr` track, and pushed the
+    // whole dashboard sideways with the right-hand column cut off. Pinned to 0,
+    // the track decides the width and the wide table scrolls inside the tile,
+    // which is what the `overflow-x-auto` below was always for.
+    <section className="flex min-w-0 flex-col rounded-lg border bg-card shadow-sm">
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-3">
         <h2 className="text-sm font-semibold">{title}</h2>
