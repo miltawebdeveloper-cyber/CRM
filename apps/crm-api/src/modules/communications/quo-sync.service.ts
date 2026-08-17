@@ -9,6 +9,14 @@ import { CallInsightsService } from './call-insights.service';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * How far apart the CRM's clock and the provider's may be and still describe the
+ * same call. Matches the window `adoptPendingOutboundCall` uses on the webhook
+ * side — the two paths adopt the same rows, so they must not disagree about
+ * which rows those are.
+ */
+const ADOPT_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+/**
  * Normalise a phone number to E.164 (e.g. +18133030213). Quo/OpenPhone rejects
  * any `participant` that isn't E.164 ("Expected string to match '^\+[1-9]…'"),
  * so a lead stored in display form — "(813) 303-0213" — must be converted before
@@ -242,7 +250,13 @@ export class QuoSyncService {
     const startTime = c.createdAt ? new Date(c.createdAt) : new Date();
     const durationSecs = typeof c.duration === 'number' ? c.duration : null;
     const ended = !!c.completedAt || durationSecs != null;
+    const endTime = ended
+      ? c.completedAt
+        ? new Date(c.completedAt)
+        : new Date(startTime.getTime() + (durationSecs ?? 0) * 1000)
+      : null;
 
+    // Already linked to this provider call — enrich it and stop.
     const existing = await this.prisma.call.findFirst({ where: { quoCallId: c.id }, select: { id: true } });
     if (existing) {
       await this.prisma.call.update({
@@ -251,10 +265,59 @@ export class QuoSyncService {
           ...(c.status ? { status: c.status } : {}),
           ...(durationSecs != null ? { durationSecs } : {}),
           ...(c.conversationId ? { conversationId: c.conversationId } : {}),
-          ...(ended ? { endTime: c.completedAt ? new Date(c.completedAt) : new Date(startTime.getTime() + (durationSecs ?? 0) * 1000) } : {}),
+          ...(endTime ? { endTime } : {}),
         },
       });
       return existing.id;
+    }
+
+    /**
+     * Not linked yet — but the CRM may already hold this very call.
+     *
+     * `startCall` writes a row the moment the agent clicks Call, before the
+     * provider has an id for it, so that row carries `quoCallId: null`. The
+     * webhook normally claims it (`adoptPendingOutboundCall`), and when it does
+     * there is nothing here to find. When it does NOT — a delivery rejected on a
+     * signature mismatch, a webhook configured after the call, an outage — the
+     * row stays unlinked forever, and this backfill used to create a SECOND row
+     * for the same conversation. That is the duplicate in Call Details: one row
+     * with the agent's outcome and no recording, one with the recording and no
+     * outcome, both for a call that happened once.
+     *
+     * So adopt on the same conservative terms the webhook uses: same lead, same
+     * direction, never linked to a provider call, and started within a couple of
+     * hours of the provider's own start time — most recent first, so back-to-back
+     * attempts to the same lead claim the right one. Anything less exact would
+     * merge two genuine calls, which is worse than the duplicate it fixes.
+     */
+    const adopted = await this.prisma.call.findFirst({
+      where: {
+        leadId,
+        direction,
+        quoCallId: null,
+        startTime: {
+          gte: new Date(startTime.getTime() - ADOPT_WINDOW_MS),
+          lte: new Date(startTime.getTime() + ADOPT_WINDOW_MS),
+        },
+      },
+      orderBy: { startTime: 'desc' },
+      select: { id: true, endTime: true },
+    });
+    if (adopted) {
+      await this.prisma.call.update({
+        where: { id: adopted.id },
+        data: {
+          quoCallId: c.id,
+          ...(c.status ? { status: c.status } : {}),
+          ...(durationSecs != null ? { durationSecs } : {}),
+          ...(c.conversationId ? { conversationId: c.conversationId } : {}),
+          // Only if the CRM never closed it. A row the agent already ended
+          // carries the duration they were credited with, and the provider's
+          // own end time must not overwrite it.
+          ...(endTime && !adopted.endTime ? { endTime } : {}),
+        },
+      });
+      return adopted.id;
     }
 
     const created = await this.prisma.call.create({
@@ -265,7 +328,7 @@ export class QuoSyncService {
         status: c.status ?? null,
         durationSecs,
         startTime,
-        endTime: ended ? (c.completedAt ? new Date(c.completedAt) : new Date(startTime.getTime() + (durationSecs ?? 0) * 1000)) : null,
+        endTime,
         quoCallId: c.id,
         conversationId: c.conversationId ?? null,
       },
