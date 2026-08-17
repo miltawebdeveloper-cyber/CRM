@@ -4,6 +4,7 @@ import { Role } from '@crm/database';
 import { UsersService } from './users.service';
 import { CreateUserDto, UpdateUserDto, ListUsersQueryDto } from './dto/user.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 
 // User management is Admin-only (Permission Matrix: Create/Edit/Deactivate users).
 @ApiTags('users')
@@ -42,5 +43,22 @@ export class UsersController {
   @HttpCode(200)
   deactivate(@Param('id') id: string) {
     return this.users.deactivate(id);
+  }
+
+  /**
+   * Permanently remove an account (admin only).
+   *
+   * A separate route rather than a flag on the one above, because these are two
+   * different decisions and the safe one must stay the default: `DELETE /users/:id`
+   * has always meant "deactivate" and every existing caller relies on that. This
+   * is the irreversible one, and it says so in the path.
+   *
+   * Refuses with 409 for a user who has recorded work — see `UsersService.remove`.
+   */
+  @Roles(Role.admin)
+  @Delete(':id/permanent')
+  @HttpCode(200)
+  remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.users.remove(id, { id: user.id });
   }
 }

@@ -43,4 +43,12 @@ export const usersApi = {
   create: async (input: CreateUserInput): Promise<User> => (await api.post('/users', input)).data,
   update: async (id: string, input: UpdateUserInput): Promise<User> => (await api.patch(`/users/${id}`, input)).data,
   deactivate: async (id: string): Promise<User> => (await api.delete(`/users/${id}`)).data,
+  /**
+   * Permanently delete an account (admin only). Irreversible, and refused with a
+   * 409 for any user who has recorded work — the API's message names what is in
+   * the way and is meant to be shown as-is. `deactivate` is the operation for
+   * somebody who has left.
+   */
+  remove: async (id: string): Promise<{ id: string; deleted: boolean }> =>
+    (await api.delete(`/users/${id}/permanent`)).data,
 };

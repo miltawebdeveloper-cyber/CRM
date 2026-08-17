@@ -2,15 +2,32 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Users, Shield, UserCheck, Phone, Check, Pencil, Filter, X, Ban, RotateCcw, Wifi, WifiOff } from 'lucide-react';
+import { Plus, Users, Shield, UserCheck, Phone, Check, Pencil, Filter, X, Ban, RotateCcw, Wifi, WifiOff, Trash2 } from 'lucide-react';
 import { usersApi, type User, type UserRole } from '@/lib/users';
 import { availabilityApi } from '@/lib/availability';
+import { api } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { formatDate } from '@/lib/display-settings';
+
+/**
+ * Pull the API's message out of an axios error, with a usable fallback.
+ *
+ * It matters here: a refused delete answers with the reason — which user, and
+ * exactly what work is in the way — and that sentence is the whole point of the
+ * refusal. Swallowing it for a generic "could not delete" would leave the admin
+ * with no idea why, or what to do instead.
+ */
+function apiError(err: unknown, fallback: string): string {
+  const m = (err as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
+  if (Array.isArray(m)) return String(m[0]);
+  return typeof m === 'string' && m ? m : fallback;
+}
 
 const ROLE_META: Record<string, { label: string; cls: string; desc: string; perms: string[] }> = {
   admin: { label: 'Admin', cls: 'bg-[#f7e3da] text-[var(--tone-red-fg-2)]', desc: 'Full access to all modules, data, settings, and user management.', perms: ['All modules & settings', 'User management', 'Recordings & exports', 'System configuration'] },
@@ -38,17 +55,46 @@ export default function UsersPage() {
   const [q, setQ] = useState('');
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
+  const [deleting, setDeleting] = useState<User | null>(null);
   const count = (r: string) => users.filter((u) => u.role === r).length;
+
+  // Deleting is admin-only, and the row action is hidden rather than shown
+  // disabled — a team leader has no route to it at all, which is also what the
+  // API enforces.
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
+  const isAdmin = me?.role === 'admin';
 
   const toggleActive = useMutation({
     mutationFn: (u: User) => usersApi.update(u.id, { isActive: !u.isActive }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
   });
 
-  // Bulk deactivate (soft): the API has no hard-delete, so "Delete" deactivates.
+  // The bulk action stays a DEACTIVATE, deliberately. Permanent deletion is a
+  // per-account decision that the API refuses for anyone with recorded work, and
+  // a sweep over a selection is exactly the shape that turns "remove this typo
+  // account" into "remove half the team".
   const deactivateUsers = useMutation({
     mutationFn: async (rows: User[]) => { for (const u of rows.filter((x) => x.isActive)) await usersApi.deactivate(u.id); },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
+  });
+
+  /**
+   * Permanently remove an account. Irreversible, so it goes through the confirm
+   * dialog rather than firing off a bin click.
+   *
+   * A refusal is not a failure to report as one: the API answers with what the
+   * user has on record and what to do instead, and that sentence is shown as the
+   * toast. The dialog stays open on error so the admin can read it and cancel.
+   */
+  const removeUser = useMutation({
+    mutationFn: (u: User) => usersApi.remove(u.id),
+    // The dialog closes itself on a resolved confirm, and keeps itself open on a
+    // rejected one so the refusal can be read in context.
+    onSuccess: (_res, u) => {
+      qc.invalidateQueries({ queryKey: ['users'] });
+      toast.success(`${u.name} was permanently deleted.`);
+    },
+    onError: (err) => toast.error(apiError(err, 'Could not delete this user.')),
   });
 
   // Admin availability override (Online/Offline). Offline reassigns the user's
@@ -62,8 +108,12 @@ export default function UsersPage() {
   const editRef = useRef<(u: User) => void>(() => {});
   const toggleRef = useRef<(u: User) => void>(() => {});
   const availRef = useRef<(u: User) => void>(() => {});
+  const deleteRef = useRef<(u: User) => void>(() => {});
+  // Read through a ref like the other row actions, so the column defs stay
+  // stable while still seeing the current admin flag.
   editRef.current = (u) => setEditing(u);
   toggleRef.current = (u) => toggleActive.mutate(u);
+  deleteRef.current = (u) => setDeleting(u);
   availRef.current = (u) => {
     const online = (u.availability ?? 'online') === 'online';
     if (online && !confirm(`Mark ${u.name} offline? Their pending leads, callbacks and tasks will be reassigned to the next available caller.`)) return;
@@ -104,10 +154,27 @@ export default function UsersPage() {
           <button onClick={() => toggleRef.current(u)} title={u.isActive ? 'Deactivate' : 'Activate'} className={`grid h-8 w-8 place-items-center rounded-lg hover:bg-muted ${u.isActive ? 'text-muted-foreground hover:text-[var(--tone-red-fg)]' : 'text-[var(--brand-strong)]'}`}>
             {u.isActive ? <Ban className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
           </button>
+          {/* Admin only, and never on your own account — deleting the row you
+              are signed in as would end your session mid-request. The API
+              refuses both cases too; this just keeps the button off screen. */}
+          {isAdmin && u.id !== me?.id && (
+            <button
+              onClick={() => deleteRef.current(u)}
+              title="Delete permanently"
+              aria-label={`Delete ${u.name} permanently`}
+              className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-[var(--tone-red-fg)]"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
       ),
     },
-  ], []);
+    // The two values read directly rather than through a ref: they are plain
+    // facts about the signed-in user, not handlers, and they settle once when
+    // `me` loads. Naming them here rebuilds the columns that once — which is
+    // also what makes the Delete button appear as soon as the role is known.
+  ], [isAdmin, me?.id]);
 
   // Shared column prefs so the search honors the user's Searchable config.
   const prefs = useColumnPrefs('users', columns);
@@ -174,6 +241,34 @@ export default function UsersPage() {
           user={editing}
           onClose={() => { setCreating(false); setEditing(null); }}
           onSaved={() => { qc.invalidateQueries({ queryKey: ['users'] }); setCreating(false); setEditing(null); }}
+        />
+      )}
+
+      {deleting && (
+        <ConfirmDialog
+          title="Delete user permanently"
+          confirmLabel="Delete permanently"
+          onConfirm={async () => { await removeUser.mutateAsync(deleting); }}
+          onClose={() => setDeleting(null)}
+          // Spans, not paragraphs: the dialog already renders `message` inside a
+          // <p>, and nesting one in another is invalid markup React will warn on.
+          message={
+            <>
+              <span className="block">
+                Permanently delete <b className="font-semibold text-foreground">{deleting.name}</b> ({deleting.email})?
+                This cannot be undone.
+              </span>
+              {/* Says the rule up front rather than letting the admin discover it
+                  from a refusal — and names the alternative, because for anyone
+                  who has actually worked leads, deactivating is the operation
+                  they want. */}
+              <span className="mt-2 block">
+                Only an account with no recorded work can be deleted. If they have made calls, written notes or been
+                assigned leads, the deletion is refused so their history stays attributed to them —{' '}
+                <b className="font-semibold text-foreground">deactivate</b> that account instead.
+              </span>
+            </>
+          }
         />
       )}
     </div>
