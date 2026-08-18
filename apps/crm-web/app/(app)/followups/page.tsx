@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Calendar, Plus, Clock, RefreshCw, CheckCircle2, AlertTriangle, Bell, Phone, Filter, Pencil, CircleCheckBig, Users } from 'lucide-react';
 import { callsApi, assignmentsApi, type Followup } from '@/lib/crm';
 import { api } from '@/lib/api';
@@ -40,11 +40,15 @@ export default function FollowupsPage() {
   const router = useRouter();
   const qc = useQueryClient();
   const [userId, setUserId] = useState(''); // '' = All Users (manager filter)
-  const { data: allFus = [], isLoading } = useQuery({
+  const { data: allFus = [], isLoading, isFetching, isPlaceholderData } = useQuery({
     queryKey: ['followups', userId],
     queryFn: () => callsApi.followups(userId || undefined),
     retry: false,
+    // The employee filter is part of the key, so switching rep would otherwise
+    // empty the table for the length of a request. Hold the rows and swap them.
+    placeholderData: keepPreviousData,
   });
+  const isRefreshing = isFetching || isPlaceholderData;
   // Whose follow-ups this page is showing. The API decides: a manager sees the
   // whole floor and may narrow to one rep, an employee sees their own and cannot
   // widen it. The role only tells the page which controls are worth drawing.
@@ -220,6 +224,7 @@ export default function FollowupsPage() {
         title="Upcoming Follow-Ups"
         subtitle={`${fus.length} shown`}
         loading={isLoading}
+        refreshing={isRefreshing}
         emptyText={allFus.length === 0 ? 'No follow-ups scheduled. Set a follow-up date when saving a call note.' : 'No follow-ups match the current filters.'}
         toolbar={
           <>

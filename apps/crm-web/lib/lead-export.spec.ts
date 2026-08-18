@@ -82,13 +82,73 @@ describe('Lead Management export', () => {
     expect(cell(pacific, 'Time Zone')).toBe('PST');
   });
 
-  it('dates the follow-up on the lead\'s clock too', () => {
+  it('gives the follow-up its hour, on the lead\'s clock', () => {
     // The appointment column. An hour agreed with the customer, stated a day out
-    // in the export, is a call made on the wrong day.
+    // in the export, is a call made on the wrong day — and stated to the day
+    // only it does not say when to ring at all. A disposition writes a real time
+    // into this field now, so the file carries it.
     const l = lead({ timezone: 'EST', nextFollowUpDate: '2026-08-14T22:30:00Z' });
-    expect(cell(l, 'Next Follow-up')).toBe('Aug 14, 2026');
+    expect(cell(l, 'Next Follow-up')).toBe('Aug 14, 2026, 06:30 PM');
   });
 
+  it('gives First and Last Contact their hours too', () => {
+    // Three calls in one afternoon read as three identical dates without them,
+    // and this pair is the evidence that a lead is being worked at all.
+    const l = lead({
+      timezone: 'EST',
+      firstContact: '2026-08-10T14:05:00Z',
+      lastContact: '2026-08-14T22:30:00Z',
+    });
+    expect(cell(l, 'First Contact')).toBe('Aug 10, 2026, 10:05 AM');
+    expect(cell(l, 'Last Contact')).toBe('Aug 14, 2026, 06:30 PM');
+  });
+
+  it('carries no Callback column — the follow-up column already answers it', () => {
+    // Withdrawn deliberately. A booked callback IS the lead's next follow-up, so
+    // the file was reporting one commitment twice under two headings, and a
+    // reader had no way to tell whether the two were meant to differ.
+    expect(exportColumnIndex('Callback Date & Time')).toBe(-1);
+    expect(EXPORT_HEADERS.filter((h) => /callback/i.test(h))).toEqual([]);
+  });
+
+  it('exports the Zoom meeting with its HOUR, on the lead\'s clock', () => {
+    // 2:30pm on the 14th in Miami. Dated to the day this is unusable — a meeting
+    // is an appointment, and the day is not the appointment — and read on the
+    // exporter's clock in Chennai it would say 1:00am on the 15th.
+    const l = lead({ timezone: 'EST', meetingDate: '2026-08-14T18:30:00Z' });
+    expect(cell(l, 'Meeting Date & Time')).toBe('Aug 14, 2026, 02:30 PM');
+
+    // Same instant, a lead in another zone: a different hour, decided per row.
+    const pacific = lead({ timezone: 'PST', meetingDate: '2026-08-14T18:30:00Z' });
+    expect(cell(pacific, 'Meeting Date & Time')).toBe('Aug 14, 2026, 11:30 AM');
+  });
+
+  it('leaves the meeting column blank when none is booked', () => {
+    // Most leads, most of the time. An empty cell, not a placeholder date that
+    // would sort and filter as a real appointment.
+    expect(cell(lead(), 'Meeting Date & Time')).toBe('');
+  });
+
+  it('keeps the meeting and the follow-up in separate columns', () => {
+    // The separation the file exists to preserve. A lead can easily have a Zoom
+    // on Friday and a call-back on Tuesday, and neither column may be filled
+    // from the other — that mapping error is invisible in a spreadsheet and
+    // sends somebody to the wrong commitment.
+    const l = lead({
+      timezone: 'EST',
+      meetingDate: '2026-08-21T18:30:00Z',
+      nextFollowUpDate: '2026-08-18T14:00:00Z',
+    });
+    expect(cell(l, 'Meeting Date & Time')).toBe('Aug 21, 2026, 02:30 PM');
+    expect(cell(l, 'Next Follow-up')).toBe('Aug 18, 2026, 10:00 AM');
+  });
+
+  it('leaves the follow-up blank on a lead that only has a meeting', () => {
+    // The mapping error stated the other way round: a Zoom must not make a lead
+    // look due for a call.
+    const l = lead({ timezone: 'EST', meetingDate: '2026-08-21T18:30:00Z' });
+    expect(cell(l, 'Next Follow-up')).toBe('');
+  });
   it('spells out the next-day movement and counts it', () => {
     const l = lead();
     expect(cell(l, 'Movement')).toBe('Moved to next day (3×)');

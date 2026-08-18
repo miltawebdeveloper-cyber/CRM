@@ -595,3 +595,22 @@
   /* 1440 ÷ 1500 — 13" MacBook Air */
   .app-shell { zoom: 0.96; height: calc(100vh / 0.96); }
 }
+
+/* The DataTable's "newer rows are on the way" hairline.
+   A bar that sweeps rather than fills: the table cannot know how far along a
+   request is, and a progress bar that invents a percentage is worse than one
+   that only says "working". Declared here because Tailwind's arbitrary
+   animation syntax can name a keyframe but not define one.
+
+   Honours reduced motion by holding still and spanning the full width — the
+   indicator is still visible, it just stops moving. */
+@keyframes dt-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-\[dt-sweep_1\.1s_ease-in-out_infinite\] {
+    animation: none;
+    width: 100%;
+  }
+}

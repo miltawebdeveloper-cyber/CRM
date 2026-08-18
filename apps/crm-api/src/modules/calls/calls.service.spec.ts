@@ -29,6 +29,8 @@ describe('CallsService — no-call dispositions do not duplicate in Calls Made',
       last?: { seq: number } | null;
       /** Whether the chosen outcome books another callback. */
       schedulesCallback?: boolean;
+      /** What the lead already has in First Contact, if anything. */
+      firstContact?: Date | null;
     } = {},
   ) {
     // Typed with their argument so the assertions below can read what the
@@ -46,12 +48,19 @@ describe('CallsService — no-call dispositions do not duplicate in Calls Made',
       'completedAt' in args.where ? followupState.open ?? null : followupState.last ?? null,
     );
 
+    const leadUpdate = jest.fn((_args: { where: { id: string }; data: Record<string, unknown> }) => ({ __op: 'lead.update' }));
     const prisma = {
       lead: {
         // First call: the pre-transaction read. Second: the post-write read that
         // decides whether a callback notification goes out.
-        findUnique: jest.fn(async () => ({ assignedToId: 'user-1', status: 'new', timezone: 'EST', callbackAt: null })),
-        update: jest.fn(() => ({ __op: 'lead.update' })),
+        findUnique: jest.fn(async () => ({
+          assignedToId: 'user-1',
+          status: 'new',
+          timezone: 'EST',
+          callbackAt: null,
+          firstContact: followupState.firstContact ?? null,
+        })),
+        update: leadUpdate,
       },
       activity: { create: activityCreate, update: activityUpdate, findFirst: activityFindFirst },
       leadFollowup: { create: followupCreate, update: followupUpdate, findFirst: followupFindFirst },
@@ -77,8 +86,12 @@ describe('CallsService — no-call dispositions do not duplicate in Calls Made',
       applyDisposition: (leadId: string, dto: EndCallDto, userId: string, action: string) => Promise<unknown>;
     }).applyDisposition.bind(service);
 
-    return { apply, activityCreate, activityUpdate, activityFindFirst, followupCreate, followupUpdate };
+    return { apply, activityCreate, activityUpdate, activityFindFirst, followupCreate, followupUpdate, leadUpdate };
   }
+
+  /** What the disposition wrote onto the lead. */
+  const written = (h: { leadUpdate: { mock: { calls: [{ data: Record<string, unknown> }][] } } }) =>
+    h.leadUpdate.mock.calls[0][0].data;
 
   const dto = { outcome: 'not-interested', durationSecs: 42 } as EndCallDto;
 
@@ -221,6 +234,108 @@ describe('CallsService — no-call dispositions do not duplicate in Calls Made',
 
       expect(h.followupCreate).not.toHaveBeenCalled();
       expect(h.followupUpdate.mock.calls[0][0].where.id).toBe('fu-2');
+    });
+  });
+
+  /**
+   * Lead Management's First Contact, Last Contact, Follow-Up Count and Next
+   * Follow-Up.
+   *
+   * Nothing in the calling flow used to write any of them, so a lead could be
+   * called every day for a fortnight and still read as never contacted, with a
+   * follow-up count of nothing. They are written by the disposition now, which
+   * makes them four more things one save has to get right — and three of the
+   * four have a rule that only shows up as a bug much later: First Contact must
+   * survive every later call, the count must not move when nothing was followed
+   * up, and Next Follow-Up must not outlive the appointment it describes.
+   */
+  describe('contact tracking', () => {
+    const tomorrow = new Date(Date.now() + 36 * 60 * 60 * 1000).toISOString();
+    const booking = { outcome: 'call-back-later', callbackAt: tomorrow } as EndCallDto;
+
+    it('stamps First and Last Contact on a lead that has never been contacted', async () => {
+      const h = harness(null);
+      await h.apply('lead-1', dto, 'user-1', 'call_completed');
+
+      const data = written(h);
+      expect(data.firstContact).toBeInstanceOf(Date);
+      expect(data.lastContact).toBeInstanceOf(Date);
+      // One instant, not two reads of the clock — they describe the same event.
+      expect((data.firstContact as Date).getTime()).toBe((data.lastContact as Date).getTime());
+    });
+
+    it('never overwrites a First Contact the lead already has', async () => {
+      // The rule the column exists for. A lead called every day for a fortnight
+      // has to keep saying when it was FIRST reached.
+      const h = harness(null, { firstContact: new Date('2026-01-04T10:00:00Z') });
+      await h.apply('lead-1', dto, 'user-1', 'call_completed');
+
+      const data = written(h);
+      expect(data.firstContact).toBeUndefined();
+      // Last Contact still moves — that is the half that is meant to.
+      expect(data.lastContact).toBeInstanceOf(Date);
+    });
+
+    it('leaves both alone when an outcome is merely corrected', async () => {
+      // Fixing last Tuesday's disposition is not a contact today. Moving the
+      // stamp would make a lead nobody has rung look freshly worked.
+      const h = harness(null, { firstContact: null });
+      await h.apply('lead-1', dto, 'user-1', 'outcome_updated');
+
+      const data = written(h);
+      expect(data.firstContact).toBeUndefined();
+      expect(data.lastContact).toBeUndefined();
+    });
+
+    it('counts a follow-up when the call answers one an earlier call booked', async () => {
+      const h = harness(null, { schedulesCallback: true, open: { id: 'fu-2' }, last: { seq: 2 } });
+      await h.apply('lead-1', booking, 'user-1', 'call_completed');
+
+      // Incremented, never recalculated: an imported starting count is kept and
+      // nothing here can reset it to zero.
+      expect(written(h).followupCount).toEqual({ increment: 1 });
+    });
+
+    it('does not count the first call as a follow-up', async () => {
+      // No rung was open, so nothing was followed up. A lead rung once has had
+      // one call and no follow-ups, and saying otherwise inflates every report
+      // that reads the column.
+      const h = harness(null, { schedulesCallback: true, open: null, last: null });
+      await h.apply('lead-1', booking, 'user-1', 'call_completed');
+
+      expect(written(h).followupCount).toBeUndefined();
+    });
+
+    it('does not count the same follow-up twice when a save is repeated', async () => {
+      // Saving is two requests and the panel invites a retry when the second
+      // fails, so repeats are ordinary. This is the "count is duplicated" case.
+      const h = harness({ id: 'activity-1' }, { schedulesCallback: true, open: { id: 'fu-2' }, last: { seq: 2 } });
+      await h.apply('lead-1', booking, 'user-1', 'lead_processed');
+
+      expect(written(h).followupCount).toBeUndefined();
+    });
+
+    it('moves Next Follow-Up to the callback the moment one is booked', async () => {
+      const h = harness(null, { schedulesCallback: true, open: null, last: null });
+      await h.apply('lead-1', booking, 'user-1', 'call_completed');
+
+      const data = written(h);
+      // The same value as the callback pin, written in the same breath — two
+      // fields that mean one thing, so they cannot disagree about when the lead
+      // is due.
+      expect(data.nextFollowUpDate).toEqual(data.callbackAt);
+      expect(data.nextFollowUpDate).toBeInstanceOf(Date);
+    });
+
+    it('clears Next Follow-Up when the outcome books nothing', async () => {
+      // "Not Interested" ends the sequence. Leaving the old date behind would
+      // keep the lead reading as due in Lead Management forever.
+      const h = harness(null);
+      await h.apply('lead-1', dto, 'user-1', 'call_completed');
+
+      const data = written(h);
+      expect(data.nextFollowUpDate).toBeNull();
+      expect(data.callbackCompletedAt).toBeInstanceOf(Date);
     });
   });
 });

@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { SlidersHorizontal, GripVertical, X, RotateCcw, Pencil, Trash2, ArrowUp, ArrowDown, ChevronsUpDown, Search } from 'lucide-react';
 import { filterRows, useColumnPrefs, type ColumnDef, type ColumnPrefs, type SortState } from '@/lib/use-column-prefs';
+import { gridState, isGridBusy } from '@/lib/table-state';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 
 export type { ColumnDef } from '@/lib/use-column-prefs';
@@ -24,7 +25,21 @@ interface DataTableProps<T> {
   subtitle?: ReactNode;
   /** Filters / actions rendered to the left of the Customize Columns button. */
   toolbar?: ReactNode;
+  /**
+   * There is nothing to show yet — the FIRST load of this table.
+   *
+   * Not "a request is in flight". A table that empties itself whenever it is
+   * fetching is a table that blinks on every filter, every sort and every
+   * refresh after a save, and the rows it removes were perfectly good. Pass
+   * `refreshing` for that instead; this one draws the placeholder, and only
+   * while `rows` is genuinely empty.
+   */
   loading?: boolean;
+  /**
+   * The rows on screen are being brought up to date. Purely an indicator: the
+   * grid keeps showing what it has and says quietly that newer data is coming.
+   */
+  refreshing?: boolean;
   emptyText?: ReactNode;
   onRowClick?: (row: T) => void;
   rowClassName?: string;
@@ -105,6 +120,102 @@ interface DataTableProps<T> {
   searchPlaceholder?: string;
 }
 
+/** Everything one body row needs. Flat and primitive-heavy on purpose: `memo`
+ *  below compares these shallowly, so anything rebuilt per render belongs in a
+ *  ref on the table, not in here. */
+interface RowProps<T> {
+  row: T;
+  index: number;
+  rowKey: string;
+  cols: ColumnDef<T>[];
+  widths: Record<string, number>;
+  selected: boolean;
+  pickable: boolean;
+  showCheckbox: boolean;
+  notSelectableReason?: string;
+  /** 'row' selection mode marks the row itself as selected for assistive tech. */
+  rowMode: boolean;
+  clickable: boolean;
+  dragOn: boolean;
+  dragging: boolean;
+  rowClassName: string;
+  onRowClick: (rowKey: string, index: number) => void;
+  onToggle: (rowKey: string) => void;
+  onDragStart: (e: React.MouseEvent, index: number, rowKey: string) => void;
+  onDragOver: (index: number) => void;
+}
+
+/**
+ * One body row, re-rendered only when its own inputs change.
+ *
+ * The reason this is a separate memoised component rather than inline JSX: the
+ * grid holds every lead that has been scrolled into it — a few thousand after a
+ * few minutes' work — and several columns render real components with their own
+ * state (the editable Outcome, Comments and Lost Reason cells). Rendering the
+ * body inline meant every one of them re-rendered whenever ANY table state
+ * moved: a keystroke in the table's search box, a tick in a checkbox, and worst
+ * of all a drag-select, which fires a selection update for every row the pointer
+ * crosses. That is thousands of component renders per pointer move, and it is
+ * what made sweeping a long list feel like the page had frozen.
+ *
+ * Now a selection change re-renders the two rows whose `selected` actually
+ * flipped. The handlers are passed as stable callbacks from the table (see the
+ * refs around them) — a fresh closure per render would defeat the comparison and
+ * put us straight back where we started.
+ */
+const TableRow = memo(function TableRow<T>({
+  row,
+  index,
+  rowKey,
+  cols,
+  widths,
+  selected,
+  pickable,
+  showCheckbox,
+  notSelectableReason,
+  rowMode,
+  clickable,
+  dragOn,
+  dragging,
+  rowClassName,
+  onRowClick,
+  onToggle,
+  onDragStart,
+  onDragOver,
+}: RowProps<T>) {
+  return (
+    <tr
+      onClick={clickable ? () => onRowClick(rowKey, index) : undefined}
+      onMouseDown={dragOn ? (e) => onDragStart(e, index, rowKey) : undefined}
+      onMouseEnter={dragOn ? () => onDragOver(index) : undefined}
+      aria-selected={rowMode ? selected : undefined}
+      className={`group border-b last:border-0 hover:bg-muted/50 ${selected ? 'bg-primary/5' : ''} ${clickable ? 'cursor-pointer' : ''} ${dragging ? 'select-none' : ''} ${rowClassName}`}
+    >
+      {showCheckbox && (
+        <td className="w-10 px-4 py-[var(--row-py)]" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selected}
+            disabled={!pickable}
+            title={pickable ? undefined : notSelectableReason}
+            onChange={() => pickable && onToggle(rowKey)}
+            aria-label="Select row"
+            className={`h-4 w-4 accent-[var(--brand)] align-middle ${pickable ? 'cursor-pointer' : 'cursor-not-allowed opacity-40'}`}
+          />
+        </td>
+      )}
+      {cols.map((c) => {
+        const w = widths[c.key] ?? c.width;
+        return (
+          <td key={c.key} style={w ? { maxWidth: w } : undefined} className={`px-4 py-[var(--row-py)] ${w ? 'overflow-hidden text-ellipsis' : ''} ${c.cellClassName ?? ''}`}>{c.render(row, index)}</td>
+        );
+      })}
+    </tr>
+  );
+  // `memo` erases the generic; the cast restores it for callers. Standard for a
+  // memoised generic component — the runtime value is unchanged.
+}) as <T>(p: RowProps<T>) => React.ReactElement;
+
 export function DataTable<T>({
   tableKey,
   columns,
@@ -114,6 +225,7 @@ export function DataTable<T>({
   subtitle,
   toolbar,
   loading,
+  refreshing,
   emptyText = 'No records.',
   onRowClick,
   rowClassName = '',
@@ -157,6 +269,12 @@ export function DataTable<T>({
   );
   const closeSearch = () => { setQuery(''); setSearchOpen(false); };
 
+  // What the body shows, and whether newer data is on its way. The rule itself
+  // lives in `lib/table-state`, where it is stated once and tested — see the
+  // note there for why it is not decided inline any more.
+  const busy = isGridBusy({ loading, refreshing });
+  const state = gridState({ loading, refreshing, rowCount: rows.length });
+
   // ── Row selection ── on by default; opt out with selectable={false}.
   const selectionOn = selectable !== false;
   // 'row' mode hides the checkbox column and selects on row click instead.
@@ -177,12 +295,16 @@ export function DataTable<T>({
   const allSelected = pickableRows.length > 0 && selectedRows.length === pickableRows.length;
   const someSelected = selectedRows.length > 0 && !allSelected;
   const clearSelection = () => setSelected(new Set());
-  const toggleRow = (key: string) =>
+  // Stable across renders: it is handed to every body row, and a fresh closure
+  // each render would re-render all of them (see `TableRow`). The updater form
+  // is what makes that safe — it never needs to close over the current set.
+  const toggleRow = useCallback((key: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
+  }, []);
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(pickableRows.map(getRowKey)));
 
   // ── Drag-to-select ──
@@ -197,39 +319,56 @@ export function DataTable<T>({
   // would also fire the row's own handler (opening a lead, say).
   const suppressClickRef = useRef(false);
 
-  const applyDragRange = (index: number) => {
+  /**
+   * The three things a drag needs that change every render — the rows, the
+   * selection, and which rows may be picked — read through a ref.
+   *
+   * The handlers below are given to every row, so they have to keep the same
+   * identity from render to render or the memoised rows all re-render anyway.
+   * Closing over `rows` and `selected` directly would change that identity on
+   * every fetch and every tick of the selection; reading them through a box that
+   * is updated in place does not.
+   */
+  const dragCtx = useRef({ rows, selected, canSelectRow, getRowKey });
+  useEffect(() => {
+    dragCtx.current = { rows, selected, canSelectRow, getRowKey };
+  });
+
+  const applyDragRange = useCallback((index: number) => {
     const d = dragRef.current;
     if (!d) return;
+    const { rows: r, canSelectRow: pickable, getRowKey: keyOf } = dragCtx.current;
     const [lo, hi] = d.anchor <= index ? [d.anchor, index] : [index, d.anchor];
     // Locked rows inside the swept span are stepped over, not selected.
-    const keys = rows.slice(lo, hi + 1).filter(canSelectRow).map(getRowKey);
+    const keys = r.slice(lo, hi + 1).filter(pickable).map(keyOf);
     setSelected(() => {
       const next = new Set(dragBaseRef.current);
       for (const k of keys) (d.mode === 'add' ? next.add(k) : next.delete(k));
       return next;
     });
-  };
+  }, []);
 
-  const startDrag = (e: React.MouseEvent, index: number, key: string) => {
+  const startDrag = useCallback((e: React.MouseEvent, index: number, key: string) => {
+    const { rows: r, selected: sel, canSelectRow: pickable } = dragCtx.current;
     // Left button only, and never when the press landed on something interactive
     // (the row's own checkbox, action buttons, links).
-    if (!dragOn || e.button !== 0) return;
+    if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
     // Starting on a locked row would set the drag's add/remove mode from a row that
     // can never change — begin the sweep only from a pickable one.
-    if (!canSelectRow(rows[index])) return;
-    dragBaseRef.current = new Set(selected);
-    dragRef.current = { anchor: index, mode: selected.has(key) ? 'remove' : 'add', moved: false };
+    if (!pickable(r[index])) return;
+    dragBaseRef.current = new Set(sel);
+    dragRef.current = { anchor: index, mode: sel.has(key) ? 'remove' : 'add', moved: false };
     setDragging(true);
     applyDragRange(index);
     e.preventDefault(); // stops the browser text-selecting across rows
-  };
+  }, [applyDragRange]);
 
-  const extendDrag = (index: number) => {
+  const extendDrag = useCallback((index: number) => {
     if (!dragRef.current) return;
     dragRef.current.moved = true;
     applyDragRange(index);
-  };
+  }, [applyDragRange]);
 
   // Release anywhere ends the drag — including outside the table, which is where
   // a fast sweep usually lets go.
@@ -244,6 +383,31 @@ export function DataTable<T>({
     window.addEventListener('mouseup', onUp);
     return () => window.removeEventListener('mouseup', onUp);
   }, [dragging]);
+
+  /**
+   * What a click on the row body does.
+   *
+   * In 'row' selection mode it toggles selection; otherwise it falls back to the
+   * caller's `onRowClick` (opening a lead, say). A click that ENDS a drag is
+   * swallowed, so finishing a sweep over a row doesn't also open it.
+   *
+   * Stable, for the same reason as the drag handlers: it is passed to every row.
+   */
+  const rowSelectMode = selectionOn && selectionMode === 'row';
+  const rowClickable = rowSelectMode || !!onRowClick;
+  const clickCtx = useRef({ rowSelectMode, onRowClick, rows });
+  useEffect(() => {
+    clickCtx.current = { rowSelectMode, onRowClick, rows };
+  });
+  const activateRow = useCallback(
+    (key: string, index: number) => {
+      if (suppressClickRef.current) return;
+      const ctx = clickCtx.current;
+      if (ctx.rowSelectMode) toggleRow(key);
+      else ctx.onRowClick?.(ctx.rows[index]);
+    },
+    [toggleRow],
+  );
 
   const selectAllRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -400,7 +564,17 @@ export function DataTable<T>({
   };
 
   return (
-    <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+    <div className="relative overflow-hidden rounded-2xl border bg-card shadow-sm">
+      {/* Newer rows are on their way and the current ones are still readable.
+          A hairline at the top edge of the card, because the alternative — the
+          one this replaces — was emptying the grid to prove a request was in
+          flight. Hidden from assistive tech: `aria-busy` on the table below is
+          the accessible version of the same fact. */}
+      {busy && rows.length > 0 && (
+        <div aria-hidden className="absolute inset-x-0 top-0 z-30 h-[2px] overflow-hidden bg-primary/10">
+          <div className="h-full w-1/3 animate-[dt-sweep_1.1s_ease-in-out_infinite] rounded-full bg-primary/60" />
+        </div>
+      )}
       {/* `searchOn` is in the condition so a table with no title still gets its
           header bar — otherwise Pipeline, which passes neither title nor toolbar,
           would be the one leads table with no search box and no Columns button. */}
@@ -518,7 +692,7 @@ export function DataTable<T>({
           and keeps the horizontal scrollbar on screen; uncapped, the element
           just grows and neither engages. */}
       <div ref={scrollRef} className="overflow-auto" style={viewportH ? { maxHeight: viewportH } : undefined}>
-        <table className="w-full whitespace-nowrap text-[12.5px]">
+        <table aria-busy={busy || undefined} className="w-full whitespace-nowrap text-[12.5px]">
           <thead className="sticky top-0 z-20">
             <tr className="border-b text-left text-[11.5px] font-semibold uppercase tracking-[.06em] text-muted-foreground">
               {showCheckbox && (
@@ -580,13 +754,16 @@ export function DataTable<T>({
             </tr>
           </thead>
           <tbody>
-            {loading && (
+            {/* The placeholder appears only when there is nothing behind it.
+                While rows exist they stay on screen through every refetch —
+                see the `loading` / `refreshing` props. */}
+            {state === 'placeholder' && (
               <tr><td colSpan={bodyColSpan} className="px-4 py-8 text-center text-muted-foreground">Loading…</td></tr>
             )}
             {/* An empty grid because the SEARCH matched nothing is a different
                 fact from an empty table, and says so — otherwise "No records."
                 reads as no data and hides the query that caused it. */}
-            {!loading && rows.length === 0 && (
+            {state === 'empty' && (
               <tr>
                 <td colSpan={bodyColSpan} className="px-4 py-8 text-center text-muted-foreground">
                   {query && allRows.length > 0 ? (
@@ -602,55 +779,35 @@ export function DataTable<T>({
                 </td>
               </tr>
             )}
-            {!loading && rows.map((row, i) => {
+            {rows.map((row, i) => {
               const key = getRowKey(row);
-              const isSel = selected.has(key);
               const pickable = canSelectRow(row);
-              // In 'row' selection mode a row click toggles selection; otherwise
-              // it falls back to the caller's onRowClick (if any).
-              const rowMode = selectionOn && selectionMode === 'row';
-              const baseRowClick = rowMode ? () => toggleRow(key) : onRowClick ? () => onRowClick(row) : undefined;
-              // Swallow the click that ends a drag, so finishing a sweep on a row
-              // doesn't also trigger that row's action.
-              const handleRowClick = baseRowClick
-                ? () => {
-                    if (suppressClickRef.current) return;
-                    baseRowClick();
-                  }
-                : undefined;
               return (
-              <tr
-                key={key}
-                onClick={handleRowClick}
-                onMouseDown={dragOn ? (e) => startDrag(e, i, key) : undefined}
-                onMouseEnter={dragOn ? () => extendDrag(i) : undefined}
-                aria-selected={rowMode ? isSel : undefined}
-                className={`group border-b last:border-0 hover:bg-muted/50 ${isSel ? 'bg-primary/5' : ''} ${handleRowClick ? 'cursor-pointer' : ''} ${dragging ? 'select-none' : ''} ${rowClassName}`}
-              >
-                {showCheckbox && (
-                  <td className="w-10 px-4 py-[var(--row-py)]" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      checked={isSel}
-                      disabled={!pickable}
-                      title={pickable ? undefined : rowNotSelectableReason?.(row)}
-                      onChange={() => pickable && toggleRow(key)}
-                      aria-label="Select row"
-                      className={`h-4 w-4 accent-[var(--brand)] align-middle ${pickable ? 'cursor-pointer' : 'cursor-not-allowed opacity-40'}`}
-                    />
-                  </td>
-                )}
-                {cols.map((c) => {
-                  const w = widthOf(c);
-                  return (
-                    <td key={c.key} style={w ? { maxWidth: w } : undefined} className={`px-4 py-[var(--row-py)] ${w ? 'overflow-hidden text-ellipsis' : ''} ${c.cellClassName ?? ''}`}>{c.render(row, i)}</td>
-                  );
-                })}
-              </tr>
+                <TableRow
+                  key={key}
+                  row={row}
+                  index={i}
+                  rowKey={key}
+                  cols={cols}
+                  widths={prefs.widths}
+                  selected={selected.has(key)}
+                  pickable={pickable}
+                  showCheckbox={showCheckbox}
+                  notSelectableReason={pickable ? undefined : rowNotSelectableReason?.(row)}
+                  rowMode={rowSelectMode}
+                  clickable={rowClickable}
+                  dragOn={dragOn}
+                  dragging={dragging}
+                  rowClassName={rowClassName}
+                  onRowClick={activateRow}
+                  onToggle={toggleRow}
+                  onDragStart={startDrag}
+                  onDragOver={extendDrag}
+                />
               );
             })}
           </tbody>
-          {!loading && rows.length > 0 && cols.some((c) => c.footer) && (
+          {rows.length > 0 && cols.some((c) => c.footer) && (
             <tfoot>
               <tr className="border-t bg-muted/30 font-semibold">
                 {showCheckbox && <td className="w-10 px-4 py-3" />}

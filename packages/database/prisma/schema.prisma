@@ -459,11 +459,14 @@ model Lead {
 
   // DB-015 — indexes on every dashboard filter column.
   //
-  // The indexes that make the LIST fast live in the migration
-  // 20260729120000_lead_list_performance_indexes instead: partial indexes
-  // (WHERE deleted_at IS NULL) and expression indexes (phone reduced to digits,
-  // trigram GIN for unanchored search) cannot be expressed here. Read that file
-  // before adding an index — most of the useful ground is already covered.
+  // The indexes that make the LIST fast live in migrations instead: partial
+  // indexes (WHERE deleted_at IS NULL) and expression indexes (phone reduced to
+  // digits, trigram GIN for unanchored search) cannot be expressed here. Read
+  // those files before adding an index — most of the useful ground is covered.
+  //
+  //   20260729120000_lead_list_performance_indexes — filtering and search
+  //   20260729130000_lead_sort_indexes            — the other sort columns
+  //   20260818120000_lead_import_order_indexes    — the DEFAULT order (importSeq)
   @@unique([leadId])
   @@index([state])
   @@index([city])

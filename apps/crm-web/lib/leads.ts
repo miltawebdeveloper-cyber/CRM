@@ -73,6 +73,22 @@ export interface Lead {
    * page refresh, a queue refresh and a re-login.
    */
   lastWorkedAt?: string | null;
+  /**
+   * Where this lead stands in the call lifecycle — New Call → In Progress →
+   * Completed — as decided by the API's calling-queue endpoint.
+   *
+   * Only `/calls/caller/leads` sets it; it is absent everywhere else, which is
+   * why it is optional. Read it rather than working the answer out again from
+   * `lastCallEndedAt`, `lastWorkedAt` and `status`: the panel used to do exactly
+   * that in two places, the two definitions disagreed about closed leads, and a
+   * finished lead could wear a tick and a "New Call" badge at once.
+   *
+   * `completed` is not permanent. A lead worked at 10am with a callback booked
+   * for 2pm reports `completed` until 2pm and `new` from then on, which is what
+   * takes it out of the queue in between and puts it back when the customer is
+   * expecting the call.
+   */
+  queueStatus?: 'new' | 'in_progress' | 'completed';
   nextZoomMeeting?: {
     id: string;
     title: string | null;
@@ -376,7 +392,14 @@ export const leadsApi = {
   // Returns ONE PAGE plus the total. It used to return an array of up to a
   // thousand leads and leave the browser to filter, sort and paginate them,
   // which is why opening Lead Management meant downloading the book first.
-  page: async (opts?: LeadListQuery): Promise<LeadPage> => {
+  //
+  // `signal` is optional and comes from React Query: when the caller's query key
+  // changes — a filter, a sort, another keystroke in the search box — the
+  // request this replaces is aborted instead of being left to finish and be
+  // discarded. Without it a burst of filter changes leaves that many requests in
+  // flight, queued behind each other on one connection, and the newest answer
+  // waits behind answers nobody wants.
+  page: async (opts?: LeadListQuery, signal?: AbortSignal): Promise<LeadPage> => {
     const params: Record<string, string | number | boolean> = {};
     for (const k of LIST_KEYS) {
       const v = opts?.[k];
@@ -386,11 +409,11 @@ export const leadsApi = {
     // `closed` is meaningful when false — it is what selects Lead Management
     // over Closed Leads — so it can't be dropped with the other falsy values.
     if (opts?.closed !== undefined) params.closed = opts.closed;
-    return (await api.get('/leads', { params: Object.keys(params).length ? params : undefined })).data;
+    return (await api.get('/leads', { params: Object.keys(params).length ? params : undefined, signal })).data;
   },
 
   /** The rows alone, for callers that want a bounded list and no page state. */
-  list: async (opts?: LeadListQuery): Promise<Lead[]> => (await leadsApi.page(opts)).rows,
+  list: async (opts?: LeadListQuery, signal?: AbortSignal): Promise<Lead[]> => (await leadsApi.page(opts, signal)).rows,
 
   /**
    * The values behind the timezone / state / city dropdowns.
@@ -399,12 +422,12 @@ export const leadsApi = {
    * list paginated the current page holds a few dozen leads, and a filter built
    * from those would offer only the cities that happen to be on it.
    */
-  filterOptions: async (opts?: Pick<LeadListQuery, 'closed' | 'timezone' | 'state'>): Promise<{ timezones: string[]; states: string[]; cities: string[]; closers: string[] }> => {
+  filterOptions: async (opts?: Pick<LeadListQuery, 'closed' | 'timezone' | 'state'>, signal?: AbortSignal): Promise<{ timezones: string[]; states: string[]; cities: string[]; closers: string[] }> => {
     const params: Record<string, string | boolean> = {};
     if (opts?.closed !== undefined) params.closed = opts.closed;
     if (opts?.timezone) params.timezone = opts.timezone;
     if (opts?.state) params.state = opts.state;
-    return (await api.get('/leads/filter-options', { params: Object.keys(params).length ? params : undefined })).data;
+    return (await api.get('/leads/filter-options', { params: Object.keys(params).length ? params : undefined, signal })).data;
   },
   get: async (id: string): Promise<Lead> => (await api.get(`/leads/${id}`)).data,
   activities: async (id: string): Promise<LeadActivity[]> => (await api.get(`/activities/lead/${id}`)).data,

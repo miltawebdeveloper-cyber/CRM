@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery } from '@tanstack/react-query';
 import { leadsApi, type Lead, type LeadListQuery } from '@/lib/leads';
 
 /**
@@ -25,18 +25,52 @@ export const LEAD_CHUNK = 50;
 export function useInfiniteLeads(filters: LeadListQuery, opts?: { enabled?: boolean }) {
   const query = useInfiniteQuery({
     queryKey: ['leads', 'infinite', filters],
-    queryFn: ({ pageParam }) => leadsApi.page({ ...filters, page: pageParam, pageSize: LEAD_CHUNK }),
+    queryFn: ({ pageParam, signal }) =>
+      // The signal is what lets a superseded request be ABANDONED rather than
+      // merely ignored. Typing in the search box or clicking through three sort
+      // orders used to leave every intermediate request running to completion,
+      // each one holding a connection and a server-side query nobody would read.
+      leadsApi.page({ ...filters, page: pageParam, pageSize: LEAD_CHUNK }, signal),
     initialPageParam: 1,
     // `undefined` is what tells React Query there is nothing further, which is
     // what stops the sentinel below asking again at the end of the list.
     getNextPageParam: (last, all) => (all.length * LEAD_CHUNK < last.total ? all.length + 1 : undefined),
+    /**
+     * Hold the rows already on screen while a new query loads.
+     *
+     * Every filter, every sort, every keystroke that survives the search
+     * debounce is a new query KEY, and a new key has no data — so the grid was
+     * handed an empty array and a `true` loading flag, blanked, and refilled a
+     * second later. Nothing was wrong with the data; the list simply had none
+     * to show for as long as the request took.
+     *
+     * With this, the previous answer stays mounted until the new one arrives and
+     * then swaps in one go. `isPlaceholderData` (surfaced as `isRefreshing`
+     * below) is what tells the table those rows are the OLD ones, so it can say
+     * so without removing them.
+     */
+    placeholderData: keepPreviousData,
     enabled: opts?.enabled ?? true,
   });
 
   const rows = useMemo<Lead[]>(() => query.data?.pages.flatMap((p) => p.rows) ?? [], [query.data]);
   const total = query.data?.pages[0]?.total ?? 0;
 
-  return { ...query, rows, total };
+  return {
+    ...query,
+    rows,
+    total,
+    /**
+     * The list is being brought up to date — a new filter, a re-sort, or a
+     * refetch after a save — but there are still rows worth looking at.
+     *
+     * Deliberately not `isLoading`: that one now means "there is nothing to
+     * show", which is the only case that may legitimately empty the grid.
+     * Fetching the NEXT chunk is excluded too — the list is growing, not
+     * changing, and the footer already reports that.
+     */
+    isRefreshing: (query.isFetching && !query.isFetchingNextPage) || query.isPlaceholderData,
+  };
 }
 
 /**
@@ -72,9 +106,18 @@ export function useReachedEnd(onReach: () => void, active: boolean) {
 }
 
 /** Convenience: the sentinel ref wired to a query's "fetch the next chunk". */
-export function useLeadScrollSentinel(q: { hasNextPage: boolean; isFetchingNextPage: boolean; fetchNextPage: () => void }) {
+export function useLeadScrollSentinel(q: {
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  isPlaceholderData: boolean;
+  fetchNextPage: () => void;
+}) {
   const fetchMore = useCallback(() => {
-    if (q.hasNextPage && !q.isFetchingNextPage) q.fetchNextPage();
-  }, [q.hasNextPage, q.isFetchingNextPage, q.fetchNextPage]);
-  return useReachedEnd(fetchMore, q.hasNextPage);
+    // Never page off rows that belong to the PREVIOUS query. While a new filter
+    // is loading the grid still shows the old list, and asking for "the next
+    // chunk" then appends chunk 2 of the outgoing query to a list that is about
+    // to be replaced — the one way this list could show two filters at once.
+    if (q.hasNextPage && !q.isFetchingNextPage && !q.isPlaceholderData) q.fetchNextPage();
+  }, [q.hasNextPage, q.isFetchingNextPage, q.isPlaceholderData, q.fetchNextPage]);
+  return useReachedEnd(fetchMore, q.hasNextPage && !q.isPlaceholderData);
 }

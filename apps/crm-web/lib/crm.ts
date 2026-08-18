@@ -112,7 +112,10 @@ export interface MetricsRange {
   dateField?: 'created' | 'scheduled';
 }
 export const metricsApi = {
-  summary: async (params?: MetricsRange): Promise<MetricsSummary> => (await api.get('/metrics/summary', { params })).data,
+  // `signal` is React Query's: changing a date range supersedes the request for
+  // the previous one, and the superseded one is aborted rather than left to
+  // finish into a cache entry nobody will read.
+  summary: async (params?: MetricsRange, signal?: AbortSignal): Promise<MetricsSummary> => (await api.get('/metrics/summary', { params, signal })).data,
   byTimezone: async (params?: MetricsRange): Promise<TimezoneCount[]> => (await api.get('/metrics/by-timezone', { params })).data,
   byState: async (params?: MetricsRange): Promise<StateMetric[]> => (await api.get('/metrics/by-state', { params })).data,
   daily: async (params?: MetricsRange): Promise<DailyPoint[]> => (await api.get('/metrics/daily', { params })).data,

@@ -57,11 +57,27 @@ const COLUMNS: ReadonlyArray<{ header: string; value: (lead: Lead) => string | n
   { header: 'Address', value: (l) => l.address ?? '' },
   { header: 'Assigned To', value: (l) => l.assignedTo?.name ?? '' },
   { header: 'Call Status', value: (l) => l.callStatus ?? '' },
-  { header: 'First Contact', value: (l) => leadDate(l.firstContact, l.timezone, '') },
-  { header: 'Last Contact', value: (l) => leadDate(l.lastContact, l.timezone, '') },
-  { header: 'Next Follow-up', value: (l) => leadDate(l.nextFollowUpDate, l.timezone, '') },
+  // To the minute, matching the grid — the file is read away from the screen
+  // that produced it, so a column that says something different there is worse
+  // than useless. See the note on those columns in the Lead Management page.
+  { header: 'First Contact', value: (l) => leadDateTime(l.firstContact, l.timezone, '') },
+  { header: 'Last Contact', value: (l) => leadDateTime(l.lastContact, l.timezone, '') },
+  { header: 'Next Follow-up', value: (l) => leadDateTime(l.nextFollowUpDate, l.timezone, '') },
   { header: 'Follow-up Count', value: (l) => l.followupCount ?? '' },
-  { header: 'Meeting Date', value: (l) => leadDate(l.meetingDate, l.timezone, '') },
+  /**
+   * When the lead's next Zoom meeting is, to the minute.
+   *
+   * Fed by the meetings themselves: scheduling one writes it, rescheduling moves
+   * it, cancelling or completing it moves on to the next pending meeting or
+   * clears it. It used to be a lead-sheet field only, so a Zoom booked through
+   * the CRM never appeared in the grid or the file at all.
+   *
+   * Emphatically NOT the same column as Next Follow-up, and the two are never
+   * written from each other: a meeting and a follow-up call are separate
+   * commitments to the customer, and a file that conflated them would show a
+   * callback on a lead that was only ever booked for a Zoom.
+   */
+  { header: 'Meeting Date & Time', value: (l) => leadDateTime(l.meetingDate, l.timezone, '') },
   { header: 'Lost Reason', value: (l) => l.lostReason ?? '' },
   { header: 'Comments', value: (l) => l.comments ?? '' },
 ];

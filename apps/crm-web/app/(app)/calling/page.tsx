@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Phone, Check, Target, CheckCircle2, Clock, Percent, Video, ExternalLink, MessageSquare, Mail, Briefcase, Factory, UserRound, Search, Send, X, Loader2, ArrowRight, History, ChevronDown, ChevronRight } from 'lucide-react';
@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { zoomApi } from '@/lib/zoom';
 import { leadsApi, type Lead } from '@/lib/leads';
+import { activeQueue, isLeadCompleted } from '@/lib/queue-view';
 import { CallsMade } from '@/components/calls-made';
 import { CallsAnalytics } from '@/components/calls-analytics';
 import { CallRecordings } from '@/components/call-recordings';
@@ -165,8 +166,9 @@ export default function CallingPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [autoCall, setAutoCall] = useState(false);
   const autoFired = useRef(false);
-  // Leads saved in this sitting. See `isDone` — this is what advances the queue
-  // when no call was placed to stamp `lastCallEndedAt`.
+  // Leads saved in this sitting, so a save takes the lead out of Your Queue at
+  // once rather than a refetch later. See `isCompleted`, which hands authority
+  // back to the server the moment it has seen the work.
   const [processed, setProcessed] = useState<Set<string>>(() => new Set());
   /**
    * The queue lead being worked right now. See `QueueSession`.
@@ -282,57 +284,33 @@ export default function CallingPage() {
   });
 
   // ── Queue ordering ──
-  // The order is the SERVER's, used exactly as it arrives: ascending Lead ID, with
-  // only callbacks and Zoom meetings due today pinned above it and finished leads
-  // pushed to the end. Deliberately not re-sorted here — two sort implementations
-  // is how the list you see stops matching the lead the panel hands you next.
+  // The order is the SERVER's, used exactly as it arrives: import order, with
+  // only callbacks and Zoom meetings due today pinned above it. Nothing is
+  // re-sorted here — two sort implementations is how the list you see stops
+  // matching the lead the panel hands you next. The one thing done to it is a
+  // FILTER, below: finished leads are removed rather than reordered.
   /**
-   * A lead is finished once it's closed/rejected, once a call on it has ended, or
-   * once it has been saved today.
+   * Your Queue: the leads still to be worked, in the server's order.
    *
-   * `lastWorkedAt` is the server's answer to that last clause and is what keeps the
-   * queue moving with dialling off: `lastCallEndedAt` is only stamped by ending a
-   * CALL, so without it a saved lead stayed top of the queue and the panel handed
-   * the agent the same record again. It comes from the API rather than memory, so a
-   * page refresh, a queue refresh or a re-login all show the same finished leads.
-   * `processed` still covers the moment between saving and the next refetch.
+   * A completed lead LEAVES. It used to sink to the bottom of the list wearing a
+   * tick, which reads as work still on the list — an agent scrolling their queue
+   * saw yesterday's finished calls between today's, and a lead saved seconds ago
+   * sat there labelled "New Call" because the badge fell through to its default
+   * when no outcome had reached the row yet. What is finished belongs in Calls
+   * Made and in Lead Management, both of which keep every one of them.
+   *
+   * "For now", not forever: the server re-opens a lead whose booked callback has
+   * come due, so an appointment made this morning comes back into the queue at
+   * the hour it was promised for. The rule, and the hand-off between the API's
+   * verdict and this panel's memory of a save it has just written, are in
+   * `lib/queue-view` — stated once and under test.
+   *
+   * This is the VISIBLE queue only. `leads` stays the agent's whole book, and
+   * everything that has to survive a lead leaving the list — the session, the
+   * card still showing the lead just saved, `inQueue` — reads that instead.
    */
-  const isDone = (l: Lead) =>
-    l.status === 'closed' ||
-    l.status === 'rejected' ||
-    !!l.lastCallEndedAt ||
-    !!l.lastWorkedAt ||
-    processed.has(l.id);
-  /**
-   * The queue order as it stood when the current lead was saved, held until Next.
-   *
-   * The server ranks a finished lead into the bottom band the moment it is saved,
-   * and the save refreshes the queue — so the row used to drop to the bottom while
-   * the agent was still looking at the lead itself, which stays on screen until
-   * they press Next. The list reordered under a lead that had not been handed
-   * over yet, and the highlighted row left the position the agent had just been
-   * reading.
-   *
-   * So the order is pinned for exactly that window. Nothing is re-sorted: this
-   * replays the order the SERVER last gave, which is why there is still only one
-   * sort in the system. Next clears it and the fresh ranking applies, taking the
-   * finished lead to the bottom as it always did.
-   */
-  const [frozenOrder, setFrozenOrder] = useState<string[] | null>(null);
-  const queue = useMemo(() => {
-    // Gated on there still BEING a saved lead to hold, rather than on remembering
-    // to clear the snapshot everywhere a session can end. A session dropped
-    // because its lead was reassigned would otherwise strand the pin, and the
-    // queue would stay frozen on that snapshot for the rest of the sitting.
-    const order = session?.saved ? frozenOrder : null;
-    if (!order) return leads;
-    const rank = new Map(order.map((id, i) => [id, i]));
-    // Leads the snapshot never saw — assigned since the save — keep the server's
-    // order among themselves and sit after the pinned ones rather than vanishing.
-    return [...leads].sort(
-      (a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
-    );
-  }, [leads, frozenOrder, session]);
+  const isCompleted = useCallback((l: Lead) => isLeadCompleted(l, processed), [processed]);
+  const queue = useMemo(() => activeQueue(leads, processed), [leads, processed]);
 
   // ── The Your Queue contract ──
   // Everything below is scoped to leads that are actually IN this agent's queue.
@@ -402,41 +380,67 @@ export default function CallingPage() {
     if (queueFilter === 'all') return true;
     return getQueueItemType(q).type === queueFilter;
   });
-  // The next lead to work: first not-yet-done in ascending queue order, WITHIN
-  // the selected zone. Read off `zoneQueue` rather than the search/type view —
-  // those two stay display-only, so a typed search term can never decide which
-  // lead the panel hands over next.
-  const nextPending = zoneQueue.find((l) => !isDone(l));
+  // The next lead to work: the top of the queue, WITHIN the selected zone. Read
+  // off `zoneQueue` rather than the search/type view — those two stay
+  // display-only, so a typed search term can never decide which lead the panel
+  // hands over next.
+  //
+  // No "first not-yet-done" scan any more: finished leads are not in the queue,
+  // so its first row IS the next piece of work. That the two ever needed to be
+  // different questions was the symptom — the list contained things nobody was
+  // going to work.
+  const nextPending = zoneQueue[0];
 
-  // User may call ANY record: an explicit selection wins, else the next pending
-  // lead (top of the queue). Falls back to the first row if everything's done.
+  // User may call ANY record: an explicit selection wins, else the top of the
+  // queue for the chosen zone.
   //
   // The session comes first so the card holds the lead being worked against
   // background churn — a refetch that reorders the queue, an auto-reassignment,
   // a poll landing mid-write-up. It is NOT a restriction on the agent: clicking
-  // another row re-points the session, so the card follows the choice.
+  // another row re-points the session, so the card follows the choice. It is
+  // also what keeps a lead ON SCREEN after Save, when it has already left the
+  // queue below: the session names it, and `sessionLead` resolves it out of the
+  // agent's whole book rather than out of the list it just left.
+  //
+  // Nothing when the zone is worked out — `nextPending` is undefined and the
+  // card says so. There is deliberately no fallback to "the first row anyway":
+  // every row left is unworked, so if there is no first row there is no work.
   const current =
     sessionLead ??
     active?.lead ??
     (selectedId ? leads.find((l) => l.id === selectedId) ?? selectedLead : undefined) ??
-    nextPending ??
-    // Last resort when everything in the zone is worked: the first row of the
-    // ZONE, not of the whole book — landing the agent on an out-of-zone lead is
-    // the thing the filter is there to prevent. A session or an explicit pick
-    // still wins above, so a lead already being worked is never pulled away by
-    // a zone change mid-write-up.
-    zoneQueue[0];
+    nextPending;
 
   // How many remarks this lead already carries, for the label on the collapsed
   // trail. Reads the same cache entry the trail does, so it costs one request
   // per lead however many places ask.
   const trailCount = useLeadCommentCount(current?.id);
 
+  /**
+   * Where the lead on the card stands: New Call → In Progress → Completed.
+   *
+   * Shown on the card because the card is the one place the agent is definitely
+   * looking, and because a saved lead has by then left Your Queue — without this
+   * the panel would have nowhere left to say what it decided about the call that
+   * was just written up.
+   *
+   * `saved` comes first deliberately. It is the panel's own knowledge of a
+   * disposition it has just written, and it is true before the server has been
+   * asked — which is exactly the window in which the old code, reading only the
+   * lead's stamps, still called a finished call "New Call".
+   */
+  const currentStatus: 'new' | 'in_progress' | 'completed' | null = !current
+    ? null
+    : saved
+      ? 'completed'
+      : live || !!active
+        ? 'in_progress'
+        : isCompleted(current)
+          ? 'completed'
+          : current.queueStatus ?? 'new';
+
   /** Clear the write-up so the next lead arrives to empty fields. */
   function resetWriteUp() {
-    // Releases the pinned order too: the lead being held is being given up, so
-    // the server's ranking — which has it in the bottom band — takes over.
-    setFrozenOrder(null);
     setNote('');
     setOutcome(null);
     setCallbackAt('');
@@ -619,10 +623,10 @@ export default function CallingPage() {
       // The outcome, comments and any callback deliberately stay on screen —
       // they're the receipt for what was just written, and the fields go
       // read-only rather than blank so a second Save can't log the lead twice.
+      // Out of Your Queue immediately, without waiting for the refetch below to
+      // come back and say so. The card keeps showing the lead — that is what the
+      // agent is still reading — but the list it came from no longer offers it.
       setProcessed((done) => new Set(done).add(lead.id));
-      // Pin the order as the agent currently sees it, BEFORE the refresh below
-      // re-ranks this lead into the bottom band. Released by Next.
-      setFrozenOrder(queue.map((l) => l.id));
       // Hold the lead. Marking the session saved is the ONLY thing that lights
       // up Next; nothing here selects, loads or even looks at the lead after it.
       setSession({ leadId: lead.id, saved: true });
@@ -659,10 +663,10 @@ export default function CallingPage() {
   function nextQueueLead() {
     if (!canNext) return;
     const doneId = session?.leadId;
-    // Ascending queue order within the zone, skipping the lead just finished.
-    // `isDone` already excludes it via `processed`; naming it as well means a
-    // refetch that hasn't landed yet can't hand the same lead straight back.
-    const next = zoneQueue.find((l) => !isDone(l) && l.id !== doneId);
+    // Ascending queue order within the zone. The lead just finished is already
+    // out of `zoneQueue`; naming it as well means a refetch that hasn't landed
+    // yet can't hand the same lead straight back.
+    const next = zoneQueue.find((l) => l.id !== doneId);
     resetWriteUp();
     setSelectedId(next?.id ?? null);
     setSession(next ? { leadId: next.id, saved: false } : null);
@@ -672,7 +676,7 @@ export default function CallingPage() {
       // queue that is finished. The zone message says which zone, and what to do
       // about it — the filter is still set, and only they can change it.
       if (tzFilter) {
-        const remaining = queue.filter((l) => !isDone(l) && l.id !== doneId).length;
+        const remaining = queue.filter((l) => l.id !== doneId).length;
         toast.success(
           remaining > 0
             ? `No more leads available in this timezone (${tzFilter}). ${remaining} lead${remaining === 1 ? '' : 's'} left in other zones — change the Time Zone filter to carry on.`
@@ -1094,21 +1098,16 @@ export default function CallingPage() {
                 </p>
               )}
               {filteredQueue.map((q) => {
-                const closed = q.status === 'closed' || q.status === 'rejected';
-                const activeCall = !!q.lastCallAt && !q.lastCallEndedAt && !q.lastWorkedAt;
-                // Same definition as `isDone`, so the ✓ on a row and the row's
-                // position in the queue can't disagree about what's been worked.
-                const completedToday = !!q.lastCallEndedAt || !!q.lastWorkedAt || processed.has(q.id);
-                const isCurrent = current?.id === q.id && !closed;
-                const done = closed || completedToday;
-                const meta = outcomeMeta(q.lastOutcome ?? q.callStatus);
+                // Every row here is outstanding work — completed leads left the
+                // list — so a row is either being worked right now or waiting.
+                // The server says which; see `Lead.queueStatus`.
+                const rowInProgress = q.queueStatus === 'in_progress';
+                const isCurrent = current?.id === q.id;
                 const qType = getQueueItemType(q);
                 const priorityIndex = queue.findIndex((item) => item.id === q.id) + 1;
-                // Every row is selectable. The only two that aren't are a lead
-                // that's closed (nothing left to work) and any row at all while a
-                // call is live — swapping the card mid-call would leave the agent
-                // writing up the wrong customer.
-                const selectable = !live && !closed;
+                // Selectable unless a call is live — swapping the card mid-call
+                // would leave the agent writing up the wrong customer.
+                const selectable = !live;
 
                 return (
                   <div
@@ -1123,12 +1122,16 @@ export default function CallingPage() {
                         : qType.type === 'zoom'
                         ? 'border-[#bfe3e8] bg-[#f4fbfd]'
                         : ''
-                    } ${completedToday && !qType.isToday ? 'opacity-70' : ''}`}
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0 flex-1">
+                        {/* Always the position, never a tick. A ✓ on a row in a
+                            list of outstanding work is a contradiction — and it
+                            was what made a lead the agent had just finished look
+                            like it was still queued. */}
                         <div className="grid h-6 w-6 shrink-0 place-items-center rounded-[7px] bg-[var(--brand-surface)] text-[10.5px] font-bold text-[var(--brand-on-surface)]">
-                          {done ? '✓' : `#${priorityIndex}`}
+                          #{priorityIndex}
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="truncate text-[12.5px] font-semibold text-foreground">
@@ -1151,17 +1154,13 @@ export default function CallingPage() {
                           <Video className="h-3 w-3" />
                           {qType.badge}
                         </span>
-                      ) : (isCurrent || activeCall) ? (
+                      ) : (isCurrent || rowInProgress) ? (
                         <StatusPill status="in_progress" />
-                      ) : completedToday && (q.lastOutcome || q.callStatus) ? (
-                        // `lastOutcome` comes off the call record, so a lead worked
-                        // with dialling off has none — fall back to the outcome
-                        // stamped on the lead itself, or the row reads "New Call"
-                        // straight after being completed.
-                        <OutcomePill name={meta?.name ?? q.lastOutcome ?? q.callStatus!} color={meta?.color} />
-                      ) : closed ? (
-                        <StatusPill status={q.status} />
                       ) : (
+                        // The only state left, because a completed lead is no
+                        // longer in this list. This badge is what such a lead
+                        // used to fall through to the moment it was saved — a
+                        // call the agent had just finished, labelled "New Call".
                         <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-[var(--brand)]/15 px-2 py-[2px] text-[10px] font-semibold text-[var(--brand)]">
                           <Phone className="h-3 w-3" />
                           New Call
@@ -1202,7 +1201,23 @@ export default function CallingPage() {
                     <Avatar name={current.businessName} size="md" />
                     <div className="min-w-0 flex-1">
                       <div className="font-display text-[18px] font-semibold">{current.businessName}</div>
-                      <div className="text-[12.5px] text-[var(--brand-lime)]">{current.leadId}</div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[12.5px] text-[var(--brand-lime)]">{current.leadId}</span>
+                        {/* The lifecycle, in a word. "New Call" is a claim about
+                            work still owed, so it must never outlive the call it
+                            describes — see `currentStatus`. */}
+                        {currentStatus && <StatusPill status={currentStatus} />}
+                        {/* What the call was decided to be, beside the fact that
+                            it is finished. Together they are the receipt: the
+                            outcome alone never said the lead was done with, and
+                            "Completed" alone loses what happened on the call. */}
+                        {currentStatus === 'completed' && (outcome ?? current.callStatus) && (
+                          <OutcomePill
+                            name={outcomeMeta(outcome ?? current.callStatus)?.name ?? (outcome ?? current.callStatus)!}
+                            color={outcomeMeta(outcome ?? current.callStatus)?.color}
+                          />
+                        )}
+                      </div>
                     </div>
                     {/* Quick message — SMS the current lead without leaving the panel. */}
                     <button
@@ -1386,7 +1401,17 @@ export default function CallingPage() {
                   )}
                 </>
               ) : (
-                <div className="py-10 text-center text-[var(--brand-lime)]">No leads assigned to you.</div>
+                // Finishing the queue and never having been given one are
+                // different days at work, and saying "No leads assigned to you"
+                // for both tells an agent who has just worked their whole book
+                // that they were never given anything.
+                <div className="py-10 text-center text-[var(--brand-lime)]">
+                  {leads.length === 0
+                    ? 'No leads assigned to you.'
+                    : tzFilter && queue.some((l) => l.timezone !== tzFilter)
+                      ? `Every lead in ${tzFilter} has been worked. Change the Time Zone filter to carry on.`
+                      : 'Queue complete — every assigned lead has been worked.'}
+                </div>
               )}
             </div>
           </div>

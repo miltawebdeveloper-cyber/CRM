@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Phone, PhoneOutgoing, PhoneIncoming, PhoneMissed, PhoneOff, CheckCircle2, Clock, Timer, Upload, MapPin, Building2, Tag, PhoneCall, User as UserIcon, Info, ClipboardCheck, Hourglass, HelpCircle } from 'lucide-react';
 import { callsApi, outcomesApi, formatDuration, type CallRecord } from '@/lib/crm';
 import { OutcomePill } from '@/components/outcome-pill';
@@ -72,14 +72,22 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
   );
 
   // Both queries key off the same params, so the summary and rows always agree.
-  const { data: stats } = useQuery({ queryKey: ['calls-made', 'stats', params], queryFn: () => callsApi.madeStats(params) });
-  const { data: records = [], isLoading } = useQuery({ queryKey: ['calls-made', 'records', params], queryFn: () => callsApi.madeRecords(params) });
+  //
+  // `keepPreviousData` on all four: every filter on this screen is part of the
+  // key, so without it changing one empties the stats row, the grid and the
+  // menus at the same moment and refills them a request later. The previous
+  // answer stays on screen instead and is replaced in one step — `isRefreshing`
+  // is what says it is the previous one.
+  const { data: stats } = useQuery({ queryKey: ['calls-made', 'stats', params], queryFn: () => callsApi.madeStats(params), placeholderData: keepPreviousData });
+  const { data: records = [], isLoading, isPlaceholderData, isFetching } = useQuery({ queryKey: ['calls-made', 'records', params], queryFn: () => callsApi.madeRecords(params), placeholderData: keepPreviousData });
+  const isRefreshing = isFetching || isPlaceholderData;
   const { data: outcomes = [] } = useQuery({ queryKey: ['outcomes-config'], queryFn: outcomesApi.list });
   // Menu options follow the date/employee scope only — not the geography filters
   // themselves, or picking a state would erase every other state from the menu.
   const { data: filterOpts } = useQuery({
     queryKey: ['calls-made', 'filters', scope],
     queryFn: () => callsApi.madeFilters(scope),
+    placeholderData: keepPreviousData,
   });
 
   const outcomeOf = (slug: string | null | undefined) => outcomes.find((o) => o.slug === slug);
@@ -453,6 +461,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
           stats && stats.totalContacts > filteredRecords.length ? ` shown · ${stats.totalContacts.toLocaleString()} match the filters` : ''
         }`}
         loading={isLoading}
+        refreshing={isRefreshing}
         emptyText="No records match the selected filters."
         prefs={prefs}
         selectable={false}

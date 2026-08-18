@@ -8,6 +8,7 @@ import { CommunicationsService } from '../communications/communications.service'
 import { CallPivotDim, CallPivotQueryDto, CallStatsQueryDto, SetCallTargetDto, StartCallDto, EndCallDto, CreateNoteDto, UpdateFollowupDto } from './dto/call.dto';
 import { closureFields } from '../leads/lead-closure';
 import { COMPLETION_ACTIONS, completedOpenLeadCounts, productiveSeconds } from './work-time';
+import { queueStatusOf } from './queue-status';
 import { ABANDONED_STATUS, FAILED_STATUSES, MISSED_INBOUND_CALL, MISSED_STATUSES } from './call-status';
 import { formatInZone, parseFutureInZone, parseInZone, timezoneWhere, tzLabel } from '../../common/timezone';
 
@@ -98,6 +99,21 @@ const BUCKET_ORDER: OutcomeCategory[] = [
 ];
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+/**
+ * What one disposition does to a lead's follow-up ladder.
+ *
+ * `completesFollowup` travels with the operations rather than being worked out
+ * again by the caller, because the two would be answering the same question from
+ * different evidence: the ladder knows whether a rung was open, and Lead
+ * Management's Follow-Up Count has to be incremented by exactly the contacts
+ * that closed one. Re-deriving it is how the count and the ladder drift apart.
+ */
+interface FollowupSequencePlan {
+  ops: Prisma.PrismaPromise<unknown>[];
+  /** This contact closed a follow-up an earlier one had booked. */
+  completesFollowup: boolean;
+}
 
 /** A pivot axis value, plus the sort key that orders it. */
 interface PivotKey {
@@ -297,8 +313,21 @@ export class CallsService {
 
     const leadObj = await this.prisma.lead.findUnique({
       where: { id: leadId },
-      select: { assignedToId: true, status: true, timezone: true },
+      // `firstContact` comes back because it must NOT be overwritten — see the
+      // contact-tracking block in the lead update below. Reading it here rather
+      // than trying to express "write only if still null" inside the update is
+      // what lets that rule be stated where it can be read.
+      select: { assignedToId: true, status: true, timezone: true, firstContact: true },
     });
+
+    /**
+     * When this contact happened — one instant, shared by everything below.
+     *
+     * Taken once rather than calling `new Date()` at each field, so First
+     * Contact, Last Contact and the follow-up rung this closes cannot land
+     * milliseconds apart and read as three different events on one timeline.
+     */
+    const contactAt = new Date();
 
     // Validated before the transaction opens, so a bad time is rejected without
     // having already moved the lead's status. Both failures it catches — no zone
@@ -327,11 +356,12 @@ export class CallsService {
      * to Follow-Up 4 without anyone having called.
      */
     const revising = action === 'outcome_updated' || !!supersedes;
-    const followupOps = await this.followupSequenceOps({
+    const { ops: followupOps, completesFollowup } = await this.followupSequenceOps({
       leadId,
       userId,
       outcome: dto.outcome,
       callbackAt,
+      completedAt: contactAt,
       schedulesCallback,
       revising,
       assignedToId: leadObj?.assignedToId ?? null,
@@ -359,6 +389,44 @@ export class CallsService {
             : oc?.leadStatus && leadObj?.status === LeadStatus.rejected
               ? { lostReason: null }
               : {}),
+          /**
+           * Lead Management's contact columns, written by the work that earns
+           * them.
+           *
+           * First Contact, Last Contact, Follow-Up Count and Next Follow-Up were
+           * only ever filled by the CSV import and by hand. Nothing in the
+           * calling flow touched them, so a lead could be called every day for a
+           * fortnight and still show a blank First Contact and a Follow-Up Count
+           * of nothing — the four columns a manager reads to judge whether a
+           * lead is being worked were describing the spreadsheet it arrived in
+           * rather than the work done since.
+           *
+           * They are written HERE, in the one place both the on-call and the
+           * no-call disposition go through, so a lead worked with dialling off
+           * records exactly what a dialled one does.
+           *
+           * What counts as a contact: a completed disposition. Not "somebody
+           * picked up" — the outcome list is admin-configurable and carries no
+           * reliable reached/not-reached flag, so keying off one would silently
+           * stop recording the day an admin renamed a status. These columns
+           * answer "when was this lead last worked, and how often", which is the
+           * question they are read for, and a no-answer is a contact attempt
+           * that happened.
+           */
+          // Set once and never again — the whole point of the column. A lead
+          // that already has one keeps it through every later call, every
+          // reassignment and every correction.
+          ...(leadObj?.firstContact || revising ? {} : { firstContact: contactAt }),
+          // Always the most recent contact. Held back on a revision: correcting
+          // last Tuesday's outcome is not a contact today, and moving the stamp
+          // would make a lead nobody has rung look freshly worked.
+          ...(revising ? {} : { lastContact: contactAt }),
+          // Incremented, not recalculated, so an imported starting count is kept
+          // and nothing can reset it. `completesFollowup` is true only when this
+          // contact CLOSED a follow-up that an earlier one booked — see
+          // `followupSequenceOps` — which is what stops a first call counting as
+          // a follow-up and stops a retried save counting the same one twice.
+          ...(completesFollowup ? { followupCount: { increment: 1 } } : {}),
           ...(schedulesCallback
             ? {
                 // (Re)schedule a callback — reset reminder stamps so the cron
@@ -369,6 +437,12 @@ export class CallsService {
                 // zone, which put every callback hours out unless the server
                 // happened to sit in the customer's time zone.
                 callbackAt,
+                // Next Follow-Up IS the booked callback, so it is written from
+                // the same value in the same breath rather than derived later.
+                // Two fields that mean one thing must be set together or the
+                // grid and the panel will eventually disagree about when the
+                // lead is due.
+                nextFollowUpDate: callbackAt,
                 callbackCompletedAt: null,
                 callbackReminderDayBeforeAt: null,
                 callbackReminderDueAt: null,
@@ -379,8 +453,11 @@ export class CallsService {
                 callbackDismissedAt: null,
               }
             : // Any other completed outcome clears the pin (removes it from the
-              // pinned section / calling queue once the outcome is updated).
-              { callbackCompletedAt: new Date() }),
+              // pinned section / calling queue once the outcome is updated) and
+              // with it the promise of a next follow-up — there is no longer one
+              // owed, and leaving the old date behind would keep the lead
+              // reading as due in Lead Management forever.
+              { callbackCompletedAt: contactAt, nextFollowUpDate: null }),
         },
       }),
       // A repeat of the same no-call disposition UPDATES the row it is repeating
@@ -485,11 +562,12 @@ export class CallsService {
     userId: string;
     outcome: string;
     callbackAt: Date | null;
+    completedAt: Date;
     schedulesCallback: boolean;
     revising: boolean;
     assignedToId: string | null;
-  }): Promise<Prisma.PrismaPromise<unknown>[]> {
-    const { leadId, userId, outcome, callbackAt, schedulesCallback, revising, assignedToId } = args;
+  }): Promise<FollowupSequencePlan> {
+    const { leadId, userId, outcome, callbackAt, completedAt, schedulesCallback, revising, assignedToId } = args;
 
     // The open rung, and the highest number used so far. They are different
     // questions: a lead whose Follow-Up 3 is closed has no open rung but has
@@ -518,7 +596,7 @@ export class CallsService {
             where: { id: open.id },
             data: schedulesCallback && callbackAt
               ? { scheduledAt: callbackAt, outcome, assignedToId }
-              : { outcome, completedAt: new Date(), completedById: userId },
+              : { outcome, completedAt, completedById: userId },
           }),
         );
       } else if (schedulesCallback && callbackAt) {
@@ -526,21 +604,29 @@ export class CallsService {
         // this becomes the next rung rather than being lost.
         ops.push(this.createFollowup(leadId, (last?.seq ?? 0) + 1, callbackAt, assignedToId));
       }
-      return ops;
+      // A revision never counts. It describes a contact the ladder has already
+      // recorded, so counting it would let correcting a typo add a follow-up the
+      // lead never had — which is exactly the "count is duplicated" failure.
+      return { ops, completesFollowup: false };
     }
 
+    // Closing an open rung is the ONE event that means "a follow-up was made":
+    // a rung exists only because an earlier contact booked it, so closing one is
+    // a promised call-back actually being made. A first call opens no rung and
+    // closes none, and is rightly not a follow-up.
+    const completesFollowup = !!open;
     if (open) {
       ops.push(
         this.prisma.leadFollowup.update({
           where: { id: open.id },
-          data: { outcome, completedAt: new Date(), completedById: userId },
+          data: { outcome, completedAt, completedById: userId },
         }),
       );
     }
     if (schedulesCallback && callbackAt) {
       ops.push(this.createFollowup(leadId, (last?.seq ?? 0) + 1, callbackAt, assignedToId));
     }
-    return ops;
+    return { ops, completesFollowup };
   }
 
   /**
@@ -1860,6 +1946,7 @@ export class CallsService {
   //   4 — future scheduled Callbacks and Zoom meetings (sorted by scheduled date asc)
   //   5 — completed calls / closed leads (bottom)
   async myLeads(callerId: string) {
+    const now = new Date();
     const startOfDay = startOfToday();
     const endOfToday = new Date();
     endOfToday.setHours(23, 59, 59, 999);
@@ -1949,11 +2036,16 @@ export class CallsService {
     const finishedAt = (l: Row) =>
       Math.max(l.lastCallEndedAt?.getTime() ?? 0, l.lastWorkedAt?.getTime() ?? 0) || null;
 
+    // Where the lead stands in the lifecycle — New Call → In Progress →
+    // Completed. The rule itself lives in `queue-status`, stated once and under
+    // test; see the note there for the three places it used to be decided.
+    const queueStatus = (l: Row) => queueStatusOf(l, now);
+
     const rank = (l: Row) => {
-      const closed = l.status === 'closed' || l.status === 'rejected';
-      // `lastWorkedAt` is what keeps a lead saved with dialling off from bobbing
-      // back to the top of the queue after a refresh.
-      if (closed || l.lastCallEndedAt || l.lastWorkedAt) return 5; // finished → bottom
+      // Finished leads go to the bottom. They are also filtered out of Your
+      // Queue by the panel, so this decides the order of a list they are not in
+      // — it still matters for anything reading the raw book in order.
+      if (queueStatus(l) === 'completed') return 5;
 
       const isCallbackDueToday = !l.callbackCompletedAt && l.callbackAt && (isToday(l.callbackAt) || l.callbackAt < startOfDay);
       if (isCallbackDueToday) return 0; // 1. Callback leads due today (or overdue)
@@ -1984,7 +2076,11 @@ export class CallsService {
      * queue reshuffling between refreshes and handing the agent a lead they have
      * already passed.
      */
-    return enriched.sort((a, b) => {
+    // The lifecycle status travels with each lead, so the panel renders what the
+    // server decided instead of reaching its own verdict from the raw stamps.
+    const ordered = enriched.map((l) => ({ ...l, queueStatus: queueStatus(l) }));
+
+    return ordered.sort((a, b) => {
       const ra = rank(a);
       const rb = rank(b);
       if (ra !== rb) return ra - rb;

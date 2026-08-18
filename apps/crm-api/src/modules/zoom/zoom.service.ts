@@ -168,6 +168,7 @@ export class ZoomService {
       newValue: m.scheduledAt.toISOString(),
       remarks: `Zoom meeting scheduled for ${fmtWhen(m.scheduledAt, lead.timezone)}`,
     });
+    await this.syncLeadMeetingDate(m.leadId);
     return m;
   }
 
@@ -206,6 +207,9 @@ export class ZoomService {
     });
     await this.logChanges(id, userId, existing, dto, rescheduledAt);
     await this.syncTask(m);
+    // A reschedule moves the Meeting Date & Time and only that. Next Follow-Up
+    // is a separate commitment and is left exactly where it was.
+    await this.syncLeadMeetingDate(m.leadId);
     if (timeChanged) {
       await this.notify(
         m,
@@ -279,6 +283,10 @@ export class ZoomService {
       remarks: dto.outcome ? `Zoom meeting completed — ${dto.outcome}` : 'Zoom meeting completed',
     });
     await this.syncTask(m);
+    // A meeting that has happened is no longer scheduled, so the column moves to
+    // the next pending one — or clears. The follow-up agreed at the end of it
+    // was recorded above as a Note, which is a different field on purpose.
+    await this.syncLeadMeetingDate(m.leadId);
     return m;
   }
 
@@ -297,6 +305,8 @@ export class ZoomService {
       oldValue: existing?.status ?? null,
       remarks: `Zoom meeting on ${fmtWhen(m.scheduledAt, m.lead?.timezone)} cancelled`,
     });
+    // The grid must stop advertising a meeting that is not happening.
+    await this.syncLeadMeetingDate(m.leadId);
     return m;
   }
 
@@ -305,10 +315,58 @@ export class ZoomService {
       const m = await this.prisma.zoomMeeting.delete({ where: { id } });
       // Drop the linked task too (the FK is SET NULL, so do it explicitly).
       if (m.taskId) await this.prisma.task.delete({ where: { id: m.taskId } }).catch(() => undefined);
+      await this.syncLeadMeetingDate(m.leadId);
       return { success: true };
     } catch (e) {
       throw this.notFoundOr(e);
     }
+  }
+
+  /**
+   * Statuses that mean a meeting is still going to happen.
+   *
+   * The same three the calling queue treats as pending, deliberately — the
+   * Meeting Date & Time in Lead Management and the Zoom badge on the queue row
+   * are two views of one appointment, and a lead cannot be shown a meeting on
+   * one screen and none on the other.
+   */
+  private static readonly PENDING_MEETING = [
+    ZoomMeetingStatus.scheduled,
+    ZoomMeetingStatus.in_progress,
+    ZoomMeetingStatus.rescheduled,
+  ];
+
+  /**
+   * Re-point the lead's Meeting Date & Time at its next pending meeting.
+   *
+   * Lead Management's Meeting Date column was a lead-sheet field and nothing
+   * else: it held whatever the import wrote and was editable by hand, so a Zoom
+   * booked through the CRM never reached it. A manager reading the grid saw no
+   * meeting on a lead that had one in the calendar.
+   *
+   * Recomputed from the meetings table rather than written from whichever
+   * operation happened to run. Scheduling, rescheduling, cancelling and
+   * completing all change the answer to the same question — "when is this lead's
+   * next meeting?" — so asking it once, here, is what stops the column drifting
+   * out of step after a cancellation nobody remembered to handle. Earliest
+   * pending meeting wins; no pending meeting means no meeting date.
+   *
+   * It writes THIS FIELD AND NOTHING ELSE. In particular it must never touch
+   * `nextFollowUpDate`: a meeting and a follow-up call are separate commitments
+   * to the customer, kept in separate columns, and a Zoom booked for Friday must
+   * not silently become the answer to "when are we ringing them back".
+   */
+  private async syncLeadMeetingDate(leadId: string) {
+    const next = await this.prisma.zoomMeeting.findFirst({
+      where: { leadId, status: { in: ZoomService.PENDING_MEETING } },
+      orderBy: { scheduledAt: 'asc' },
+      select: { scheduledAt: true },
+    });
+    await this.prisma.lead
+      .update({ where: { id: leadId }, data: { meetingDate: next?.scheduledAt ?? null } })
+      // A lead deleted from under a meeting is not a reason to fail the meeting
+      // operation the caller actually asked for.
+      .catch(() => undefined);
   }
 
   // ── Linked-task sync ──

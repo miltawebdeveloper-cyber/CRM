@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Upload, Eye, Clock, MapPin, Building2, PhoneCall, Info } from 'lucide-react';
 import { leadsApi, type Lead, type LeadListQuery } from '@/lib/leads';
 import { useDebounced } from '@/lib/use-debounced';
@@ -79,16 +79,21 @@ export default function ClosedLeadsPage() {
     sortDir: 'desc',
   }), [debouncedQ, tz, state, city, callStatus, closedBy, dateFilter.from, dateFilter.to]);
 
+  // Same contract as Lead Management: `isLoading` only when there is nothing to
+  // show, `isRefreshing` while the rows on screen are being brought up to date.
   const leadsQuery = useInfiniteLeads(listQuery);
-  const { rows: leads, total, isLoading, isFetchingNextPage, hasNextPage } = leadsQuery;
+  const { rows: leads, total, isLoading, isRefreshing, isFetchingNextPage, hasNextPage } = leadsQuery;
   const sentinelRef = useLeadScrollSentinel(leadsQuery);
 
   // Dropdown values come from the whole closed book, not from the rows loaded
   // so far — a filter offering only what has been scrolled past is no filter.
   const { data: filterOpts } = useQuery({
     queryKey: ['leads', 'filter-options', 'closed', tz, state],
-    queryFn: () => leadsApi.filterOptions({ closed: true, timezone: tz || undefined, state: state || undefined }),
+    queryFn: ({ signal }) => leadsApi.filterOptions({ closed: true, timezone: tz || undefined, state: state || undefined }, signal),
     staleTime: 5 * 60_000,
+    // Holds the current menu contents while the cascaded ones reload, so the
+    // State and City selects don't empty out under the pointer.
+    placeholderData: keepPreviousData,
   });
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   const canManage = me?.role === 'admin' || me?.role === 'team_leader';
@@ -259,13 +264,18 @@ export default function ClosedLeadsPage() {
         // `closed-leads`: it is the storage key for saved column preferences.
         title="Onboarding Leads"
         subtitle={
-          total === 0
-            ? 'No onboarding leads'
-            : leads.length >= total
-              ? `${total.toLocaleString()} onboarding lead${total === 1 ? '' : 's'}`
-              : `${leads.length.toLocaleString()} of ${total.toLocaleString()} loaded — scroll for more`
+          // Same as Lead Management: don't report an empty book while the first
+          // page is still loading.
+          isLoading
+            ? 'Loading onboarding leads…'
+            : total === 0
+              ? 'No onboarding leads'
+              : leads.length >= total
+                ? `${total.toLocaleString()} onboarding lead${total === 1 ? '' : 's'}`
+                : `${leads.length.toLocaleString()} of ${total.toLocaleString()} loaded — scroll for more`
         }
         loading={isLoading}
+        refreshing={isRefreshing}
         emptyText="No onboarding leads match the current filters."
         prefs={prefs}
         selectable={false}
@@ -278,7 +288,8 @@ export default function ClosedLeadsPage() {
           <button
             type="button"
             onClick={() => leadsQuery.fetchNextPage()}
-            disabled={isFetchingNextPage}
+            // Off while the rows belong to the outgoing query — see Lead Management.
+            disabled={isFetchingNextPage || leadsQuery.isPlaceholderData}
             className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12px] font-semibold hover:bg-muted disabled:opacity-50"
           >
             {isFetchingNextPage ? 'Loading more…' : `Load more (${(total - leads.length).toLocaleString()} left)`}

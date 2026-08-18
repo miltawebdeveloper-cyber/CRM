@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Import as ImportIcon, Upload, Plus, Phone, Eye, Clock, MapPin, Building2, Filter, Target, Zap, Percent, Info, RefreshCw, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, Lock, AlertTriangle, CalendarClock } from 'lucide-react';
 import { leadsApi, movementLabel, type CreateLeadInput, type DuplicateMatch, type Lead, type LeadListQuery } from '@/lib/leads';
 import { usersApi } from '@/lib/users';
@@ -165,16 +165,25 @@ export default function LeadsPage() {
 
   // Changing a filter or the sort changes the query key, so the list starts
   // again from the top on its own — no page number to reset.
+  // `isLoading` here means "there is nothing to show yet" — the first visit, or
+  // a filter combination never fetched before. Every LATER change keeps the rows
+  // it already has and reports `isRefreshing` instead, so the grid updates in
+  // place rather than emptying and refilling. See `useInfiniteLeads`.
   const leadsQuery = useInfiniteLeads(listQuery);
-  const { rows: leads, total, isLoading, isFetchingNextPage, hasNextPage } = leadsQuery;
+  const { rows: leads, total, isLoading, isRefreshing, isFetchingNextPage, hasNextPage } = leadsQuery;
   const sentinelRef = useLeadScrollSentinel(leadsQuery);
 
   // The dropdown values come from the whole book, not from the page on screen —
   // a filter offering only the cities that happen to be on page 3 is no filter.
   const { data: filterOpts } = useQuery({
     queryKey: ['leads', 'filter-options', tz, state],
-    queryFn: () => leadsApi.filterOptions({ closed: false, timezone: tz || undefined, state: state || undefined }),
+    queryFn: ({ signal }) => leadsApi.filterOptions({ closed: false, timezone: tz || undefined, state: state || undefined }, signal),
     staleTime: 5 * 60_000,
+    // Keys on the zone and the state, so picking either one changes the key and
+    // would otherwise leave `filterOpts` undefined for the length of a request —
+    // during which the State and City menus collapse to just their "All" entry
+    // and the chosen value disappears out of the control the user is holding.
+    placeholderData: keepPreviousData,
   });
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   const canManage = me?.role === 'admin' || me?.role === 'team_leader';
@@ -250,8 +259,13 @@ export default function LeadsPage() {
   // were created while the table below lists leads by when they are queued.
   const { data: s } = useQuery({
     queryKey: ['metrics', 'summary', dateFilter.from, dateFilter.to, dateField],
-    queryFn: () => metricsApi.summary({ from: dateFilter.from || undefined, to: dateFilter.to || undefined, dateField }),
+    queryFn: ({ signal }) => metricsApi.summary({ from: dateFilter.from || undefined, to: dateFilter.to || undefined, dateField }, signal),
     retry: false,
+    // Same reason as the filter options: the date range is part of the key, so
+    // moving it would drop every card to "0" until the new counts land. Holding
+    // the previous figures for a moment is a smaller lie than reporting zero
+    // leads to someone who has just changed a date.
+    placeholderData: keepPreviousData,
   });
 
   // Soft-delete selected leads (Admin / TL). Runs sequentially, then refreshes.
@@ -450,13 +464,41 @@ export default function LeadsPage() {
     // on the lead's clock — including the follow-up, which is an hour agreed
     // with the customer and is the one it would be most damaging to state on
     // anybody else's.
-    { key: 'firstContact', header: 'First Contact', cellClassName: 'text-muted-foreground', render: (l) => <span title={zoneNote(l.timezone)}>{leadDate(l.firstContact, l.timezone)}</span> },
-    { key: 'lastContact', header: 'Last Contact', cellClassName: 'text-muted-foreground', render: (l) => <span title={zoneNote(l.timezone)}>{leadDate(l.lastContact, l.timezone)}</span> },
-    { key: 'followup', header: 'Next Follow-up', cellClassName: 'text-muted-foreground', render: (l) => <span title={zoneNote(l.timezone)}>{leadDate(l.nextFollowUpDate, l.timezone)}</span>, trackable: true },
-    { key: 'followupCount', header: 'Follow-up Count', cellClassName: 'text-muted-foreground', render: (l) => l.followupCount ?? '—' },
+    /**
+     * The three contact stamps, to the minute.
+     *
+     * They carry a time now because the calling flow writes one: a disposition
+     * records the instant it happened, and a booked callback is an hour agreed
+     * with the customer. Shown to the day these read as three identical dates on
+     * a lead called three times in an afternoon, and Next Follow-up — the one
+     * somebody acts on — loses the only part of it that says when to ring.
+     *
+     * A lead whose values came from the import shows midnight, which is what its
+     * sheet actually said.
+     */
+    { key: 'firstContact', header: 'First Contact', width: 170, cellClassName: 'text-muted-foreground whitespace-nowrap', render: (l) => <span title={zoneNote(l.timezone)}>{leadDateTime(l.firstContact, l.timezone)}</span> },
+    { key: 'lastContact', header: 'Last Contact', width: 170, cellClassName: 'text-muted-foreground whitespace-nowrap', render: (l) => <span title={zoneNote(l.timezone)}>{leadDateTime(l.lastContact, l.timezone)}</span> },
+    { key: 'followup', header: 'Next Follow-up', width: 170, cellClassName: 'text-muted-foreground whitespace-nowrap', render: (l) => <span title={zoneNote(l.timezone)}>{leadDateTime(l.nextFollowUpDate, l.timezone)}</span>, trackable: true },
+    // Counts the follow-ups actually MADE — a call that answered one an earlier
+    // call booked. Written by the calling flow, so it climbs on its own; see the
+    // contact-tracking block in the API's `applyDisposition`.
+    { key: 'followupCount', header: 'Follow-up Count', cellClassName: 'text-muted-foreground tabular-nums', render: (l) => l.followupCount ?? '—' },
     // Requested tail order: Meeting Date → Comments → Lost Reason → Actions. Comments
     // and Lost Reason both edit in place; Comments also syncs with call notes.
-    { key: 'meetingDate', header: 'Meeting Date', cellClassName: 'text-muted-foreground', render: (l) => <span title={zoneNote(l.timezone)}>{leadDate(l.meetingDate, l.timezone)}</span> },
+    /**
+     * The lead's next Zoom meeting, to the minute.
+     *
+     * Written by the Zoom module rather than only by the import: booking a
+     * meeting sets it, rescheduling moves it, cancelling or completing it moves
+     * to the next pending meeting or clears it. A meeting booked through the CRM
+     * used to leave this cell empty, so the grid said a lead had no meeting
+     * while the calendar had one.
+     *
+     * Independent of Next Follow-up above, and never written from it. The two
+     * answer different questions — when are we meeting them, and when are we
+     * ringing them back — and a lead can easily have one and not the other.
+     */
+    { key: 'meetingDate', header: 'Meeting Date & Time', width: 170, cellClassName: 'text-muted-foreground whitespace-nowrap', render: (l) => <span title={zoneNote(l.timezone)}>{leadDateTime(l.meetingDate, l.timezone)}</span> },
     {
       key: 'comments',
       header: 'Comments',
@@ -769,13 +811,19 @@ export default function LeadsPage() {
         // because "50 leads" under a filter matching 40,000 would read as a
         // filter that had thrown almost everything away.
         subtitle={
-          total === 0
-            ? 'No leads'
-            : leads.length >= total
-              ? `${total.toLocaleString()} lead${total === 1 ? '' : 's'}`
-              : `${leads.length.toLocaleString()} of ${total.toLocaleString()} loaded — scroll for more`
+          // "No leads" is a claim, and it must not be made while the first page
+          // is still in the air — the grid below is showing "Loading…" at that
+          // moment, and the two used to contradict each other.
+          isLoading
+            ? 'Loading leads…'
+            : total === 0
+              ? 'No leads'
+              : leads.length >= total
+                ? `${total.toLocaleString()} lead${total === 1 ? '' : 's'}`
+                : `${leads.length.toLocaleString()} of ${total.toLocaleString()} loaded — scroll for more`
         }
         loading={isLoading}
+        refreshing={isRefreshing}
         emptyText="No leads match the current filters."
         prefs={prefs}
         // Excel-style viewport: header pinned, horizontal scrollbar always on
@@ -823,7 +871,10 @@ export default function LeadsPage() {
           <button
             type="button"
             onClick={() => leadsQuery.fetchNextPage()}
-            disabled={isFetchingNextPage}
+            // Also off while the rows on screen belong to the outgoing query —
+            // paging that one on would append its chunk 2 to a list about to be
+            // replaced by a different filter's chunk 1.
+            disabled={isFetchingNextPage || leadsQuery.isPlaceholderData}
             className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12px] font-semibold hover:bg-muted disabled:opacity-50"
           >
             {isFetchingNextPage ? 'Loading more…' : `Load more (${(total - leads.length).toLocaleString()} left)`}

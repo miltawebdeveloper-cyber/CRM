@@ -7,6 +7,10 @@ const LEAD: Record<string, { label: string; fg: string; bg: string }> = {
   contacted: { label: 'Contacted', fg: 'var(--tone-teal-fg)', bg: 'var(--tone-teal-bg)' },
   interested: { label: 'Interested', fg: 'var(--brand-on-surface)', bg: 'var(--brand-surface)' },
   closed: { label: 'Closed', fg: 'var(--brand-on-surface)', bg: 'var(--brand-surface-2)' },
+  // The end of the call lifecycle (New Call → In Progress → Completed), not a
+  // lead status — the Calling Panel says a lead is done with for now, which is a
+  // different claim from the lead being closed or rejected.
+  completed: { label: 'Completed', fg: 'var(--tone-teal-fg)', bg: 'var(--tone-teal-bg)' },
   rejected: { label: 'Rejected', fg: 'var(--tone-red-fg)', bg: 'var(--tone-red-bg)' },
 };
 
