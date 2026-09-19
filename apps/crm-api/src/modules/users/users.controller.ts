@@ -1,10 +1,10 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Delete, HttpCode } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
-import { UsersService } from './users.service';
-import { CreateUserDto, UpdateUserDto, ListUsersQueryDto } from './dto/user.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import { UsersService } from './users.service.js';
+import { CreateUserDto, UpdateUserDto, ListUsersQueryDto } from './dto/user.dto.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 
 // User management is Admin-only (Permission Matrix: Create/Edit/Deactivate users).
 @ApiTags('users')

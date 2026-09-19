@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { OpenPhoneClient } from './openphone.client';
-import { OpenPhoneMessagePayload, OpenPhoneContactPayload, OpenPhoneHistoryQuery } from './openphone.types';
+import { OpenPhoneClient } from './openphone.client.js';
+import { OpenPhoneMessagePayload, OpenPhoneContactPayload, OpenPhoneHistoryQuery } from './openphone.types.js';
 
 @Injectable()
 export class OpenPhoneService {

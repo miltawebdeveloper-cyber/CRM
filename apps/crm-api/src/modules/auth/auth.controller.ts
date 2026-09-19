@@ -2,14 +2,14 @@ import { Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put, Qu
 import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
-import { AuthService } from './auth.service';
-import { LoginDto, RefreshDto, VerifyMfaDto, VerifyOtpDto, ResendOtpDto, OtpSettingsDto } from './dto/auth.dto';
-import { LoginOtpService } from './login-otp.service';
-import { TrustedDeviceService } from './trusted-device.service';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { AuthService } from './auth.service.js';
+import { LoginDto, RefreshDto, VerifyMfaDto, VerifyOtpDto, ResendOtpDto, OtpSettingsDto } from './dto/auth.dto.js';
+import { LoginOtpService } from './login-otp.service.js';
+import { TrustedDeviceService } from './trusted-device.service.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Role } from '@crm/database';
-import { Public } from '../../common/decorators/public.decorator';
-import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import { Public } from '../../common/decorators/public.decorator.js';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 
 @ApiTags('auth')
 @Controller('auth')

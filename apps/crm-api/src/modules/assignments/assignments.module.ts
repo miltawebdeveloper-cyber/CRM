@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { AssignmentsService } from './assignments.service';
-import { AssignmentCarryForwardService } from './assignment-carry-forward.service';
-import { AssignmentsController } from './assignments.controller';
+import { AssignmentsService } from './assignments.service.js';
+import { AssignmentCarryForwardService } from './assignment-carry-forward.service.js';
+import { AssignmentsController } from './assignments.controller.js';
 
 @Module({
   controllers: [AssignmentsController],

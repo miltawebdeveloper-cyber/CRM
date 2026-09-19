@@ -2,7 +2,7 @@ import { ArrayNotEmpty, IsArray, IsBoolean, IsEmail, IsEnum, IsIn, IsInt, IsOpti
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Timezone, LeadStatus } from '@crm/database';
-import { UNSET_TIMEZONE_LABEL } from '../../../common/timezone';
+import { UNSET_TIMEZONE_LABEL } from '../../../common/timezone.js';
 
 export class CreateLeadDto {
   @ApiPropertyOptional({ description: 'External lead id; auto-generated if omitted (IMP-006)' })

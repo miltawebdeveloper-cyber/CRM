@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { Timezone } from '@crm/database';
-import { dayInZone, sameDayInZone, startOfDayInZone } from './timezone';
+import { dayInZone, sameDayInZone, startOfDayInZone } from './timezone.js';
 
 /**
  * The server runs on IST and the leads are American. Every date decision about a

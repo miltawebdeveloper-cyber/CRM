@@ -1,12 +1,12 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { ForbiddenException } from '@nestjs/common';
 import { Role } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { CallsService } from './calls.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import { OutcomesService } from '../outcomes/outcomes.service';
-import { CommunicationsService } from '../communications/communications.service';
-import { EndCallDto, UpdateFollowupDto } from './dto/call.dto';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { CallsService } from './calls.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { OutcomesService } from '../outcomes/outcomes.service.js';
+import { CommunicationsService } from '../communications/communications.service.js';
+import { EndCallDto, UpdateFollowupDto } from './dto/call.dto.js';
 
 /**
  * A lead worked WITHOUT a call has no `calls` row behind it — the activity is

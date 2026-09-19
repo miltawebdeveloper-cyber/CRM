@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { LeadStatus, Prisma, Role, ZoomMeetingStatus } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { ALL_TIMEZONES, tzLabel, UNSET_TIMEZONE_LABEL } from '../../common/timezone';
-import { MetricsQueryDto } from './dto/metrics.dto';
-import { CONNECTED_CALL, MISSED_INBOUND_CALL } from '../calls/call-status';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { ALL_TIMEZONES, tzLabel, UNSET_TIMEZONE_LABEL } from '../../common/timezone.js';
+import { MetricsQueryDto } from './dto/metrics.dto.js';
+import { CONNECTED_CALL, MISSED_INBOUND_CALL } from '../calls/call-status.js';
 
 interface Node {
   total: number;

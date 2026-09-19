@@ -1,8 +1,8 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { NotificationType } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import { CallbacksService } from './callbacks.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { CallbacksService } from './callbacks.service.js';
 
 /**
  * What the reminder engine is allowed to put in somebody's inbox.

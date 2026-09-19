@@ -1,8 +1,8 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { MetricsService } from './metrics.service';
-import { MetricsQueryDto } from './dto/metrics.dto';
-import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import { MetricsService } from './metrics.service.js';
+import { MetricsQueryDto } from './dto/metrics.dto.js';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 
 @ApiTags('metrics')
 @ApiBearerAuth()

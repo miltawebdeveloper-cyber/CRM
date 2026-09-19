@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { IntegrationConfigService } from './integration-config.service';
-import { IntegrationsController } from './integrations.controller';
-import { OpenPhoneModule } from '../openphone/openphone.module';
+import { IntegrationConfigService } from './integration-config.service.js';
+import { IntegrationsController } from './integrations.controller.js';
+import { OpenPhoneModule } from '../openphone/openphone.module.js';
 
 @Module({
   imports: [OpenPhoneModule],

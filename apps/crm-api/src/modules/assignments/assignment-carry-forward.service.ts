@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { AssignmentType, LeadStatus, Prisma, Timezone, ZoomMeetingStatus } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { dayInZone } from '../../common/timezone';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { dayInZone } from '../../common/timezone.js';
 
 /**
  * The widest the US can be behind the server. IST is UTC+5:30 and Hawaii is

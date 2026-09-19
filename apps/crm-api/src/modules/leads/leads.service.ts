@@ -1,12 +1,12 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AssignmentType, Timezone, LeadStatus, Role, Prisma } from '@crm/database';
-import { dayInZone, parseInZone, timezoneWhere, tzLabel } from '../../common/timezone';
-import { PrismaService } from '../../prisma/prisma.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto';
-import { closureCreateFields, closureFields } from './lead-closure';
-import { buildMatchKeys, decisionKey, emailDomain, longestWord, type LeadMatchOptions, type MatchableRecord, type MatchSignal } from './lead-dedupe';
-import { LeadIdService } from './lead-id.service';
+import { dayInZone, parseInZone, timezoneWhere, tzLabel } from '../../common/timezone.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto.js';
+import { closureCreateFields, closureFields } from './lead-closure.js';
+import { buildMatchKeys, decisionKey, emailDomain, longestWord, type LeadMatchOptions, type MatchableRecord, type MatchSignal } from './lead-dedupe.js';
+import { LeadIdService } from './lead-id.service.js';
 
 /**
  * Shown when a same-day reassignment is refused for want of confirmation.

@@ -2,15 +2,15 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { APP_GUARD } from '@nestjs/core';
-import { AuthService } from './auth.service';
-import { AuthController } from './auth.controller';
-import { JwtStrategy } from './jwt.strategy';
-import { MfaService } from './mfa.service';
-import { LoginOtpService } from './login-otp.service';
-import { TrustedDeviceService } from './trusted-device.service';
-import { MailModule } from '../mail/mail.module';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
+import { AuthService } from './auth.service.js';
+import { AuthController } from './auth.controller.js';
+import { JwtStrategy } from './jwt.strategy.js';
+import { MfaService } from './mfa.service.js';
+import { LoginOtpService } from './login-otp.service.js';
+import { TrustedDeviceService } from './trusted-device.service.js';
+import { MailModule } from '../mail/mail.module.js';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
+import { RolesGuard } from '../../common/guards/roles.guard.js';
 
 @Module({
   imports: [PassportModule, JwtModule.register({}), MailModule],

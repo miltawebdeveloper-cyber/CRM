@@ -2,13 +2,14 @@
   "name": "@crm/api",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "nest start --watch",
     "build": "nest build",
     "start": "node dist/main.js",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
-    "test": "jest --passWithNoTests"
+    "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --passWithNoTests"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.72.0",
@@ -44,6 +45,7 @@
     "@types/nodemailer": "^6.4.17",
     "@types/passport-jwt": "^4.0.1",
     "@types/qrcode": "^1.5.6",
+    "cross-env": "^10.1.0",
     "eslint": "^9.39.4",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.11",

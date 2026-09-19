@@ -1,9 +1,9 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { OpenPhoneService } from './openphone.service';
-import { SendOpenPhoneSmsDto } from './dto/openphone.dto';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { OpenPhoneService } from './openphone.service.js';
+import { SendOpenPhoneSmsDto } from './dto/openphone.dto.js';
 
 @ApiTags('openphone')
 @ApiBearerAuth()

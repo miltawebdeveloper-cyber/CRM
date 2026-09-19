@@ -1,7 +1,7 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Role } from '@crm/database';
-import { ROLES_KEY } from '../decorators/roles.decorator';
+import { ROLES_KEY } from '../decorators/roles.decorator.js';
 
 /**
  * RBAC guard (LGN-006 / SEC-001). Runs after JwtAuthGuard; enforces @Roles().

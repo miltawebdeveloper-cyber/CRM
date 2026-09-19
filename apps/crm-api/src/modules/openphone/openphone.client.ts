@@ -3,7 +3,7 @@ import {
   OpenPhoneNumber, OpenPhoneMessagePayload, OpenPhoneResult, OpenPhoneContactPayload, OpenPhoneContact,
   OpenPhoneHistoryQuery, OpenPhonePage, OpenPhoneCall, OpenPhoneMessage, OpenPhoneRecording, OpenPhoneConversation,
   OpenPhoneTranscript,
-} from './openphone.types';
+} from './openphone.types.js';
 
 /**
  * Stable fake provider id. The index goes AFTER the hex slice: hex-encoding the

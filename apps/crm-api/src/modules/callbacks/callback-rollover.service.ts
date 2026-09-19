@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { LeadStatus, NotificationType, Timezone } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import { dayInZone, formatInZone, nextWorkingDay, parseInZone, timeInZone, workingDays } from '../../common/timezone';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { dayInZone, formatInZone, nextWorkingDay, parseInZone, timeInZone, workingDays } from '../../common/timezone.js';
 
 /** Activity action for an automatic move, so the trail separates it from a human reschedule. */
 export const ROLLED_OVER_ACTION = 'callback_rolled_over';

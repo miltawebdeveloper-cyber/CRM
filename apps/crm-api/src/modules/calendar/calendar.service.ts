@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, Role, Timezone } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { formatInZone } from '../../common/timezone';
-import { callbackStatus, type CallbackStatus } from '../callbacks/callback-status';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { formatInZone } from '../../common/timezone.js';
+import { callbackStatus, type CallbackStatus } from '../callbacks/callback-status.js';
 
 /** The three kinds of scheduled activity the calendar consolidates. */
 export type ActivityType = 'call' | 'callback' | 'zoom';

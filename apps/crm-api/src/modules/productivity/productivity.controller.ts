@@ -1,8 +1,8 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
-import { ProductivityService, type Period } from './productivity.service';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { ProductivityService, type Period } from './productivity.service.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
 
 @ApiTags('productivity')
 @ApiBearerAuth()

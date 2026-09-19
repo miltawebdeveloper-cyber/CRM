@@ -1,8 +1,8 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { PrismaService } from '../../prisma/prisma.service';
-import { LeadsService } from './leads.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import { LeadIdService } from './lead-id.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { LeadsService } from './leads.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { LeadIdService } from './lead-id.service.js';
 
 describe('LeadsService import optimization helpers', () => {
   it('builds a compact set of update windows for a phone field', () => {

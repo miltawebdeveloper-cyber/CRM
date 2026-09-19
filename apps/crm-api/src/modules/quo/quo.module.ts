@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { QuoService } from './quo.service';
-import { OpenPhoneModule } from '../openphone/openphone.module';
+import { QuoService } from './quo.service.js';
+import { OpenPhoneModule } from '../openphone/openphone.module.js';
 
 @Module({
   imports: [OpenPhoneModule],

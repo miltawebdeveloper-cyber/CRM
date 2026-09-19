@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Role } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
 
 @Injectable()
 export class ActivitiesService {

@@ -2,13 +2,13 @@ import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query, Res } fr
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
-import { CommunicationsService } from './communications.service';
-import { CallHistoryService } from './call-history.service';
-import { QuoSyncService } from './quo-sync.service';
-import { CallInsightsService } from './call-insights.service';
-import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { SendSmsDto, CallByPhoneDto, HistoryQueryDto, CallResponseDto, CallingModeDto } from './dto/communications.dto';
+import { CommunicationsService } from './communications.service.js';
+import { CallHistoryService } from './call-history.service.js';
+import { QuoSyncService } from './quo-sync.service.js';
+import { CallInsightsService } from './call-insights.service.js';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { SendSmsDto, CallByPhoneDto, HistoryQueryDto, CallResponseDto, CallingModeDto } from './dto/communications.dto.js';
 
 /** PERM: recordings/transcripts/AI summaries are admin + team-leader only. */
 const canViewRecordings = (role: Role) => role === Role.admin || role === Role.team_leader;

@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { Prisma, QuoSyncStatus } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { OpenPhoneService } from '../openphone/openphone.service';
-import { OpenPhoneContactPayload } from '../openphone/openphone.types';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { OpenPhoneService } from '../openphone/openphone.service.js';
+import { OpenPhoneContactPayload } from '../openphone/openphone.types.js';
 
 /**
  * Orchestrates the Lead → phone-provider sync: build a contact payload → create

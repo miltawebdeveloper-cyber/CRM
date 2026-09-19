@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { NotificationType, Prisma, Role, TaskPriority, TaskStatus, Timezone, ZoomMeetingStatus } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import { CompleteZoomMeetingDto, CreateZoomMeetingDto, UpdateZoomMeetingDto, ZoomQueryDto } from './dto/zoom.dto';
-import { formatInZone, parseInZone } from '../../common/timezone';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { CompleteZoomMeetingDto, CreateZoomMeetingDto, UpdateZoomMeetingDto, ZoomQueryDto } from './dto/zoom.dto.js';
+import { formatInZone, parseInZone } from '../../common/timezone.js';
 
 /**
  * Meeting times are always stated in the CLIENT's zone, with the zone named.

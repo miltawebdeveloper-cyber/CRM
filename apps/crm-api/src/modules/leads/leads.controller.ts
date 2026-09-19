@@ -1,11 +1,11 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, HttpCode } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
-import { LeadsService } from './leads.service';
-import { QuoService } from '../quo/quo.service';
-import { BulkDeleteLeadsDto, CheckDuplicateDto, CheckImportDto, CreateLeadDto, DuplicateGroupsQueryDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import { LeadsService } from './leads.service.js';
+import { QuoService } from '../quo/quo.service.js';
+import { BulkDeleteLeadsDto, CheckDuplicateDto, CheckImportDto, CreateLeadDto, DuplicateGroupsQueryDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 
 @ApiTags('leads')
 @ApiBearerAuth()

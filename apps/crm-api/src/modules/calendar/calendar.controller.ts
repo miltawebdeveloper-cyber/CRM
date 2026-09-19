@@ -1,7 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { CalendarService } from './calendar.service';
-import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import { CalendarService } from './calendar.service.js';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 
 @ApiTags('calendar')
 @ApiBearerAuth()

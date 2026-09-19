@@ -1,11 +1,11 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
-import { CallbacksService } from './callbacks.service';
-import { CallbackRolloverService } from './callback-rollover.service';
-import { SnoozeCallbackDto } from './dto/callback.dto';
-import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { CallbacksService } from './callbacks.service.js';
+import { CallbackRolloverService } from './callback-rollover.service.js';
+import { SnoozeCallbackDto } from './dto/callback.dto.js';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
 
 /**
  * The on-screen half of callback reminders — what the browser polls to decide

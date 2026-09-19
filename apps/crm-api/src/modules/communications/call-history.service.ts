@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { CommDirection, Prisma, Role } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { OpenPhoneService } from '../openphone/openphone.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { OpenPhoneService } from '../openphone/openphone.service.js';
 
 export interface HistoryQuery {
   search?: string;

@@ -1,9 +1,9 @@
 import { describe, expect, it, jest, beforeEach } from '@jest/globals';
 import { ZoomMeetingStatus } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import { ZoomService } from './zoom.service';
-import type { CreateZoomMeetingDto, UpdateZoomMeetingDto } from './dto/zoom.dto';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { ZoomService } from './zoom.service.js';
+import type { CreateZoomMeetingDto, UpdateZoomMeetingDto } from './dto/zoom.dto.js';
 
 /**
  * Lead Management's Meeting Date & Time, and the column it must never touch.

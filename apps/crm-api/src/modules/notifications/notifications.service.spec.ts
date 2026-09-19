@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { NotificationType } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { MailService } from '../mail/mail.service';
-import { NotificationsService } from './notifications.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { MailService } from '../mail/mail.service.js';
+import { NotificationsService } from './notifications.service.js';
 
 /**
  * The line between "the CRM tells you" and "your inbox tells you".

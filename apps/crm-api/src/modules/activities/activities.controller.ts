@@ -1,9 +1,9 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { ActivitiesService } from './activities.service';
-import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import { ActivitiesService } from './activities.service.js';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 import { Role } from '@crm/database';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { Roles } from '../../common/decorators/roles.decorator.js';
 
 @ApiTags('activities')
 @ApiBearerAuth()

@@ -1,8 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { TasksService } from './tasks.service';
-import { CreateTaskDto, UpdateTaskDto } from './dto/task.dto';
-import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import { TasksService } from './tasks.service.js';
+import { CreateTaskDto, UpdateTaskDto } from './dto/task.dto.js';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 
 @ApiTags('tasks')
 @ApiBearerAuth()

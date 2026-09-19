@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { owedNow, queueStatusOf, type QueueLeadState } from './queue-status';
+import { owedNow, queueStatusOf, type QueueLeadState } from './queue-status.js';
 
 /**
  * The reported bug, stated as a test: after an agent finishes a call, the lead

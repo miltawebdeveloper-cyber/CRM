@@ -1,7 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { AssignmentType, Timezone } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { AssignmentCarryForwardService } from './assignment-carry-forward.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { AssignmentCarryForwardService } from './assignment-carry-forward.service.js';
 
 /**
  * The carry-forward re-stamps an unfinished lead for its own new day. The rules

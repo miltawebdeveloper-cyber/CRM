@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { CreateOutcomeDto, UpdateOutcomeDto } from './dto/outcome.dto';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { CreateOutcomeDto, UpdateOutcomeDto } from './dto/outcome.dto.js';
 
 function slugify(s: string): string {
   return s

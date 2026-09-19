@@ -1,9 +1,9 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { PrismaService } from '../../prisma/prisma.service';
-import { OpenPhoneService } from '../openphone/openphone.service';
-import { OpenPhoneCall } from '../openphone/openphone.types';
-import { CallInsightsService } from './call-insights.service';
-import { QuoSyncService } from './quo-sync.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { OpenPhoneService } from '../openphone/openphone.service.js';
+import { OpenPhoneCall } from '../openphone/openphone.types.js';
+import { CallInsightsService } from './call-insights.service.js';
+import { QuoSyncService } from './quo-sync.service.js';
 
 /**
  * One call, one row — from the backfill's side.

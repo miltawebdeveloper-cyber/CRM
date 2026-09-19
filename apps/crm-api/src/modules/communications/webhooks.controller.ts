@@ -3,8 +3,8 @@ import * as crypto from 'crypto';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import { ApiTags } from '@nestjs/swagger';
-import { Public } from '../../common/decorators/public.decorator';
-import { CommunicationsService } from './communications.service';
+import { Public } from '../../common/decorators/public.decorator.js';
+import { CommunicationsService } from './communications.service.js';
 
 /**
  * Record the outcome of every webhook delivery attempt to stdout, so the incoming-call

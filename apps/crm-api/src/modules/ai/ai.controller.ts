@@ -1,8 +1,8 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { AiService } from './ai.service';
-import { ChatDto } from './dto/ai.dto';
-import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import { AiService } from './ai.service.js';
+import { ChatDto } from './dto/ai.dto.js';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 
 @ApiTags('ai')
 @ApiBearerAuth()

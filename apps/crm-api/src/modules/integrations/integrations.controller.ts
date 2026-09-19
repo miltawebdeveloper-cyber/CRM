@@ -1,10 +1,10 @@
 import { Body, Controller, Delete, Get, Param, Put, BadRequestException } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { IntegrationConfigService } from './integration-config.service';
-import { OpenPhoneService } from '../openphone/openphone.service';
-import { ConnectOpenPhoneDto } from './dto/integration.dto';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { IntegrationConfigService } from './integration-config.service.js';
+import { OpenPhoneService } from '../openphone/openphone.service.js';
+import { ConnectOpenPhoneDto } from './dto/integration.dto.js';
 
 /** Admin-managed integration credentials (entered from the UI, stored in DB). */
 @ApiTags('integrations')

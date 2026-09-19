@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { PrismaService } from '../../prisma/prisma.service';
-import { OpenPhoneService } from '../openphone/openphone.service';
-import { CallInsightsService } from './call-insights.service';
-import { CommunicationsService } from './communications.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { OpenPhoneService } from '../openphone/openphone.service.js';
+import { CallInsightsService } from './call-insights.service.js';
+import { CommunicationsService } from './communications.service.js';
 
 /**
  * An unrecognised number ringing a workspace line must NOT become a lead.

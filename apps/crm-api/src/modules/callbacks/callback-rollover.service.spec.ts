@@ -1,8 +1,8 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { PrismaService } from '../../prisma/prisma.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import { CallbackRolloverService } from './callback-rollover.service';
-import { formatInZone } from '../../common/timezone';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { CallbackRolloverService } from './callback-rollover.service.js';
+import { formatInZone } from '../../common/timezone.js';
 
 /**
  * A scheduled call that the day ended without has to move on its own — that is

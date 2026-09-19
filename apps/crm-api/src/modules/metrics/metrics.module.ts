@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { MetricsService } from './metrics.service';
-import { MetricsController } from './metrics.controller';
+import { MetricsService } from './metrics.service.js';
+import { MetricsController } from './metrics.controller.js';
 
 @Module({
   controllers: [MetricsController],

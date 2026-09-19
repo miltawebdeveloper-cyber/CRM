@@ -1,7 +1,7 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import type { Request, Response, CookieOptions } from 'express';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
 
 /** Cookie carrying the device trust token. HTTP-only — JS never touches it. */
 export const TRUSTED_DEVICE_COOKIE = 'crm.device';

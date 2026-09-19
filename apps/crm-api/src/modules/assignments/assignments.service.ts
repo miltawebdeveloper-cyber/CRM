@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { AssignmentType, Prisma } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { UNSET_TIMEZONE_LABEL, sameDayInZone } from '../../common/timezone';
-import { ManualAssignDto, AutoAssignDto, AssignStrategy, BatchAssignDto } from './dto/assignment.dto';
-import { sameDayConfirmError } from '../leads/leads.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { UNSET_TIMEZONE_LABEL, sameDayInZone } from '../../common/timezone.js';
+import { ManualAssignDto, AutoAssignDto, AssignStrategy, BatchAssignDto } from './dto/assignment.dto.js';
+import { sameDayConfirmError } from '../leads/leads.service.js';
 
 /**
  * The earliest instant that could still be "today" in any US zone we serve.

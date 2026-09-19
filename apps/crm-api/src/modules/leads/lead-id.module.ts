@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { LeadIdService } from './lead-id.service';
+import { LeadIdService } from './lead-id.service.js';
 
 /**
  * Lead ID generation on its own, so any module that creates a lead can import it

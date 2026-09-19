@@ -1,9 +1,9 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { ConflictException } from '@nestjs/common';
 import { Role } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { TrustedDeviceService } from '../auth/trusted-device.service';
-import { UsersService } from './users.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { TrustedDeviceService } from '../auth/trusted-device.service.js';
+import { UsersService } from './users.service.js';
 
 /**
  * Deleting a user is allowed only where there is no history to protect.

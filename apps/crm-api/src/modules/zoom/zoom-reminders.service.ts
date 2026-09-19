@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { NotificationType, Timezone, ZoomMeetingStatus } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import { formatInZone } from '../../common/timezone';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { formatInZone } from '../../common/timezone.js';
 
 const HOUR = 60 * 60 * 1000;
 

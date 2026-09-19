@@ -1,10 +1,10 @@
 import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
-import { TargetsService } from './targets.service';
-import { UpsertTargetDto, ListTargetsQueryDto } from './dto/target.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import { TargetsService } from './targets.service.js';
+import { UpsertTargetDto, ListTargetsQueryDto } from './dto/target.dto.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 
 @ApiTags('targets')
 @ApiBearerAuth()

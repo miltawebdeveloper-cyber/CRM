@@ -1,8 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
-import { PreferencesService } from './preferences.service';
-import { SetPreferenceDto } from './dto/preference.dto';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
+import { PreferencesService } from './preferences.service.js';
+import { SetPreferenceDto } from './dto/preference.dto.js';
 
 @ApiTags('preferences')
 @ApiBearerAuth()

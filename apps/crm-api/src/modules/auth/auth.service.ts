@@ -3,11 +3,11 @@ import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import type { Request, Response } from 'express';
 import { Availability } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { MfaService } from './mfa.service';
-import { LoginOtpService } from './login-otp.service';
-import { TrustedDeviceService } from './trusted-device.service';
-import { LoginDto } from './dto/auth.dto';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { MfaService } from './mfa.service.js';
+import { LoginOtpService } from './login-otp.service.js';
+import { TrustedDeviceService } from './trusted-device.service.js';
+import { LoginDto } from './dto/auth.dto.js';
 
 /** `jane.doe@example.com` → `ja••••@example.com`, so the UI can say where the code went. */
 function maskEmail(email: string): string {

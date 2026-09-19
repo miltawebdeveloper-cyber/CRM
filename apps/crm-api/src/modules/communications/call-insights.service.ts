@@ -1,10 +1,10 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { CommDirection, Prisma, Role } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { OpenPhoneService } from '../openphone/openphone.service';
-import { LlmService } from '../llm/llm.service';
-import { GroqService } from '../llm/groq.service';
-import { CallHistoryService } from './call-history.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { OpenPhoneService } from '../openphone/openphone.service.js';
+import { LlmService } from '../llm/llm.service.js';
+import { GroqService } from '../llm/groq.service.js';
+import { CallHistoryService } from './call-history.service.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const digits = (v: string) => v.replace(/\D/g, '');

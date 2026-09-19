@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
-import { CallbacksService } from './callbacks.service';
-import { CallbackRolloverService } from './callback-rollover.service';
-import { CallbacksController } from './callbacks.controller';
-import { NotificationsModule } from '../notifications/notifications.module';
+import { CallbacksService } from './callbacks.service.js';
+import { CallbackRolloverService } from './callback-rollover.service.js';
+import { CallbacksController } from './callbacks.controller.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 
 @Module({
   imports: [NotificationsModule],

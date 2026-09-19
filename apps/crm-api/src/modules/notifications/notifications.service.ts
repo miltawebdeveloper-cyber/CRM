@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { NotificationType, Role } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { MailService } from '../mail/mail.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { MailService } from '../mail/mail.service.js';
 
 const EMAIL_SETTINGS_KEY = 'callbacks:email_settings';
 

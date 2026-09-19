@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
-import { PrismaService } from '../../prisma/prisma.service';
-import { MailService } from '../mail/mail.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { MailService } from '../mail/mail.service.js';
 
 /** AppSetting row holding the OTP configuration (no migration needed — JSON blob). */
 const OTP_SETTINGS_KEY = 'auth:otp';

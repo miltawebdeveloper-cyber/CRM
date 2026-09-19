@@ -1,10 +1,10 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { CommDirection, Prisma } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { MISSED_INBOUND_STATUSES, isMissedInbound } from '../calls/call-status';
-import { OpenPhoneService } from '../openphone/openphone.service';
-import { CallInsightsService } from './call-insights.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { MISSED_INBOUND_STATUSES, isMissedInbound } from '../calls/call-status.js';
+import { OpenPhoneService } from '../openphone/openphone.service.js';
+import { CallInsightsService } from './call-insights.service.js';
 
 type Json = Record<string, unknown>;
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);

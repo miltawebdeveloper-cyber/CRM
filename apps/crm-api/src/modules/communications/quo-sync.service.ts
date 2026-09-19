@@ -1,10 +1,10 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { CommDirection } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { OpenPhoneService } from '../openphone/openphone.service';
-import { OpenPhoneCall, OpenPhoneMessage, OpenPhoneNumber } from '../openphone/openphone.types';
-import { CallInsightsService } from './call-insights.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { OpenPhoneService } from '../openphone/openphone.service.js';
+import { OpenPhoneCall, OpenPhoneMessage, OpenPhoneNumber } from '../openphone/openphone.types.js';
+import { CallInsightsService } from './call-insights.service.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { OutcomeCategory } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { COMPLETION_ACTIONS, completedOpenLeadCounts, productiveSeconds } from '../calls/work-time';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { COMPLETION_ACTIONS, completedOpenLeadCounts, productiveSeconds } from '../calls/work-time.js';
 
 function startOfToday() {
   const d = new Date();

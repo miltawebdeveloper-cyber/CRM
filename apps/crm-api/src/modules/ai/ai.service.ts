@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import { tzLabel } from '../../common/timezone';
-import { answerFor } from './knowledge-base';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { tzLabel } from '../../common/timezone.js';
+import { answerFor } from './knowledge-base.js';
 
 @Injectable()
 export class AiService {

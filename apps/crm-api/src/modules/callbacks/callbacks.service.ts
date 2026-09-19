@@ -1,10 +1,10 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { NotificationType, Role, Timezone } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { NotificationsService } from '../notifications/notifications.service';
-import { dayInZone, formatInZone, TIMEZONE_LABELS, UNSET_TIMEZONE_LABEL } from '../../common/timezone';
-import { callbackStatus, type CallbackStatus } from './callback-status';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { dayInZone, formatInZone, TIMEZONE_LABELS, UNSET_TIMEZONE_LABEL } from '../../common/timezone.js';
+import { callbackStatus, type CallbackStatus } from './callback-status.js';
 
 const HOUR = 60 * 60 * 1000;
 const MISSED_GRACE_MS = 1 * HOUR;

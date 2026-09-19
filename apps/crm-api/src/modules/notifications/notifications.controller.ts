@@ -1,10 +1,10 @@
 import { Body, Controller, Get, Param, Post, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
-import { NotificationsService } from './notifications.service';
-import { UpdateEmailSettingsDto } from './dto/email-settings.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import { NotificationsService } from './notifications.service.js';
+import { UpdateEmailSettingsDto } from './dto/email-settings.dto.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 
 @ApiTags('notifications')
 @ApiBearerAuth()

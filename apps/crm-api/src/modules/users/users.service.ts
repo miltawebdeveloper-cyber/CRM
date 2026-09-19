@@ -1,9 +1,9 @@
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { Prisma, Role } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { TrustedDeviceService } from '../auth/trusted-device.service';
-import { CreateUserDto, UpdateUserDto, ListUsersQueryDto } from './dto/user.dto';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { TrustedDeviceService } from '../auth/trusted-device.service.js';
+import { CreateUserDto, UpdateUserDto, ListUsersQueryDto } from './dto/user.dto.js';
 
 // Never leak secrets — select excludes passwordHash / mfaSecret.
 const SAFE_SELECT = {

@@ -1,7 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { Roles } from '../../common/decorators/roles.decorator.js';
 
 /** Integration status for the Settings page. Returns booleans only — never the
  * secret values themselves (DEP-004 / SEC). */

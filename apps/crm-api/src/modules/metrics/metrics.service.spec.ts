@@ -1,7 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { PrismaService } from '../../prisma/prisma.service';
-import { MetricsService } from './metrics.service';
-import type { MetricsQueryDto } from './dto/metrics.dto';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { MetricsService } from './metrics.service.js';
+import type { MetricsQueryDto } from './dto/metrics.dto.js';
 
 /**
  * The KPI cards sit directly above the Lead Management grid and have to be

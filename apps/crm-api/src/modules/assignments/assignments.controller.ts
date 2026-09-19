@@ -1,11 +1,11 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
-import { AssignmentsService } from './assignments.service';
-import { AssignmentCarryForwardService } from './assignment-carry-forward.service';
-import { ManualAssignDto, AutoAssignDto, BatchAssignDto } from './dto/assignment.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
-import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
+import { AssignmentsService } from './assignments.service.js';
+import { AssignmentCarryForwardService } from './assignment-carry-forward.service.js';
+import { ManualAssignDto, AutoAssignDto, BatchAssignDto } from './dto/assignment.dto.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
+import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 
 @ApiTags('assignments')
 @ApiBearerAuth()

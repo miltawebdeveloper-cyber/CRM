@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common';
-import { CommunicationsService } from './communications.service';
-import { CallHistoryService } from './call-history.service';
-import { QuoSyncService } from './quo-sync.service';
-import { CallInsightsService } from './call-insights.service';
-import { CommunicationsController } from './communications.controller';
-import { WebhooksController, QuoHookController } from './webhooks.controller';
-import { OpenPhoneModule } from '../openphone/openphone.module';
-import { LlmModule } from '../llm/llm.module';
+import { CommunicationsService } from './communications.service.js';
+import { CallHistoryService } from './call-history.service.js';
+import { QuoSyncService } from './quo-sync.service.js';
+import { CallInsightsService } from './call-insights.service.js';
+import { CommunicationsController } from './communications.controller.js';
+import { WebhooksController, QuoHookController } from './webhooks.controller.js';
+import { OpenPhoneModule } from '../openphone/openphone.module.js';
+import { LlmModule } from '../llm/llm.module.js';
 
 // No LeadIdModule: nothing in here creates a lead any more. An unrecognised
 // caller is logged as an unknown call, not minted as a lead.

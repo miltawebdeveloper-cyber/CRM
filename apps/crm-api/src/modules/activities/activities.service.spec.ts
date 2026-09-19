@@ -1,7 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { Role } from '@crm/database';
-import { PrismaService } from '../../prisma/prisma.service';
-import { ActivitiesService } from './activities.service';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { ActivitiesService } from './activities.service.js';
 
 /**
  * The Activity Tracker feed is open to every role, so the scoping in `list` is

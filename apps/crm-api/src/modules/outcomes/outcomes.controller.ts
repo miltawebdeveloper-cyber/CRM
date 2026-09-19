@@ -1,9 +1,9 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
-import { OutcomesService } from './outcomes.service';
-import { CreateOutcomeDto, UpdateOutcomeDto } from './dto/outcome.dto';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { OutcomesService } from './outcomes.service.js';
+import { CreateOutcomeDto, UpdateOutcomeDto } from './dto/outcome.dto.js';
+import { Roles } from '../../common/decorators/roles.decorator.js';
 
 @ApiTags('outcomes')
 @ApiBearerAuth()
