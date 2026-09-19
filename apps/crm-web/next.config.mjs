@@ -31,6 +31,8 @@ const nextConfig = {
   reactStrictMode: true,
   // Hide the Next.js dev tools indicator (the floating Route/Bundler/Preferences menu).
   devIndicators: false,
+  // Don't scaffold AGENTS.md/CLAUDE.md into the app on every dev start.
+  agentRules: false,
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },
