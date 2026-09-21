@@ -22,6 +22,9 @@
     "docker:up": "docker compose -f infrastructure/docker/docker-compose.yml up -d",
     "docker:down": "docker compose -f infrastructure/docker/docker-compose.yml down"
   },
+  "dependencies": {
+    "@nestjs/platform-express": "^12.0.3"
+  },
   "devDependencies": {
     "concurrently": "^10.0.3",
     "typescript": "^6.0.3",
