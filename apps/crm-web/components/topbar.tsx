@@ -4,8 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Search, Phone, Settings, LogOut, Menu } from 'lucide-react';
-import { tokenStore } from '@/lib/api';
-import { availabilityApi } from '@/lib/availability';
+import { api, tokenStore } from '@/lib/api';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { NotificationBell } from '@/components/notification-bell';
 import { PageTabsSlot, useHasPageTabs } from '@/components/page-tabs';
@@ -40,9 +39,17 @@ export function Topbar({ email, onMenu }: { email?: string; onMenu?: () => void 
   const hasTabs = useHasPageTabs();
   const initial = (email ?? 'U').charAt(0).toUpperCase();
 
-  async function logout() {
-    // Flip status to offline before the token is cleared (best-effort).
-    try { await availabilityApi.signOut(); } catch { /* ignore */ }
+  function logout() {
+    // Best-effort status flip to offline — fired, not awaited, so the button
+    // never makes the click wait on a network round trip. The token is read
+    // and sent explicitly on this one request: it's cleared on the very next
+    // line, before the request has actually gone out, and the shared
+    // interceptor only overwrites the Authorization header when it finds a
+    // current token — with none left, it leaves this one alone.
+    const token = tokenStore.access;
+    if (token) {
+      void api.post('/availability/sign-out', undefined, { headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+    }
     tokenStore.clear();
     // A full navigation, not `router.replace`. A client-side push keeps the
     // React Query cache alive across the sign-out, so the next person to sign in
