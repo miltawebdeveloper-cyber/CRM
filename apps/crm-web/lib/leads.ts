@@ -275,6 +275,7 @@ export interface LeadListQuery {
   status?: string;
   state?: string;
   city?: string;
+  country?: string;
   timezone?: string;
   callStatus?: string;
   assigned?: 'assigned' | 'unassigned';
@@ -316,7 +317,7 @@ export interface LeadPage {
 }
 
 const LIST_KEYS: (keyof LeadListQuery)[] = [
-  'mine', 'closed', 'fromLeadId', 'toLeadId', 'limit', 'q', 'status', 'state', 'city',
+  'mine', 'closed', 'fromLeadId', 'toLeadId', 'limit', 'q', 'status', 'state', 'city', 'country',
   'timezone', 'callStatus', 'assigned', 'employeeId', 'createdFrom', 'createdTo', 'dateField', 'closedFrom', 'closedTo',
   'closedBy', 'page', 'pageSize', 'sortBy', 'sortDir', 'idsOnly',
 ];
@@ -422,7 +423,7 @@ export const leadsApi = {
    * list paginated the current page holds a few dozen leads, and a filter built
    * from those would offer only the cities that happen to be on it.
    */
-  filterOptions: async (opts?: Pick<LeadListQuery, 'closed' | 'timezone' | 'state'>, signal?: AbortSignal): Promise<{ timezones: string[]; states: string[]; cities: string[]; closers: string[] }> => {
+  filterOptions: async (opts?: Pick<LeadListQuery, 'closed' | 'timezone' | 'state'>, signal?: AbortSignal): Promise<{ timezones: string[]; states: string[]; cities: string[]; countries: string[]; closers: string[] }> => {
     const params: Record<string, string | boolean> = {};
     if (opts?.closed !== undefined) params.closed = opts.closed;
     if (opts?.timezone) params.timezone = opts.timezone;

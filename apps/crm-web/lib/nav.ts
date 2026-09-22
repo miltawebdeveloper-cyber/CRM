@@ -2,6 +2,7 @@ import {
   LayoutGrid,
   Activity,
   Headphones,
+  Library,
   Target,
   Copy,
   CircleCheckBig,
@@ -60,7 +61,8 @@ export const NAV: NavGroup[] = [
   {
     heading: 'Pipeline',
     items: [
-      { label: 'Lead Management', href: '/leads', icon: Target, sub: 'Active lead database' },
+      { label: 'Lead Library', href: '/lead-library', icon: Library, sub: 'Master lead database', roles: MANAGERS },
+      { label: 'Lead Management', href: '/leads', icon: Target, sub: 'Assign & manage assigned leads' },
       { label: 'Duplicate Leads', href: '/duplicates', icon: Copy, sub: 'Find and clear repeated records', roles: MANAGERS },
       // Renamed from "Closed Leads": a won lead isn't finished, it moves into
       // onboarding, and the menu now says so. The route stays /closed-leads —

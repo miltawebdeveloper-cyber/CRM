@@ -121,11 +121,20 @@ export function LeadAssignDialog({
   leads,
   onClose,
   onAssigned,
+  allowTransfer = true,
 }: {
   leads: Lead[];
   onClose: () => void;
   /** Called after a successful assignment (e.g. to clear the table selection). */
   onAssigned?: () => void;
+  /**
+   * Whether an already-owned lead may be moved to someone else. Lead
+   * Management (the default) hands out this choice — that's what Reassign
+   * means there. Lead Library sets this `false`: Library's Assign is
+   * first-assignment only, so an owned lead is simply excluded from what
+   * gets sent rather than offered as a transfer.
+   */
+  allowTransfer?: boolean;
 }) {
   const qc = useQueryClient();
 
@@ -148,7 +157,8 @@ export function LeadAssignDialog({
    * separate "may it move again today" answer comes from the confirmation popup,
    * and is sent as `confirmSameDayReassign` — a lead can need both.
    */
-  const [transferOwned, setTransferOwned] = useState(false);
+  const [transferOwned, setTransferOwnedRaw] = useState(false);
+  const setTransferOwned = (v: boolean) => setTransferOwnedRaw(allowTransfer ? v : false);
 
   // ── Lead range ──
   const [fromLead, setFromLead] = useState('');
@@ -490,7 +500,7 @@ export function LeadAssignDialog({
                         already assigned today. You&apos;ll be asked to confirm before {rangeWillAsk.length === 1 ? 'it moves' : 'they move'} again.
                       </p>
                     )}
-                    {rangeOwned.length > 0 && (
+                    {rangeOwned.length > 0 && allowTransfer && (
                       <div className="mt-2">
                         <OwnedLeadsChoice
                           owned={rangeOwned}
@@ -518,6 +528,12 @@ export function LeadAssignDialog({
                           </label>
                         )}
                       </div>
+                    )}
+                    {rangeOwned.length > 0 && !allowTransfer && (
+                      <p className="mt-2 rounded-lg bg-muted/50 px-2.5 py-2 text-[11.5px] text-muted-foreground">
+                        {rangeOwned.length} already-assigned lead{rangeOwned.length === 1 ? '' : 's'} in this range excluded — reassign
+                        {rangeOwned.length === 1 ? ' it' : ' them'} from Lead Management.
+                      </p>
                     )}
                     {rangeFree === 0 && (
                       <p className="mt-2 text-[11.5px] font-medium text-[var(--tone-red-fg-2)]">
@@ -564,7 +580,7 @@ export function LeadAssignDialog({
               <>
             {/* A lead has one owner, so an already-owned lead in the selection is
                 left out of the pool unless the manager chooses to transfer it. */}
-            {selectedOwned.length > 0 && (
+            {selectedOwned.length > 0 && allowTransfer && (
               <OwnedLeadsChoice
                 owned={selectedOwned}
                 remaining={poolWithoutOwned}
@@ -572,6 +588,12 @@ export function LeadAssignDialog({
                 onTransfer={setTransferOwned}
                 askCount={poolWillAsk.length}
               />
+            )}
+            {selectedOwned.length > 0 && !allowTransfer && (
+              <p className="mb-3 rounded-xl bg-muted/50 px-3 py-2.5 text-[11.5px] text-muted-foreground">
+                {selectedOwned.length} already-assigned lead{selectedOwned.length === 1 ? '' : 's'} selected excluded — reassign
+                {selectedOwned.length === 1 ? ' it' : ' them'} from Lead Management.
+              </p>
             )}
             {/* Leads in the pool that moved today. Only while the owned ones are
                 being left alone — once they're being transferred the block above
