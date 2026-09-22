@@ -105,7 +105,11 @@ function refreshOnce(): Promise<string | null> {
   return refreshing;
 }
 
-export const api = axios.create({ baseURL: `${API_URL}/api`, withCredentials: true });
+// Bounded so a hung request (not a fast failure — an actual stalled connection)
+// can't leave a caller waiting forever. Matters most for `['me']`: the app
+// shell's loading gate can only recover into its error/retry state once this
+// request settles one way or the other.
+export const api = axios.create({ baseURL: `${API_URL}/api`, withCredentials: true, timeout: 15_000 });
 
 api.interceptors.request.use((config) => {
   const token = tokenStore.access;

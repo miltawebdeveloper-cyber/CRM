@@ -29,10 +29,14 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  // `components` joins `lib` so the shared table can be rendered against. Pages
-  // are deliberately absent: a page is a composition of things tested here, and
-  // testing one means standing up its every query.
-  roots: ['<rootDir>/lib', '<rootDir>/components'],
+  // `components` joins `lib` so the shared table can be rendered against. Route
+  // `page.tsx` files stay out: a page is a composition of many things, and
+  // testing one means standing up its every query. `app` itself is in only for
+  // `(app)/layout.tsx` — not a page, the one shell every page renders inside —
+  // and even that test mocks every child component rather than standing them
+  // up, so it stays a test of the layout's own gating logic, not a composition
+  // test in disguise.
+  roots: ['<rootDir>/lib', '<rootDir>/components', '<rootDir>/app'],
   testMatch: ['**/?(*.)+(spec|test).ts?(x)'],
   // Mirrors the `@/*` path alias in tsconfig, so tests import modules by the
   // same name the app does.

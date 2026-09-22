@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
+import { Loader2 } from 'lucide-react';
 import { api, tokenStore } from '@/lib/api';
 import { canAccessPath, type Role } from '@/lib/nav';
 import { Sidebar } from '@/components/sidebar';
@@ -34,7 +35,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     mainRef.current?.scrollTo({ top: 0 });
   }, [pathname]);
 
-  const { data: me } = useQuery({
+  const {
+    data: me,
+    isPending: mePending,
+    isError: meErrored,
+    refetch: refetchMe,
+  } = useQuery({
     queryKey: ['me'],
     queryFn: async () => (await api.get('/auth/me')).data,
     retry: false,
@@ -74,34 +80,70 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           drawers and the command palette scale with the page rather than
           floating over it at a different size. */}
       <div className="app-shell flex h-screen overflow-hidden bg-background">
-        <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} />
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <Topbar email={me?.email} onMenu={() => setNavOpen(true)} />
-          <main ref={mainRef} className="flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-[1500px] p-4 sm:p-6">
-              {allowed ? children : (
-                <div className="grid h-[60vh] place-items-center text-center">
-                  <div>
-                    <p className="font-display text-lg font-semibold">Access restricted</p>
-                    <p className="mt-1 text-sm text-muted-foreground">You don’t have permission to view this page. Redirecting…</p>
-                  </div>
-                </div>
-              )}
+        {mePending ? (
+          // Neutral shell — no Sidebar, no Topbar, no page content, nothing that
+          // reads a role. Sidebar/Topbar/CommandPalette and every page below all
+          // read this same `['me']` cache entry (React Query dedupes by key), so
+          // none of them need their own gate — by the time any of them mounts,
+          // the cache is already populated and their own `useQuery(['me'])` reads
+          // it synchronously on first render. This is the one choke point.
+          <div className="grid h-screen w-full place-items-center" role="status" aria-live="polite">
+            <div className="text-center">
+              <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">Loading your workspace…</p>
             </div>
-          </main>
-        </div>
-        {/* Watches for another tab signing in as someone else. Renders nothing;
-            it exists so this tab can never keep showing one account while
-            acting as another. */}
-        <SessionGuard />
-        <IncomingCallPopup />
-        {/* Callback reminders. Mounted in the shell so a due callback reaches the
-            rep wherever they are in the CRM, not only on the pages that list
-            callbacks — and keeps coming back until they act on it. */}
-        <CallbackReminders />
-        {/* Global search + jump, on Ctrl/Cmd+K. Mounted here so it works from
-            every page rather than only where a search box happens to render. */}
-        <CommandPalette />
+          </div>
+        ) : meErrored ? (
+          // `/auth/me` failed for a reason that ISN'T a 401 — a 401 is caught by
+          // lib/api.ts's interceptor first (silent refresh-and-retry, or a hard
+          // bounce to /login) and only reaches here as a final rejection if that
+          // also fails. What lands here is realistically a network error or a
+          // 5xx. No role is known either way, so nothing role-gated may render.
+          <div className="grid h-screen w-full place-items-center" role="status" aria-live="polite">
+            <div className="text-center">
+              <p className="font-display text-lg font-semibold">Couldn’t load your account</p>
+              <p className="mt-1 text-sm text-muted-foreground">Check your connection and try again.</p>
+              <button
+                type="button"
+                onClick={() => refetchMe()}
+                className="mt-4 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} />
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+              <Topbar email={me?.email} onMenu={() => setNavOpen(true)} />
+              <main ref={mainRef} className="flex-1 overflow-y-auto">
+                <div className="mx-auto w-full max-w-[1500px] p-4 sm:p-6">
+                  {allowed ? children : (
+                    <div className="grid h-[60vh] place-items-center text-center">
+                      <div>
+                        <p className="font-display text-lg font-semibold">Access restricted</p>
+                        <p className="mt-1 text-sm text-muted-foreground">You don’t have permission to view this page. Redirecting…</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </main>
+            </div>
+            {/* Watches for another tab signing in as someone else. Renders nothing;
+                it exists so this tab can never keep showing one account while
+                acting as another. */}
+            <SessionGuard />
+            <IncomingCallPopup />
+            {/* Callback reminders. Mounted in the shell so a due callback reaches the
+                rep wherever they are in the CRM, not only on the pages that list
+                callbacks — and keeps coming back until they act on it. */}
+            <CallbackReminders />
+            {/* Global search + jump, on Ctrl/Cmd+K. Mounted here so it works from
+                every page rather than only where a search box happens to render. */}
+            <CommandPalette />
+          </>
+        )}
       </div>
       </PageTabsProvider>
     </CallProvider>

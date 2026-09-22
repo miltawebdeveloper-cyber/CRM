@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQueryClient } from '@tanstack/react-query';
 import { api, tokenStore } from '@/lib/api';
 
 /** Pull the API's message out of an axios error. */
@@ -14,7 +13,6 @@ function msgOf(err: unknown, fallback: string): string {
 
 export default function LoginPage() {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -35,9 +33,10 @@ export default function LoginPage() {
 
   /**
    * The dashboard is the only place this page ever goes, so its route bundle is
-   * pulled down while the password is still being typed. Without this the
-   * redirect after a correct password is a cold chunk download — the tokens are
-   * already in hand and the screen still sits on "Signing in…".
+   * pulled down while the password is still being typed. `finish()` below does a
+   * hard navigation rather than a client-side push, so this doesn't skip the
+   * request — but the browser's own HTTP cache still holds whatever this
+   * prefetch already downloaded, so the reload isn't a fully cold load either.
    */
   useEffect(() => {
     router.prefetch('/dashboard');
@@ -72,18 +71,21 @@ export default function LoginPage() {
 
   function finish(data: { accessToken: string; refreshToken: string }) {
     tokenStore.set(data.accessToken, data.refreshToken);
-    // Nothing cached under the previous session follows this one into the app.
+    // Full navigation, not `router.push` — the same convention every other
+    // session transition in the app already follows: the topbar's logout, the
+    // 401 bounce in lib/api.ts, SessionGuard's cross-tab handoff. All of them
+    // leave the page specifically so nothing of one session survives into the
+    // next.
     //
-    // Today every route that reaches this page is a full navigation — logout in
-    // the topbar, the 401 bounce in the API client — and both drop the cache on
-    // the way, so this is belt and braces. But that is a promise held by two
-    // call sites remembering to use `window.location`, and the failure it
-    // guards against is the worst kind: `router.push` from anywhere into
-    // `/login` would leave the last user's `me`, their role and their rows in
-    // memory for the next person to sign in and see. Clearing it here makes the
-    // guarantee belong to the login itself.
-    queryClient.clear();
-    router.push('/dashboard');
+    // `router.push` plus `queryClient.clear()` looks equivalent but isn't:
+    // `clear()` empties the cache, but doesn't cancel a request that's still in
+    // flight, and none of the `['me']` queries in this app forward an
+    // AbortSignal to axios — so an outgoing session's slow response could still
+    // resolve after the incoming session has rendered and silently overwrite
+    // it. A full navigation also resets module-level state nothing else does:
+    // lib/preferences.ts's preference cache and lib/display-settings.ts's
+    // current zone/language.
+    window.location.href = '/dashboard';
   }
 
   async function onSubmit(e: React.FormEvent) {
