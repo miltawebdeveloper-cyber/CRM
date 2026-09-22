@@ -118,7 +118,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
               <Topbar email={me?.email} onMenu={() => setNavOpen(true)} />
               <main ref={mainRef} className="flex-1 overflow-y-auto">
-                <div className="mx-auto w-full max-w-[1500px] p-4 sm:p-6">
+                {/* max-w-[1500px] is the DESIGN WIDTH the laptop `zoom` bands above are
+                    calibrated against (globals.css) — it must stay exactly 1500 through
+                    that range or the scaled bands stop fitting their real viewport.
+                    Those bands top out at 1499.98px and do nothing from 1500px up, so
+                    widening the cap only there (min-[1500px]) is the one place it's safe
+                    to give wide/desktop monitors more than the laptop-era 1500px column
+                    without touching the calibrated math. */}
+                <div className="mx-auto w-full max-w-[1500px] min-[1500px]:max-w-[1800px] p-4 sm:p-6">
                   {allowed ? children : (
                     <div className="grid h-[60vh] place-items-center text-center">
                       <div>
