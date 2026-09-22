@@ -346,9 +346,14 @@ const lastOfMonth = (y: number, m: number) => new Date(y, m + 1, 0);
 export function DateFilter({
   value,
   onChange,
+  iconOnlyWhenEmpty,
 }: {
   value: DateFilterValue;
   onChange: (v: DateFilterValue) => void;
+  /** Drop the "All dates" text and show just the icon until a date is picked —
+   *  opt-in so every other call site keeps its label. Once a date/range is
+   *  picked the label comes back, since it's then real information. */
+  iconOnlyWhenEmpty?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useDismiss(open, () => setOpen(false));
@@ -435,9 +440,9 @@ export function DateFilter({
 
   return (
     <div ref={ref} className="relative inline-block">
-      <button type="button" onClick={toggle} className={triggerCls} aria-haspopup="dialog" aria-expanded={open}>
+      <button type="button" onClick={toggle} className={triggerCls} aria-haspopup="dialog" aria-expanded={open} title={iconOnlyWhenEmpty && !active ? label : undefined} aria-label={iconOnlyWhenEmpty && !active ? label : undefined}>
         <CalendarRange className={`h-3.5 w-3.5 ${active ? 'text-primary' : 'text-muted-foreground'}`} />
-        <span className={active ? '' : 'text-muted-foreground'}>{label}</span>
+        {!(iconOnlyWhenEmpty && !active) && <span className={active ? '' : 'text-muted-foreground'}>{label}</span>}
         {active && (
           <span role="button" tabIndex={0} onClick={(e) => { e.stopPropagation(); set('all', '', ''); }} className="ml-0.5 text-muted-foreground hover:text-foreground" aria-label="Reset date filter">
             <X className="h-3.5 w-3.5" />
