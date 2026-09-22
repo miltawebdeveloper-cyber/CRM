@@ -1,23 +1,17 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Phone, Clock, Percent, Star } from 'lucide-react';
 import { productivityApi, formatDuration, type Period, type CallerProductivity } from '@/lib/crm';
-import { PageHead, Avatar } from '@/components/page-head';
+import { Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { Segmented } from '@/components/segmented';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 
-const PERIODS = [
-  { label: 'Day', value: 'day' as Period },
-  { label: 'Week', value: 'week' as Period },
-  { label: 'Month', value: 'month' as Period },
-];
 const PERIOD_LABEL: Record<Period, string> = { day: 'today', week: 'this week', month: 'this month' };
 
 export default function ProductivityPage() {
-  const [period, setPeriod] = useState<Period>('week');
+  const period: Period = 'week';
   const { data: rows = [], isFetching } = useQuery({ queryKey: ['productivity', period], queryFn: () => productivityApi.perCaller(period) });
 
   const totalCalls = rows.reduce((a, r) => a + r.callsToday, 0);
@@ -45,10 +39,6 @@ export default function ProductivityPage() {
 
   return (
     <div>
-      <PageHead>
-        <Segmented options={PERIODS} value={period} onChange={setPeriod} />
-      </PageHead>
-
       <div className={`mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))] transition-opacity ${isFetching ? 'opacity-60' : ''}`}>
         <KpiCard icon={Phone} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={totalCalls} label={`Total Calls (${PERIOD_LABEL[period]})`} />
         <KpiCard icon={Clock} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value={formatDuration(totalTalk)} label="Total Talk Time" />
