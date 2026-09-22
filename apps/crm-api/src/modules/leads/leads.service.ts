@@ -1466,6 +1466,7 @@ export class LeadsService {
     // The filters the grid used to apply in the browser, over rows it had to
     // download first. Doing them here is what makes one page a correct page.
     const cityFilter = query.city ? { city: query.city } : {};
+    const countryFilter = query.country ? { country: query.country } : {};
     const zoneFilter = timezoneWhere(query.timezone);
     // A lead dispositioned through the CRM stores the outcome's SLUG
     // (`call_back`); leads imported before the outcome list existed carry the
@@ -1546,6 +1547,7 @@ export class LeadsService {
       ...rangeFilter,
       ...searchFilter,
       ...cityFilter,
+      ...countryFilter,
       ...zoneFilter,
       ...outcomeFilter,
       ...assignedFilter,
@@ -1714,7 +1716,7 @@ export class LeadsService {
       ...scope,
       ...(query.closed === true ? { status: LeadStatus.closed } : query.closed === false ? { status: { not: LeadStatus.closed } } : {}),
     };
-    const [zones, states, cities, closers] = await Promise.all([
+    const [zones, states, cities, countries, closers] = await Promise.all([
       this.prisma.lead.groupBy({ by: ['timezone'], where: base, orderBy: { timezone: 'asc' } }),
       this.prisma.lead.groupBy({ by: ['state'], where: { ...base, ...timezoneWhere(query.timezone) }, orderBy: { state: 'asc' } }),
       this.prisma.lead.groupBy({
@@ -1722,6 +1724,9 @@ export class LeadsService {
         where: { ...base, ...timezoneWhere(query.timezone), ...(query.state ? { state: query.state } : {}) },
         orderBy: { city: 'asc' },
       }),
+      // Independent of the timezone/state cascade above — Country sits outside
+      // that chain in the filter bar, not nested inside it.
+      this.prisma.lead.groupBy({ by: ['country'], where: base, orderBy: { country: 'asc' } }),
       // Who has closed anything — the Closed Leads module's employee filter.
       // Read from the users who actually appear as closers rather than from the
       // whole staff list, so the filter never offers a name with no leads
@@ -1742,6 +1747,7 @@ export class LeadsService {
       timezones: zones.map((z) => tzLabel(z.timezone)),
       states: states.map((s) => s.state).filter(Boolean),
       cities: cities.map((c) => c.city).filter(Boolean),
+      countries: countries.map((c) => c.country).filter(Boolean),
       closers: closers.map((c) => c.name).filter(Boolean),
     };
   }

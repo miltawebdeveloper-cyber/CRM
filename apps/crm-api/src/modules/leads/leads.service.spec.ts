@@ -231,6 +231,58 @@ describe('LeadsService.findAll — which date the range filters on', () => {
   });
 });
 
+describe('LeadsService.findAll — the country filter', () => {
+  function harness(rows: unknown[] = []) {
+    const findMany = jest.fn(async (_a: unknown) => rows);
+    const count = jest.fn(async (_a: unknown) => rows.length);
+    const prisma = {
+      lead: { findMany, count },
+      $transaction: jest.fn(async (ops: unknown[]) => Promise.all(ops as Promise<unknown>[])),
+    } as unknown as PrismaService;
+    const service = new LeadsService(prisma, {} as NotificationsService, {} as LeadIdService);
+    return { service, findMany, count };
+  }
+
+  const whereOf = (findMany: ReturnType<typeof jest.fn>) =>
+    (findMany.mock.calls[0][0] as { where: Record<string, unknown> }).where;
+
+  it('applies no country filter when none is given', async () => {
+    const { service, findMany } = harness();
+    await service.findAll({ closed: false } as never);
+    expect(whereOf(findMany)).not.toHaveProperty('country');
+  });
+
+  it('filters on the exact country when given, alongside city', async () => {
+    const { service, findMany } = harness();
+    await service.findAll({ closed: false, city: 'Austin', country: 'United States' } as never);
+    const where = whereOf(findMany);
+    expect(where.country).toBe('United States');
+    expect(where.city).toBe('Austin');
+  });
+});
+
+describe('LeadsService.filterOptions — distinct countries', () => {
+  it('returns distinct, non-empty country values alongside the existing lists', async () => {
+    const groupBy = jest.fn(async ({ by }: { by: string[] }) => {
+      if (by[0] === 'timezone') return [{ timezone: 'America/New_York' }];
+      if (by[0] === 'state') return [{ state: 'TX' }];
+      if (by[0] === 'city') return [{ city: 'Austin' }];
+      if (by[0] === 'country') return [{ country: 'United States' }, { country: null }];
+      return [];
+    });
+    const prisma = { lead: { groupBy }, user: { findMany: jest.fn(async () => []) } } as unknown as PrismaService;
+    const service = new LeadsService(prisma, {} as NotificationsService, {} as LeadIdService);
+
+    const result = await service.filterOptions({ closed: false } as never);
+
+    expect(result.countries).toEqual(['United States']);
+    // The country groupBy is independent of the timezone/state cascade — it
+    // must not inherit a `state`/`timezone` filter from the request.
+    const countryCall = groupBy.mock.calls.find((c) => (c[0] as { by: string[] }).by[0] === 'country');
+    expect(countryCall?.[0]).toMatchObject({ by: ['country'] });
+  });
+});
+
 /**
  * Both dates have to reach the client on every row, and mean different things.
  *

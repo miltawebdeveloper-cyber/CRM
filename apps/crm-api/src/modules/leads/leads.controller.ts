@@ -16,9 +16,9 @@ export class LeadsController {
     private readonly quo: QuoService,
   ) {}
 
-  // Create a single lead/contact — open to any authenticated user (the Contacts
-  // module is the entry point for adding new records). Bulk CSV import below
-  // stays Admin + Team Leader only.
+  // Create a single lead — master-data entry, Lead Library only. Admin + Team
+  // Leader, matching bulk import below.
+  @Roles(Role.admin, Role.team_leader)
   @Post()
   create(@Body() dto: CreateLeadDto, @CurrentUser() user: AuthUser) {
     return this.leads.create(dto, user.id, user.role);
@@ -127,14 +127,16 @@ export class LeadsController {
     return this.leads.update(id, dto, user);
   }
 
-  // Delete (soft) — any authenticated user; employees are limited to their own
-  // assigned leads (enforced in the service), managers may delete any.
+  // Delete — master-data action, Lead Library only. Admin + Team Leader;
+  // employees are further limited to their own assigned leads within that
+  // (enforced in the service), managers may delete any.
   /**
    * Delete many leads at once, in one transaction — the bulk-delete confirmation
    * and the "undo import" rollback both post here (rollback sends the ids the
    * import returned, so only that batch is removed). POST, not DELETE-with-body,
    * because request bodies on DELETE aren't reliably forwarded by every proxy.
    */
+  @Roles(Role.admin, Role.team_leader)
   @Post('bulk-delete')
   @HttpCode(200)
   bulkDelete(@Body() dto: BulkDeleteLeadsDto, @CurrentUser() user: AuthUser) {
@@ -150,6 +152,7 @@ export class LeadsController {
    * this much. Returns the ids it archived so the caller can undo exactly the
    * batch it just removed.
    */
+  @Roles(Role.admin, Role.team_leader)
   @Post('bulk-archive')
   @HttpCode(200)
   bulkArchive(@Body() dto: BulkDeleteLeadsDto, @CurrentUser() user: AuthUser) {
@@ -157,12 +160,14 @@ export class LeadsController {
   }
 
   /** Put an archived batch back — the Undo beside the purge. */
+  @Roles(Role.admin, Role.team_leader)
   @Post('bulk-restore')
   @HttpCode(200)
   bulkRestore(@Body() dto: BulkDeleteLeadsDto, @CurrentUser() user: AuthUser) {
     return this.leads.restoreMany(dto.ids, user);
   }
 
+  @Roles(Role.admin, Role.team_leader)
   @Delete(':id')
   remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.leads.remove(id, user);

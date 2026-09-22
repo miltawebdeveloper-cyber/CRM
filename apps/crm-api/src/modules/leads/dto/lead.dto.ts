@@ -529,6 +529,11 @@ export class ListLeadsQueryDto {
   @IsString()
   city?: string;
 
+  @ApiPropertyOptional({ description: 'Country' })
+  @IsOptional()
+  @IsString()
+  country?: string;
+
   /**
    * A zone code, or `Unassigned` for the leads that have none set — the filter
    * has to be able to reach those, since they are the ones no callback can be
