@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
-import { activitiesApi, callsApi, notificationsApi, tasksApi } from '@/lib/crm';
+import { activitiesApi, callsApi, configApi, integrationsApi, metricsApi, notificationsApi, openphoneApi, tasksApi } from '@/lib/crm';
 import { usersApi } from '@/lib/users';
 
 /**
@@ -30,6 +30,26 @@ export const NAV_PREFETCH: Record<string, (qc: QueryClient) => void> = {
   '/activity': (qc) => void qc.prefetchQuery({ queryKey: ['activities'], queryFn: activitiesApi.list }),
   '/notifications': (qc) => void qc.prefetchQuery({ queryKey: ['notifications'], queryFn: notificationsApi.list }),
   '/outcomes': (qc) => void qc.prefetchQuery({ queryKey: ['outcomes'], queryFn: () => callsApi.outcomes() }),
+  // Aggregate lead counts per state — a choropleth, not an individually
+  // actionable record, so a few seconds' staleness at first paint costs
+  // nothing the page's own 15s poll doesn't already accept.
+  '/territories': (qc) => void qc.prefetchQuery({ queryKey: ['m-states'], queryFn: () => metricsApi.byState() }),
+  // All three feed the page's one (default, untabbed) view — no gate to warm
+  // past.
+  '/integrations': (qc) => {
+    void qc.prefetchQuery({ queryKey: ['config-status'], queryFn: configApi.status });
+    void qc.prefetchQuery({ queryKey: ['integrations-status'], queryFn: integrationsApi.status });
+    void qc.prefetchQuery({ queryKey: ['openphone-status'], queryFn: openphoneApi.status });
+  },
+  // Same: KPI row + activity log, no tabs, nothing gated behind a click.
+  // `activities`/`users` are the same cache entries `/activity` and `/users`
+  // above already warm — repeated here so hovering Admin directly still gets
+  // them, not because they're a second, different fetch.
+  '/admin': (qc) => {
+    void qc.prefetchQuery({ queryKey: ['activities'], queryFn: activitiesApi.list });
+    void qc.prefetchQuery({ queryKey: ['users'], queryFn: usersApi.list });
+    void qc.prefetchQuery({ queryKey: ['metrics', 'summary'], queryFn: () => metricsApi.summary() });
+  },
 };
 
 /**
