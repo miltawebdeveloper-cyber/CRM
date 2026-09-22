@@ -53,11 +53,6 @@ export class OtpSettingsDto {
   @IsBoolean()
   enabled?: boolean;
 
-  @ApiPropertyOptional({ description: 'Address every login code is delivered to' })
-  @IsOptional()
-  @IsString()
-  recipientEmail?: string;
-
   @ApiPropertyOptional({ description: 'Minutes before a code expires (1–60)' })
   @IsOptional()
   @IsInt()

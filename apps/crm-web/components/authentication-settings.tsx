@@ -16,9 +16,11 @@ function msgOf(err: unknown, fallback: string): string {
 /**
  * Authentication Settings (admin) — the email-OTP policy applied to every login.
  *
- * The switch stays off until a recipient is set, and the panel says plainly when
- * SMTP isn't configured: turning the gate on without working mail would mean
- * nobody could ever receive a code, i.e. nobody could sign in.
+ * Every code goes to the signing-in user's own registered email — there is no
+ * shared or configurable recipient, so one account's code can never reach
+ * another account's inbox. The panel says plainly when SMTP isn't configured:
+ * turning the gate on without working mail would mean nobody could ever
+ * receive a code, i.e. nobody could sign in.
  */
 export function AuthenticationSettings() {
   const qc = useQueryClient();
@@ -47,7 +49,6 @@ export function AuthenticationSettings() {
   }
 
   const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) => setForm({ ...form, [k]: v });
-  const noRecipient = form.enabled && !form.recipientEmail.trim();
 
   return (
     <div className="rounded-2xl border bg-card shadow-sm">
@@ -82,22 +83,8 @@ export function AuthenticationSettings() {
           <span>
             <span className="block text-[13px] font-semibold">OTP Authentication</span>
             <span className="block text-[11.5px] text-muted-foreground">
-              Require a one-time code, emailed to the address below, after every successful password sign-in.
+              Require a one-time code, emailed to each user&apos;s own registered address, after every successful password sign-in.
             </span>
-          </span>
-        </label>
-
-        <label className="block space-y-1 text-sm">
-          <span className="text-xs font-semibold">OTP Recipient Email</span>
-          <input
-            type="email"
-            value={form.recipientEmail}
-            onChange={(e) => set('recipientEmail', e.target.value)}
-            placeholder="mfsaccounting@gmail.com"
-            className={`w-full rounded-md border bg-background px-3 py-2 outline-none focus:border-primary ${noRecipient ? 'border-[var(--tone-red-line)]' : ''}`}
-          />
-          <span className="block text-[11px] text-muted-foreground">
-            Every user&apos;s login code is sent here — not to the user&apos;s own address.
           </span>
         </label>
 
@@ -158,14 +145,10 @@ export function AuthenticationSettings() {
           </label>
         </div>
 
-        {noRecipient && (
-          <p className="text-[12px] font-medium text-[var(--tone-red-fg-2)]">Set a recipient email before enabling OTP authentication.</p>
-        )}
-
         <div className="flex justify-end">
           <button
             onClick={() => save.mutate()}
-            disabled={save.isPending || noRecipient}
+            disabled={save.isPending}
             className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground disabled:opacity-50"
           >
             {save.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}

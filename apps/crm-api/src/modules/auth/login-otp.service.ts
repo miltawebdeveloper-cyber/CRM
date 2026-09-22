@@ -10,8 +10,6 @@ const OTP_SETTINGS_KEY = 'auth:otp';
 export interface OtpSettings {
   /** Master switch. OFF by default — see `DEFAULTS`. */
   enabled: boolean;
-  /** Where every login code is delivered. */
-  recipientEmail: string;
   expiryMinutes: number;
   maxAttempts: number;
   resendSeconds: number;
@@ -34,7 +32,6 @@ export interface OtpSettings {
  */
 const DEFAULTS: OtpSettings = {
   enabled: false,
-  recipientEmail: '',
   expiryMinutes: 5,
   maxAttempts: 5,
   resendSeconds: 60,
@@ -71,24 +68,25 @@ export class LoginOtpService {
     if (cached && Date.now() - cached.at < LoginOtpService.CACHE_TTL_MS) return cached.value;
 
     const row = await this.prisma.appSetting.findUnique({ where: { key: OTP_SETTINGS_KEY } });
-    const merged = { ...DEFAULTS, ...((row?.value as Partial<OtpSettings> | undefined) ?? {}) };
-    // Deployment-level override: when OTP_RECIPIENT_EMAIL is set in the environment
-    // it wins over the stored recipient. This lets an operator point login codes at
-    // a new inbox purely via env config (no DB access) — the escape hatch when the
-    // saved recipient is unreachable and you're locked out of the admin UI.
-    const envRecipient = process.env.OTP_RECIPIENT_EMAIL?.trim();
-    if (envRecipient) merged.recipientEmail = envRecipient;
+    const stored = (row?.value as Partial<OtpSettings> | undefined) ?? {};
+    // Named fields only — a blind spread would keep resurrecting retired keys
+    // (like the old global `recipientEmail`) out of whatever JSON happens to
+    // already be sitting in the row forever, since every save reads this back
+    // and writes it straight out again.
+    const merged: OtpSettings = {
+      enabled: stored.enabled ?? DEFAULTS.enabled,
+      expiryMinutes: stored.expiryMinutes ?? DEFAULTS.expiryMinutes,
+      maxAttempts: stored.maxAttempts ?? DEFAULTS.maxAttempts,
+      resendSeconds: stored.resendSeconds ?? DEFAULTS.resendSeconds,
+      trustDeviceEnabled: stored.trustDeviceEnabled ?? DEFAULTS.trustDeviceEnabled,
+      trustDeviceDays: stored.trustDeviceDays ?? DEFAULTS.trustDeviceDays,
+    };
     this.cache = { at: Date.now(), value: merged };
     return merged;
   }
 
   async saveSettings(patch: Partial<OtpSettings>): Promise<OtpSettings> {
     const next: OtpSettings = { ...(await this.getSettings()), ...patch };
-    // Turning the gate on without somewhere to send the code would lock every user
-    // out, so the recipient is required the moment it's enabled.
-    if (next.enabled && !next.recipientEmail.trim()) {
-      throw new BadRequestException('Set the OTP recipient email before enabling OTP authentication.');
-    }
     next.expiryMinutes = Math.min(60, Math.max(1, Math.round(next.expiryMinutes)));
     next.maxAttempts = Math.min(10, Math.max(1, Math.round(next.maxAttempts)));
     next.resendSeconds = Math.min(600, Math.max(15, Math.round(next.resendSeconds)));
@@ -111,12 +109,13 @@ export class LoginOtpService {
 
   /**
    * Issue a code for a user who has already passed the password check, and mail it
-   * to the configured address. Returns the challenge id the client echoes back.
+   * to THAT user's own registered email — never a shared or configured address, so
+   * one account's code can never land in another account's inbox. Returns the
+   * challenge id the client echoes back.
    */
   async issue(user: { id: string; email: string; name: string }): Promise<{ challengeId: string; sentTo: string; resendSeconds: number }> {
     const s = await this.getSettings();
-    const to = s.recipientEmail.trim();
-    if (!to) throw new BadRequestException('OTP authentication is enabled but no recipient email is configured.');
+    const to = user.email;
 
     // 6 digits from a CSPRNG — Math.random is not acceptable for a login secret.
     const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
@@ -217,7 +216,7 @@ export class LoginOtpService {
     // Without SMTP the mail service silently no-ops, which would strand every
     // login. Put the code where an admin can still find it, and say why.
     if (!this.mail.enabled) {
-      this.logger.warn(`SMTP is not configured — login OTP for ${user.email} was NOT emailed. Code: ${code} (would have gone to ${to})`);
+      this.logger.warn(`SMTP is not configured — login OTP for ${to} was NOT emailed. Code: ${code}`);
     }
   }
 

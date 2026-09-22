@@ -671,8 +671,6 @@ export const calendarApi = {
 /** Admin-configurable email-OTP policy for logins. */
 export interface OtpSettings {
   enabled: boolean;
-  /** Address every login code is delivered to. */
-  recipientEmail: string;
   expiryMinutes: number;
   maxAttempts: number;
   resendSeconds: number;
