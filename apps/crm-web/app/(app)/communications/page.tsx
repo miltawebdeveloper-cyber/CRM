@@ -7,18 +7,24 @@ import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Clock, MessageSquare, Phone 
 import { communicationsApi, formatDuration } from '@/lib/crm';
 import { PageHead } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { Segmented } from '@/components/segmented';
+import { DateFilter } from '@/components/filter-controls';
+import type { DateFilterValue } from '@/lib/date-filters';
 
 type Period = 'today' | 'week' | 'month' | 'all';
-const PERIODS = [
-  { label: 'Today', value: 'today' as Period },
-  { label: 'Week', value: 'week' as Period },
-  { label: 'Month', value: 'month' as Period },
-  { label: 'All', value: 'all' as Period },
-];
+
+// The picker (same one Lead Management uses) also offers a specific calendar
+// day and a Year/custom range — this API only buckets by today/week/month/
+// all, so a picked day maps to "today" and Year/custom collapse to "all",
+// the broadest bucket it has.
+const toPeriod = (mode: DateFilterValue['mode']): Period => {
+  if (mode === 'day') return 'today';
+  if (mode === 'week' || mode === 'month' || mode === 'all') return mode;
+  return 'all';
+};
 
 export default function CommunicationsPage() {
-  const [period, setPeriod] = useState<Period>('week');
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>({ mode: 'week', from: '', to: '' });
+  const period = toPeriod(dateFilter.mode);
   const { data, isError } = useQuery({
     queryKey: ['comm-analytics', period],
     queryFn: () => communicationsApi.analytics(period),
@@ -31,7 +37,7 @@ export default function CommunicationsPage() {
   return (
     <div>
       <PageHead>
-        <Segmented options={PERIODS} value={period} onChange={setPeriod} />
+        <DateFilter value={dateFilter} onChange={setDateFilter} iconOnly />
       </PageHead>
 
       {isError && (
