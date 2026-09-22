@@ -547,13 +547,13 @@ export default function LeadsPage() {
       <div className="mb-[18px] flex flex-wrap items-center gap-2.5 lg:flex-nowrap">
         <SearchInput value={q} onChange={setQ} placeholder="Search business, ID, phone, email…" className="min-w-[260px] flex-[2]" />
         <FilterSelect className="min-w-0 flex-1" icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={tzOpts} />
+        <FilterSelect className="min-w-0 flex-1" icon={Globe} value={country} onChange={setCountry} options={countryOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         {/* Admin only. Hidden rather than disabled for other roles: a team
             leader has no use for a control the API will ignore, and an
             employee is already pinned to their own book. */}
         {isAdmin && <FilterSelect className="min-w-0 flex-1" icon={UserIcon} value={employeeId} onChange={setEmployeeId} options={employeeOpts} />}
-        <FilterSelect className="min-w-0 flex-1" icon={Globe} value={country} onChange={setCountry} options={countryOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={Tag} value={status} onChange={setStatus} options={STATUS_OPTS} />
         <FilterSelect className="min-w-0 flex-1" icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={callOutcomeOpts} />
         {/* Sits immediately before the calendar because it says what the calendar
