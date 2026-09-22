@@ -156,4 +156,30 @@ describe('CallsService.myLeads — queue status', () => {
     const rows = await harness([{ id: 'a' }, { id: 'b' }, { id: 'c' }], [{ leadId: 'a', when: ago(HOUR) }]);
     expect(rows.map((r) => r.id)).toEqual(['b', 'c', 'a']);
   });
+
+  it('asks the database to exclude only leads closed or rejected before today', async () => {
+    // QUEUE_MAX caps the fetch itself, ordered by import sequence. Without this
+    // filter a caller's entire closed-lead history — accumulated over months —
+    // competes with their genuinely active leads for that cap, and old leads
+    // imported early can silently crowd out active ones imported later. A lead
+    // closed TODAY must still come through (the receipt card needs it, see the
+    // tests above), so the exclusion is scoped to closedAt < start of today,
+    // not to status alone.
+    const findMany = jest.fn(async (_args: { where: Record<string, unknown> }) => []);
+    const prisma = {
+      lead: { findMany },
+      call: { findMany: jest.fn(async () => []) },
+      activity: { findMany: jest.fn(async () => []) },
+    } as unknown as PrismaService;
+    const service = new CallsService(prisma, {} as NotificationsService, {} as OutcomesService, {} as CommunicationsService);
+
+    await service.myLeads('caller-1');
+
+    const where = findMany.mock.calls[0]![0].where;
+    expect(where.assignedToId).toBe('caller-1');
+    expect(where.NOT).toEqual({
+      status: { in: ['closed', 'rejected'] },
+      closedAt: { lt: expect.any(Date) },
+    });
+  });
 });

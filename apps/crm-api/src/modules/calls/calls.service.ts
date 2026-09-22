@@ -1953,7 +1953,19 @@ export class CallsService {
     const isToday = (d?: Date | null) => !!d && d >= startOfDay && d <= endOfToday;
 
     const leads = await this.prisma.lead.findMany({
-      where: { assignedToId: callerId, deletedAt: null },
+      where: {
+        assignedToId: callerId,
+        deletedAt: null,
+        // Closed/rejected before today are done for good — nothing later in
+        // this file can ever re-open them, and the receipt card only ever
+        // needs the lead THIS sitting just finished, not a caller's whole
+        // closed-lead history. Excluding only the old ones is what keeps
+        // QUEUE_MAX bounding the genuinely active book instead of being eaten
+        // by leads that stopped needing a place in it months ago — while a
+        // lead closed earlier today still comes back, exactly as it did
+        // before this filter existed.
+        NOT: { status: { in: ['closed', 'rejected'] }, closedAt: { lt: startOfDay } },
+      },
       include: {
         zoomMeetings: {
           where: {
