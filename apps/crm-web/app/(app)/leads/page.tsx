@@ -561,7 +561,7 @@ export default function LeadsPage() {
             queued for that day — and these are different sets of leads the
             moment anything is carried forward. */}
         <FilterSelect className="min-w-0 flex-1" icon={CalendarClock} value={dateField} onChange={(v) => setDateField(v as 'created' | 'scheduled')} options={DATE_FIELD_OPTS} />
-        <DateFilter value={dateFilter} onChange={setDateFilter} iconOnlyWhenEmpty />
+        <DateFilter value={dateFilter} onChange={setDateFilter} iconOnly />
       </div>
 
       {/* Table */}
