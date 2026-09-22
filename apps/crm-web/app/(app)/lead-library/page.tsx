@@ -11,7 +11,7 @@ import { LeadAssignDialog } from '@/components/lead-assign-dialog';
 import { LeadOutcomeCell } from '@/components/lead-outcome-cell';
 import { LeadCommentCell } from '@/components/lead-comment-cell';
 import { LeadInlineCell } from '@/components/lead-inline-cell';
-import { metricsApi, outcomesApi } from '@/lib/crm';
+import { metricsApi, outcomesApi, countriesApi } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { useCanCall } from '@/lib/use-can-call';
 import { TimezoneChip } from '@/components/timezone-chip';
@@ -157,6 +157,10 @@ export default function LeadLibraryPage() {
     () => [{ label: 'Call Outcomes', value: '' }, ...outcomeDefs.map((o) => ({ label: o.name, value: o.slug }))],
     [outcomeDefs],
   );
+  // Admin-managed list (Admin → Countries) that backs the create form's
+  // Country picker — distinct from `countryOpts` below, which is the live
+  // groupBy of what's actually on leads today and backs the filter instead.
+  const { data: countryDefs = [] } = useQuery({ queryKey: ['countries-config'], queryFn: countriesApi.list });
   const { dial, callingEnabled } = useCanCall();
   const [activityLead, setActivityLead] = useState<Lead | null>(null);
   const [assignLeads, setAssignLeads] = useState<Lead[] | null>(null);
@@ -452,7 +456,6 @@ export default function LeadLibraryPage() {
             ['email', 'Email'],
             ['website', 'Website'],
             ['socialMedia', 'Social Media'],
-            ['country', 'Country'],
             ['state', 'State *'],
             ['city', 'City *'],
             ['industry', 'Industry'],
@@ -468,6 +471,13 @@ export default function LeadLibraryPage() {
               <input value={(form as any)[key] ?? ''} onChange={(e) => setForm({ ...form, [key]: e.target.value })} required={label.includes('*')} className="w-full rounded-md border bg-background px-3 py-2" />
             </label>
           ))}
+          <label className="space-y-1 text-sm">
+            <span className="font-medium">Country</span>
+            <select value={form.country ?? ''} onChange={(e) => setForm({ ...form, country: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2">
+              <option value="">— none —</option>
+              {countryDefs.map((c) => <option key={c.id} value={c.code}>{c.name}</option>)}
+            </select>
+          </label>
           <label className="space-y-1 text-sm">
             <span className="font-medium">Timezone</span>
             <select value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2">

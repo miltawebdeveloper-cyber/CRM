@@ -25,6 +25,7 @@ import { CommunicationsModule } from './modules/communications/communications.mo
 import { MailModule } from './modules/mail/mail.module.js';
 import { CallbacksModule } from './modules/callbacks/callbacks.module.js';
 import { OutcomesModule } from './modules/outcomes/outcomes.module.js';
+import { CountriesModule } from './modules/countries/countries.module.js';
 import { ZoomModule } from './modules/zoom/zoom.module.js';
 import { AvailabilityModule } from './modules/availability/availability.module.js';
 import { HealthController } from './health.controller.js';
@@ -57,6 +58,7 @@ import { HealthController } from './health.controller.js';
     CommunicationsModule,
     CallbacksModule,
     OutcomesModule,
+    CountriesModule,
     ZoomModule,
     AvailabilityModule,
   ],

@@ -299,6 +299,23 @@ model Outcome {
   @@map("outcomes")
 }
 
+/// Admin-configurable list of countries a lead may be located in — see
+/// Admin → Countries. `code` is the exact string stored on `Lead.country`
+/// (still a plain, unindexed `String?` — deliberately no FK here, same
+/// soft/logical reference as `state`/`city`), so seeding from existing lead
+/// data needs no backfill and retiring a code never breaks a historical lead.
+model Country {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code      String   @unique
+  name      String
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("countries")
+}
+
 /// Per-user UI preferences (key-value). Used for customizable table column
 /// layouts (key = "cols:<tableKey>", value = { order, hidden }), and reusable
 /// for other personal settings later.

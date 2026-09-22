@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Phone, MessageSquare, Info, Pencil } from 'lucide-react';
 import { leadsApi, movementLabel, type UpdateLeadInput } from '@/lib/leads';
-import { communicationsApi } from '@/lib/crm';
+import { communicationsApi, countriesApi } from '@/lib/crm';
 import { useCanCall } from '@/lib/use-can-call';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
 import { ZoomTimeline } from '@/components/zoom-timeline';
@@ -42,6 +42,13 @@ export default function LeadDetailPage() {
 
   // Current user — the Activity Log is restricted to Admin & Team Lead.
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
+
+  const { data: countryDefs = [] } = useQuery({ queryKey: ['countries-config'], queryFn: countriesApi.list });
+  // A lead's own country stays selectable even once deactivated, so editing
+  // an old lead never silently blanks a retired value out from under it.
+  const countryOptions = lead?.country && !countryDefs.some((c) => c.code === lead.country)
+    ? [{ id: lead.country, code: lead.country, name: lead.country, sortOrder: -1, isActive: false }, ...countryDefs]
+    : countryDefs;
   // Refuse to dial before the API would reject the call (no assigned caller ID).
   const { dial, callingEnabled } = useCanCall();
   const canSeeActivity = me?.role === 'admin' || me?.role === 'team_leader';
@@ -317,7 +324,10 @@ export default function LeadDetailPage() {
                   inside its own box while being typed. */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Country</span>
-                  <input className={editInput} value={form.country ?? ''} onChange={(e) => set('country', e.target.value)} /></label>
+                  <select className={editInput} value={form.country ?? ''} onChange={(e) => set('country', e.target.value)}>
+                    <option value="">— none —</option>
+                    {countryOptions.map((c) => <option key={c.id} value={c.code}>{c.name}</option>)}
+                  </select></label>
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">State</span>
                   <input className={editInput} value={form.state ?? ''} onChange={(e) => set('state', e.target.value)} required /></label>
               </div>

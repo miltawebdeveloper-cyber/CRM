@@ -252,6 +252,22 @@ export const outcomesApi = {
   remove: async (id: string) => (await api.delete(`/outcomes/${id}`)).data,
 };
 
+export interface Country {
+  id: string;
+  code: string;
+  name: string;
+  sortOrder: number;
+  isActive: boolean;
+}
+export const countriesApi = {
+  list: async (): Promise<Country[]> => (await api.get('/countries')).data,
+  listAll: async (): Promise<Country[]> => (await api.get('/countries/all')).data,
+  create: async (body: { name: string; code?: string }): Promise<Country> =>
+    (await api.post('/countries', body)).data,
+  update: async (id: string, body: Partial<Country>): Promise<Country> =>
+    (await api.patch(`/countries/${id}`, body)).data,
+};
+
 export interface Followup {
   kind: 'note' | 'lead';
   id: string;

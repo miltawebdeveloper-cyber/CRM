@@ -90,6 +90,7 @@ export function Providers({ children }: { children: ReactNode }) {
     // Admin-configured lists. Read by the filter bars, the outcome cells and the
     // Calling Panel, edited rarely and invalidated explicitly when they are.
     qc.setQueryDefaults(['outcomes-config'], { staleTime: 10 * 60_000, gcTime: 30 * 60_000 });
+    qc.setQueryDefaults(['countries-config'], { staleTime: 10 * 60_000, gcTime: 30 * 60_000 });
     qc.setQueryDefaults(['calling-mode'], { staleTime: 60_000 });
     /**
      * How long a lead list survives after the last screen showing it unmounts.
