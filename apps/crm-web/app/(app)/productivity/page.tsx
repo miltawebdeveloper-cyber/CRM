@@ -1,17 +1,26 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Phone, Clock, Percent, Star } from 'lucide-react';
 import { productivityApi, formatDuration, type Period, type CallerProductivity } from '@/lib/crm';
-import { Avatar } from '@/components/page-head';
+import { Avatar, PageHead } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { DataTable, type ColumnDef } from '@/components/data-table';
+import { DateFilter } from '@/components/filter-controls';
+import type { DateFilterValue } from '@/lib/date-filters';
 
 const PERIOD_LABEL: Record<Period, string> = { day: 'today', week: 'this week', month: 'this month' };
 
+// The picker (same one Lead Management uses) also offers Year and a custom
+// range — this API only buckets by day/week/month, so those two collapse to
+// month, the broadest bucket it has.
+const toPeriod = (mode: DateFilterValue['mode']): Period =>
+  mode === 'day' || mode === 'week' || mode === 'month' ? mode : 'month';
+
 export default function ProductivityPage() {
-  const period: Period = 'week';
+  const [dateFilter, setDateFilter] = useState<DateFilterValue>({ mode: 'week', from: '', to: '' });
+  const period = toPeriod(dateFilter.mode);
   const { data: rows = [], isFetching } = useQuery({ queryKey: ['productivity', period], queryFn: () => productivityApi.perCaller(period) });
 
   const totalCalls = rows.reduce((a, r) => a + r.callsToday, 0);
@@ -39,6 +48,10 @@ export default function ProductivityPage() {
 
   return (
     <div>
+      <PageHead>
+        <DateFilter value={dateFilter} onChange={setDateFilter} iconOnly />
+      </PageHead>
+
       <div className={`mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))] transition-opacity ${isFetching ? 'opacity-60' : ''}`}>
         <KpiCard icon={Phone} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={totalCalls} label={`Total Calls (${PERIOD_LABEL[period]})`} />
         <KpiCard icon={Clock} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value={formatDuration(totalTalk)} label="Total Talk Time" />
