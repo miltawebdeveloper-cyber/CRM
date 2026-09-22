@@ -152,7 +152,7 @@ export default function CalendarPage() {
         <Segmented options={VIEWS} value={view} onChange={setView} />
         {/* Same range filter Lead Management uses — it drives the grid, the list
             and the summary cards together. */}
-        <DateFilter value={range} onChange={(v) => { setRange(v); setMonthOffset(0); setOpenDay(null); }} />
+        <DateFilter value={range} onChange={(v) => { setRange(v); setMonthOffset(0); setOpenDay(null); }} iconOnly />
         {isManager && <FilterSelect icon={UserIcon} value={userId} onChange={(v) => { setUserId(v); setOpenDay(null); }} options={userOpts} />}
         <div className="flex items-center gap-1 rounded-md border bg-card">
           <button onClick={() => { setMonthOffset((m) => m - 1); setOpenDay(null); }} aria-label="Previous month" className="grid h-9 w-9 place-items-center rounded-l-md text-muted-foreground hover:bg-muted"><ChevronLeft className="h-4 w-4" /></button>

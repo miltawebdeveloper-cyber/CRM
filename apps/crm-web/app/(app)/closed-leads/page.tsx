@@ -250,7 +250,7 @@ export default function ClosedLeadsPage() {
         <FilterSelect className="min-w-0 flex-1" icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         {canManage && <FilterSelect className="min-w-0 flex-1" icon={Info} value={closedBy} onChange={setClosedBy} options={closerOpts} />}
         <FilterSelect className="min-w-0 flex-1" icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={callStatusOpts} />
-        <DateFilter value={dateFilter} onChange={setDateFilter} />
+        <DateFilter value={dateFilter} onChange={setDateFilter} iconOnly />
       </div>
 
       {/* Table */}

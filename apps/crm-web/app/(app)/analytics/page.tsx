@@ -64,7 +64,7 @@ export default function AnalyticsPage() {
     <div className="space-y-5">
       {/* Date filter bar — same pattern as every other data page */}
       <div className="flex flex-wrap items-center justify-end gap-2.5">
-        <DateFilter value={dateFilter} onChange={setDateFilter} />
+        <DateFilter value={dateFilter} onChange={setDateFilter} iconOnly />
       </div>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">

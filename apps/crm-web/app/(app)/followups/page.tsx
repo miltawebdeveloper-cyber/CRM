@@ -231,7 +231,7 @@ export default function FollowupsPage() {
             <SearchInput value={q} onChange={setQ} placeholder="Search company, phone, note…" className="min-w-[220px]" />
             {isManager && <FilterSelect icon={Users} value={userId} onChange={setUserId} options={userOpts} />}
             <FilterSelect icon={Filter} value={timeframe} onChange={setTimeframe} options={TIMEFRAME_OPTS} />
-            <DateFilter value={created} onChange={setCreated} />
+            <DateFilter value={created} onChange={setCreated} iconOnly />
           </>
         }
       />

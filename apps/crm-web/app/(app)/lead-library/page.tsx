@@ -419,7 +419,7 @@ export default function LeadLibraryPage() {
         <FilterSelect className="min-w-0 flex-1" icon={Tag} value={status} onChange={setStatus} options={STATUS_OPTS} />
         <FilterSelect className="min-w-0 flex-1" icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={callOutcomeOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={CalendarClock} value={dateField} onChange={(v) => setDateField(v as 'created' | 'scheduled')} options={DATE_FIELD_OPTS} />
-        <DateFilter value={dateFilter} onChange={setDateFilter} />
+        <DateFilter value={dateFilter} onChange={setDateFilter} iconOnly />
       </div>
 
       {/* Create form */}

@@ -168,7 +168,7 @@ export default function DashboardPage() {
           <div className="mt-2"><LiveIndicator updatedAt={summaryQ.dataUpdatedAt || Date.now()} fetching={summaryQ.isFetching} /></div>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
-          <DateFilter value={dateFilter} onChange={setDateFilter} />
+          <DateFilter value={dateFilter} onChange={setDateFilter} iconOnly />
           <button onClick={refreshNow} aria-label="Refresh" className="grid h-9 w-9 place-items-center rounded-md border bg-card text-muted-foreground hover:text-foreground">
             <RefreshCw className={`h-4 w-4 ${summaryQ.isFetching ? 'animate-spin' : ''}`} />
           </button>

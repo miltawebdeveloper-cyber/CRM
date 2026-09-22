@@ -80,7 +80,7 @@ export function CallFilterBar({ filters, children }: { filters: CallFilters; chi
   const { dateFilter, setDateFilter, userId, setUserId, userOpts, isManager } = filters;
   return (
     <div className="mb-[18px] flex flex-wrap items-center gap-2.5">
-      <DateFilter value={dateFilter} onChange={setDateFilter} />
+      <DateFilter value={dateFilter} onChange={setDateFilter} iconOnly />
       {isManager && <FilterSelect icon={UserIcon} value={userId} onChange={setUserId} options={userOpts} />}
       {children}
     </div>

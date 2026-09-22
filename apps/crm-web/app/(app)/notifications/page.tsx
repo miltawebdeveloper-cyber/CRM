@@ -48,7 +48,7 @@ export default function NotificationsPage() {
         <div className="flex flex-wrap items-center gap-2.5">
           <SearchInput value={q} onChange={setQ} placeholder="Search notifications…" className="min-w-[220px]" />
           <FilterSelect icon={Filter} value={readState} onChange={setReadState} options={READ_OPTS} />
-          <DateFilter value={dateRange} onChange={setDateRange} />
+          <DateFilter value={dateRange} onChange={setDateRange} iconOnly />
           {unread > 0 && (
             <button
               onClick={() => markAll.mutate()}

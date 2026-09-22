@@ -86,7 +86,7 @@ export default function PipelinePage() {
         <FilterSelect icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={tzOpts} />
         <FilterSelect icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect icon={Building2} value={city} onChange={setCity} options={cityOpts} />
-        <DateFilter value={created} onChange={setCreated} />
+        <DateFilter value={created} onChange={setCreated} iconOnly />
         <Segmented options={VIEWS} value={view} onChange={setView} />
       </PageHead>
 

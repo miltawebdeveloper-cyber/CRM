@@ -67,7 +67,7 @@ export default function ActivityPage() {
     <div>
       <PageHead>
         <SearchInput value={q} onChange={setQ} placeholder="Search lead, user, outcome…" className="min-w-[220px]" />
-        <DateFilter value={dateRange} onChange={setDateRange} />
+        <DateFilter value={dateRange} onChange={setDateRange} iconOnly />
         <button
           onClick={() =>
             downloadCsv(

@@ -197,7 +197,7 @@ export default function OutcomesPage() {
           <SearchInput value={q} onChange={setQ} placeholder="Search lead, caller, phone…" className="min-w-[220px]" />
           {isManager && <FilterSelect icon={User} value={userId} onChange={setUserId} options={userOpts} />}
           <FilterSelect icon={Filter} value={outcome} onChange={setOutcome} options={OUTCOME_OPTS} />
-          <DateFilter value={range} onChange={setRange} />
+          <DateFilter value={range} onChange={setRange} iconOnly />
         </div>
       </PageHead>
 

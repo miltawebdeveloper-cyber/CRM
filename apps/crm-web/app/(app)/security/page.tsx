@@ -36,7 +36,7 @@ export default function SecurityPage() {
       </p>
       <div className="flex flex-wrap items-center gap-2.5">
         <FilterSelect icon={Filter} value={action} onChange={setAction} options={[{ label: 'All Actions', value: '' }, ...actions.map((a) => ({ label: a.replace('_', ' '), value: a }))]} />
-        <DateFilter value={dateRange} onChange={setDateRange} />
+        <DateFilter value={dateRange} onChange={setDateRange} iconOnly />
       </div>
 
       <DataTable

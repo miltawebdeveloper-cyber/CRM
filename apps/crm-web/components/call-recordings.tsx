@@ -199,7 +199,7 @@ export function CallRecordings({ leadId }: { leadId?: string }) {
           ))}
         </div>
         {/* Same Day/Week/Month/Year/Custom calendar the rest of the CRM uses. */}
-        <DateFilter value={dateFilter} onChange={setDateFilter} />
+        <DateFilter value={dateFilter} onChange={setDateFilter} iconOnly />
         {(search || direction || from || to) && (
           <button
             onClick={() => { setSearch(''); setDirection(''); setDateFilter(EMPTY_DATE_FILTER); }}

@@ -443,7 +443,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
         <FilterSelect className="min-w-0 flex-1" icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={Tag} value={leadStatus} onChange={setLeadStatus} options={LEAD_STATUS_OPTS} />
         <FilterSelect className="min-w-0 flex-1" icon={PhoneCall} value={outcomeFilter} onChange={setOutcomeFilter} options={outcomeOpts} />
-        <DateFilter value={dateFilter} onChange={setDateFilter} />
+        <DateFilter value={dateFilter} onChange={setDateFilter} iconOnly />
       </div>
 
       {/* Call records — same table component and behaviour as Lead Management. */}

@@ -44,7 +44,7 @@ export default function TasksPage() {
             ...COLS.map((c) => ({ label: c.name, value: c.key })),
           ]}
         />
-        <DateFilter value={dateRange} onChange={setDateRange} />
+        <DateFilter value={dateRange} onChange={setDateRange} iconOnly />
         <button onClick={() => setAdding((v) => !v)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> New task</button>
       </PageHead>
 

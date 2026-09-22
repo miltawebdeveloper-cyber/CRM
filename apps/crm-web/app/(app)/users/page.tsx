@@ -231,7 +231,7 @@ export default function UsersPage() {
           <>
             <SearchInput value={q} onChange={setQ} placeholder="Search name or email…" className="min-w-[220px]" />
             <FilterSelect icon={Filter} value={role} onChange={setRole} options={ROLE_OPTS} />
-            <DateFilter value={dateRange} onChange={setDateRange} />
+            <DateFilter value={dateRange} onChange={setDateRange} iconOnly />
           </>
         }
       />
