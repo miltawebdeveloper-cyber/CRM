@@ -222,15 +222,15 @@ export default function LeadsPage() {
   // the cascade the API applies when it groups them, so these read the same as
   // when they were built from the downloaded book. Country is independent of
   // that cascade — see leads.service.ts's filterOptions.
-  const stateOpts = optionsFrom(filterOpts?.states ?? [], 'State');
-  const cityOpts = optionsFrom(filterOpts?.cities ?? [], 'City');
-  const countryOpts = optionsFrom(filterOpts?.countries ?? [], 'Country');
+  const stateOpts = optionsFrom(filterOpts?.states ?? [], 'States');
+  const cityOpts = optionsFrom(filterOpts?.cities ?? [], 'Cities');
+  const countryOpts = optionsFrom(filterOpts?.countries ?? [], 'Countries');
   // Relabel the reset entry rather than dropping it — a <select> needs an
   // option matching its current value, or the browser silently shows the
   // first real option instead of "nothing chosen" the moment the blank one
   // is removed.
   const tzOpts = useMemo(
-    () => TIMEZONE_FILTER_OPTIONS_COMPACT.map((o) => (o.value === '' ? { ...o, label: 'Time Zone' } : o)),
+    () => TIMEZONE_FILTER_OPTIONS_COMPACT.map((o) => (o.value === '' ? { ...o, label: 'Time Zones' } : o)),
     [],
   );
 

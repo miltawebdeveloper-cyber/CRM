@@ -165,15 +165,15 @@ export default function LeadLibraryPage() {
   // States cascade from the selected timezone; cities from timezone + state.
   // Country is independent (see leads.service.ts's filterOptions), not part
   // of that cascade.
-  const stateOpts = optionsFrom(filterOpts?.states ?? [], 'State');
-  const cityOpts = optionsFrom(filterOpts?.cities ?? [], 'City');
-  const countryOpts = optionsFrom(filterOpts?.countries ?? [], 'Country');
+  const stateOpts = optionsFrom(filterOpts?.states ?? [], 'States');
+  const cityOpts = optionsFrom(filterOpts?.cities ?? [], 'Cities');
+  const countryOpts = optionsFrom(filterOpts?.countries ?? [], 'Countries');
   // Relabel the reset entry rather than dropping it — a <select> needs an
   // option matching its current value, or the browser silently shows the
   // first real option instead of "nothing chosen" the moment the blank one
   // is removed.
   const tzOpts = useMemo(
-    () => TIMEZONE_FILTER_OPTIONS_COMPACT.map((o) => (o.value === '' ? { ...o, label: 'Time Zone' } : o)),
+    () => TIMEZONE_FILTER_OPTIONS_COMPACT.map((o) => (o.value === '' ? { ...o, label: 'Time Zones' } : o)),
     [],
   );
 
