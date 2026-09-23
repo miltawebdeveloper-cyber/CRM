@@ -3,13 +3,16 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Clock, Plus, Check } from 'lucide-react';
-import { timezonesApi, type TimezoneOption } from '@/lib/crm';
+import { countriesApi, timezonesApi, type Country, type TimezoneOption } from '@/lib/crm';
 
 function useInvalidate() {
   const qc = useQueryClient();
   return () => {
     qc.invalidateQueries({ queryKey: ['timezones-all'] });
     qc.invalidateQueries({ queryKey: ['timezones-config'] }); // every picker/filter/formatter
+    // Moving a zone to another country can clear a country's default zone.
+    qc.invalidateQueries({ queryKey: ['countries-all'] });
+    qc.invalidateQueries({ queryKey: ['countries-config'] });
   };
 }
 
@@ -28,19 +31,30 @@ function errorText(e: unknown): string {
   return Array.isArray(msg) ? msg.join(', ') : msg ?? 'Could not save';
 }
 
-function TimezoneRow({ z }: { z: TimezoneOption }) {
+function CountrySelect({ value, onChange, countries }: { value: string; onChange: (v: string) => void; countries: Country[] }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} title="Country this zone belongs to" className="rounded-md border bg-background px-2 py-1.5 text-[12px]">
+      <option value="">Any country</option>
+      {countries.map((c) => <option key={c.id} value={c.code}>{c.name}</option>)}
+      {value && !countries.some((c) => c.code === value) && <option value={value}>{value}</option>}
+    </select>
+  );
+}
+
+function TimezoneRow({ z, countries }: { z: TimezoneOption; countries: Country[] }) {
   const invalidate = useInvalidate();
   const [label, setLabel] = useState(z.label);
   const [active, setActive] = useState(z.isActive);
+  const [country, setCountry] = useState(z.countryCode ?? '');
 
-  useEffect(() => { setLabel(z.label); setActive(z.isActive); }, [z.label, z.isActive]);
+  useEffect(() => { setLabel(z.label); setActive(z.isActive); setCountry(z.countryCode ?? ''); }, [z.label, z.isActive, z.countryCode]);
 
   const save = useMutation({
-    mutationFn: () => timezonesApi.update(z.id, { label, isActive: active }),
+    mutationFn: () => timezonesApi.update(z.id, { label, isActive: active, countryCode: country || null }),
     onSuccess: invalidate,
   });
 
-  const dirty = label !== z.label || active !== z.isActive;
+  const dirty = label !== z.label || active !== z.isActive || country !== (z.countryCode ?? '');
 
   return (
     <div className="flex flex-wrap items-center gap-3 border-b py-2.5 last:border-0">
@@ -51,6 +65,7 @@ function TimezoneRow({ z }: { z: TimezoneOption }) {
         className={`min-w-[160px] flex-1 rounded-md border bg-background px-2.5 py-1.5 text-[12.5px] ${active ? '' : 'opacity-50 line-through'}`}
       />
       <span className="text-[11.5px] text-muted-foreground" title="IANA zone; fixed at creation">{z.ianaZone}</span>
+      <CountrySelect value={country} onChange={setCountry} countries={countries} />
       <label className="flex items-center gap-1.5 text-[12px] font-medium">
         <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="h-4 w-4 accent-[var(--brand)]" /> Active
       </label>
@@ -69,14 +84,16 @@ function TimezoneRow({ z }: { z: TimezoneOption }) {
 export function TimezoneManagement() {
   const invalidate = useInvalidate();
   const { data: list = [], isLoading } = useQuery({ queryKey: ['timezones-all'], queryFn: timezonesApi.listAll, retry: false });
+  const { data: countries = [] } = useQuery({ queryKey: ['countries-config'], queryFn: countriesApi.list });
+  const [newCountry, setNewCountry] = useState('');
   const [code, setCode] = useState('');
   const [label, setLabel] = useState('');
   const [iana, setIana] = useState('');
   const [error, setError] = useState('');
 
   const create = useMutation({
-    mutationFn: () => timezonesApi.create({ code: code.trim().toUpperCase(), label: label.trim(), ianaZone: iana.trim() }),
-    onSuccess: () => { invalidate(); setCode(''); setLabel(''); setIana(''); setError(''); },
+    mutationFn: () => timezonesApi.create({ code: code.trim().toUpperCase(), label: label.trim(), ianaZone: iana.trim(), countryCode: newCountry || null }),
+    onSuccess: () => { invalidate(); setCode(''); setLabel(''); setIana(''); setNewCountry(''); setError(''); },
     onError: (e) => setError(errorText(e)),
   });
 
@@ -101,7 +118,7 @@ export function TimezoneManagement() {
 
       <div className="px-[18px] py-2">
         {isLoading && <p className="py-4 text-sm text-muted-foreground">Loading…</p>}
-        {list.map((z) => <TimezoneRow key={z.id} z={z} />)}
+        {list.map((z) => <TimezoneRow key={z.id} z={z} countries={countries} />)}
         {!isLoading && list.length === 0 && <p className="py-4 text-sm text-muted-foreground">No time zones yet.</p>}
       </div>
 
@@ -110,6 +127,7 @@ export function TimezoneManagement() {
           <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Code (e.g. CET)" maxLength={20} className={`${input} w-[110px]`} />
           <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label (e.g. CET (Central European Time))" className={`${input} min-w-[180px] flex-1`} />
           <input value={iana} onChange={(e) => setIana(e.target.value)} placeholder="IANA zone (e.g. Europe/Berlin)" className={`${input} min-w-[170px] flex-1`} />
+          <CountrySelect value={newCountry} onChange={setNewCountry} countries={countries} />
           <button type="button" onClick={add} disabled={create.isPending} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-[12.5px] font-semibold text-primary-foreground disabled:opacity-50">
             <Plus className="h-3.5 w-3.5" /> Add zone
           </button>

@@ -256,6 +256,8 @@ export interface Country {
   id: string;
   code: string;
   name: string;
+  /** Zone filled in when this country is picked. */
+  defaultTimezone: string | null;
   sortOrder: number;
   isActive: boolean;
 }
@@ -273,15 +275,16 @@ export interface TimezoneOption {
   code: string;
   label: string;
   ianaZone: string;
+  countryCode: string | null;
   sortOrder: number;
   isActive: boolean;
 }
 export const timezonesApi = {
   list: async (): Promise<TimezoneOption[]> => (await api.get('/timezones')).data,
   listAll: async (): Promise<TimezoneOption[]> => (await api.get('/timezones/all')).data,
-  create: async (body: { code: string; label: string; ianaZone: string }): Promise<TimezoneOption> =>
+  create: async (body: { code: string; label: string; ianaZone: string; countryCode?: string | null }): Promise<TimezoneOption> =>
     (await api.post('/timezones', body)).data,
-  update: async (id: string, body: Partial<Pick<TimezoneOption, 'label' | 'sortOrder' | 'isActive'>>): Promise<TimezoneOption> =>
+  update: async (id: string, body: Partial<Pick<TimezoneOption, 'label' | 'sortOrder' | 'isActive' | 'countryCode'>>): Promise<TimezoneOption> =>
     (await api.patch(`/timezones/${id}`, body)).data,
 };
 
@@ -347,6 +350,7 @@ export interface CallsMadeQuery {
   // These go to the API (not applied in the browser) so the summary tiles and the
   // table describe the same calls, and so filtering covers the whole range rather
   // than only the page of rows the table has loaded.
+  country?: string;
   timezone?: string;
   state?: string;
   city?: string;
@@ -358,7 +362,7 @@ export interface CallsMadeQuery {
 
 /** Values the Calls Made filter menus offer, for the current date + employee scope. */
 export interface CallsMadeFilterOptions {
-  geo: { timezone: string; state: string; city: string }[];
+  geo: { country: string | null; timezone: string; state: string; city: string }[];
   /** Legacy imported call statuses still present in the data. */
   callStatuses: string[];
 }

@@ -276,10 +276,36 @@ describe('LeadsService.filterOptions — distinct countries', () => {
     const result = await service.filterOptions({ closed: false } as never);
 
     expect(result.countries).toEqual(['United States']);
-    // The country groupBy is independent of the timezone/state cascade — it
-    // must not inherit a `state`/`timezone` filter from the request.
     const countryCall = groupBy.mock.calls.find((c) => (c[0] as { by: string[] }).by[0] === 'country');
     expect(countryCall?.[0]).toMatchObject({ by: ['country'] });
+  });
+
+  it('cascades Country -> Time Zone -> State -> City, never upward', async () => {
+    type Args = { by: string[]; where: Record<string, unknown> };
+    const groupBy = jest.fn(async (_args: Args) => [] as unknown[]);
+    const prisma = { lead: { groupBy }, user: { findMany: jest.fn(async () => []) } } as unknown as PrismaService;
+    const service = new LeadsService(prisma, {} as NotificationsService, {} as LeadIdService);
+
+    await service.filterOptions({ closed: false, country: 'USA', timezone: 'EST', state: 'Florida' } as never);
+
+    const whereFor = (field: string) => groupBy.mock.calls.find((c) => c[0].by[0] === field)![0].where;
+    expect(whereFor('country')).not.toHaveProperty('country');
+    expect(whereFor('country')).not.toHaveProperty('timezone');
+    expect(whereFor('timezone')).toMatchObject({ country: 'USA' });
+    expect(whereFor('timezone')).not.toHaveProperty('timezone');
+    expect(whereFor('state')).toMatchObject({ country: 'USA', timezone: 'EST' });
+    expect(whereFor('state')).not.toHaveProperty('state');
+    expect(whereFor('city')).toMatchObject({ country: 'USA', timezone: 'EST', state: 'Florida' });
+  });
+});
+
+describe('LeadsService — country/time zone pairing', () => {
+  const service = () => new LeadsService({} as PrismaService, {} as NotificationsService, {} as LeadIdService);
+
+  it('refuses a new lead whose zone belongs to another country', async () => {
+    await expect(service().create({ businessName: 'X', phone: '1', country: 'India', timezone: 'EST' } as never)).rejects.toThrow(
+      'EST is not a time zone in India',
+    );
   });
 });
 

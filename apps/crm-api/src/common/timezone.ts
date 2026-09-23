@@ -27,6 +27,8 @@ interface TimezoneEntry {
   code: string;
   label: string;
   ianaZone: string;
+  /** Country.code the zone belongs to; null = not tied to a country. */
+  countryCode?: string | null;
 }
 
 /**
@@ -45,32 +47,35 @@ interface TimezoneEntry {
  * is read the same way.
  */
 const FALLBACK: TimezoneEntry[] = [
-  { code: 'UK', label: 'UK (Europe/London)', ianaZone: 'Europe/London' },
-  { code: 'IND', label: 'India (Asia/Kolkata)', ianaZone: 'Asia/Kolkata' },
-  { code: 'EST', label: 'EST (Eastern Standard Time)', ianaZone: 'America/New_York' },
-  { code: 'CST', label: 'CST (Central Standard Time)', ianaZone: 'America/Chicago' },
-  { code: 'MST', label: 'MST (Mountain Standard Time)', ianaZone: 'America/Denver' },
-  { code: 'PST', label: 'PST (Pacific Standard Time)', ianaZone: 'America/Los_Angeles' },
-  { code: 'AKST', label: 'AKST (Alaska Standard Time)', ianaZone: 'America/Anchorage' },
-  { code: 'HST', label: 'HST (Hawaii Standard Time)', ianaZone: 'Pacific/Honolulu' },
+  { code: 'UK', label: 'UK (Europe/London)', ianaZone: 'Europe/London', countryCode: 'UK' },
+  { code: 'IND', label: 'India (Asia/Kolkata)', ianaZone: 'Asia/Kolkata', countryCode: 'India' },
+  { code: 'EST', label: 'EST (Eastern Standard Time)', ianaZone: 'America/New_York', countryCode: 'USA' },
+  { code: 'CST', label: 'CST (Central Standard Time)', ianaZone: 'America/Chicago', countryCode: 'USA' },
+  { code: 'MST', label: 'MST (Mountain Standard Time)', ianaZone: 'America/Denver', countryCode: 'USA' },
+  { code: 'PST', label: 'PST (Pacific Standard Time)', ianaZone: 'America/Los_Angeles', countryCode: 'USA' },
+  { code: 'AKST', label: 'AKST (Alaska Standard Time)', ianaZone: 'America/Anchorage', countryCode: 'USA' },
+  { code: 'HST', label: 'HST (Hawaii Standard Time)', ianaZone: 'Pacific/Honolulu', countryCode: 'USA' },
 ];
 
 interface Snapshot {
   ianaByCode: Record<string, string>;
   labelByCode: Record<string, string>;
+  countryByCode: Record<string, string | null>;
   codes: string[];
 }
 
 function buildSnapshot(rows: TimezoneEntry[]): Snapshot {
   const ianaByCode: Record<string, string> = {};
   const labelByCode: Record<string, string> = {};
+  const countryByCode: Record<string, string | null> = {};
   const codes: string[] = [];
   for (const r of rows) {
     ianaByCode[r.code] = r.ianaZone;
     labelByCode[r.code] = r.label;
+    countryByCode[r.code] = r.countryCode ?? null;
     codes.push(r.code);
   }
-  return { ianaByCode, labelByCode, codes };
+  return { ianaByCode, labelByCode, countryByCode, codes };
 }
 
 let snapshot: Snapshot = buildSnapshot(FALLBACK);
@@ -91,6 +96,25 @@ export function setTimezoneSnapshot(rows: TimezoneEntry[]): void {
  * count.
  */
 export const allTimezoneCodes = (): string[] => snapshot.codes;
+
+/** The country a zone belongs to, or null when it isn't tied to one. */
+export const countryOfZone = (code?: string | null): string | null =>
+  (code && snapshot.countryByCode[code]) || null;
+
+/** Zone codes belonging to a country (zones tied to no country are excluded). */
+export const zonesOfCountry = (country: string): string[] =>
+  snapshot.codes.filter((c) => snapshot.countryByCode[c] === country);
+
+/**
+ * Whether a zone may sit on a record with this country. Either side empty, or
+ * a zone tied to no country, is always fine — only a zone that belongs to a
+ * DIFFERENT country (India + EST) is a mismatch.
+ */
+export function zoneMatchesCountry(zone?: string | null, country?: string | null): boolean {
+  if (!zone || !country) return true;
+  const owner = countryOfZone(zone);
+  return !owner || owner === country;
+}
 
 /**
  * Fallback used only when RENDERING a record with no zone — a label has to say

@@ -1,6 +1,7 @@
 import { IsEmail, IsEnum, IsOptional, IsString, MinLength, IsBoolean } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Role } from '@crm/database';
+import { IsTimezoneCode } from '../../../common/validators/is-timezone-code.validator.js';
 
 export class CreateUserDto {
   @ApiProperty()
@@ -24,6 +25,11 @@ export class CreateUserDto {
   @IsOptional()
   @IsString()
   openphoneNumber?: string;
+
+  @ApiPropertyOptional({ example: 'EST', description: 'Employees only — the zone their shift runs on; its country follows from the zone' })
+  @IsOptional()
+  @IsTimezoneCode()
+  shiftTimezone?: string;
 }
 
 export class UpdateUserDto extends PartialType(CreateUserDto) {
@@ -48,4 +54,14 @@ export class ListUsersQueryDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({ description: 'Country.code — employees whose shift zone belongs to it' })
+  @IsOptional()
+  @IsString()
+  country?: string;
+
+  @ApiPropertyOptional({ description: 'Employees on this shift zone' })
+  @IsOptional()
+  @IsTimezoneCode()
+  timezone?: string;
 }

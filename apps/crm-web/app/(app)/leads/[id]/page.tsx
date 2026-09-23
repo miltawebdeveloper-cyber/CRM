@@ -17,7 +17,7 @@ import { api } from '@/lib/api';
 import { invalidateLeadComment } from '@/lib/sync';
 import { formatDateTime, formatTime } from '@/lib/display-settings';
 import { leadDate, leadDateTime } from '@/lib/timezone';
-import { timezoneLabel, useLeadTimezones } from '@/lib/timezone';
+import { countryOfZone, timezoneLabel, useLeadTimezones, zoneMatchesCountry } from '@/lib/timezone';
 
 const SMS_TEMPLATES: { label: string; text: (name: string) => string }[] = [
   { label: 'Intro', text: (n) => `Hi, this is the team at Milta reaching out about ${n}. Is now a good time to chat?` },
@@ -26,7 +26,6 @@ const SMS_TEMPLATES: { label: string; text: (name: string) => string }[] = [
 ];
 
 export default function LeadDetailPage() {
-  const leadTzOpts = useLeadTimezones();
   const qc = useQueryClient();
   const router = useRouter();
   const { id } = useParams<{ id: string }>();
@@ -48,7 +47,7 @@ export default function LeadDetailPage() {
   // A lead's own country stays selectable even once deactivated, so editing
   // an old lead never silently blanks a retired value out from under it.
   const countryOptions = lead?.country && !countryDefs.some((c) => c.code === lead.country)
-    ? [{ id: lead.country, code: lead.country, name: lead.country, sortOrder: -1, isActive: false }, ...countryDefs]
+    ? [{ id: lead.country, code: lead.country, name: lead.country, defaultTimezone: null, sortOrder: -1, isActive: false }, ...countryDefs]
     : countryDefs;
   // Refuse to dial before the API would reject the call (no assigned caller ID).
   const { dial, callingEnabled } = useCanCall();
@@ -59,6 +58,7 @@ export default function LeadDetailPage() {
   // ── Lead edit (managers only) ──
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<UpdateLeadInput>({});
+  const leadTzOpts = useLeadTimezones(form.country || null);
   const edit = useMutation({
     // A lead with no zone seeds `timezone: ''`, which the API's `@IsEnum(Timezone)`
     // rejects outright — so saving ANY edit to a zone-less lead used to fail with
@@ -325,7 +325,12 @@ export default function LeadDetailPage() {
                   inside its own box while being typed. */}
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Country</span>
-                  <select className={editInput} value={form.country ?? ''} onChange={(e) => set('country', e.target.value)}>
+                  <select className={editInput} value={form.country ?? ''} onChange={(e) => {
+                    // Keep the zone if it belongs to the new country, else use its default.
+                    const c = e.target.value;
+                    const fallback = countryOptions.find((d) => d.code === c)?.defaultTimezone ?? '';
+                    setForm((f) => ({ ...f, country: c, timezone: f.timezone && zoneMatchesCountry(f.timezone, c || null) ? f.timezone : fallback || f.timezone }));
+                  }}>
                     <option value="">— none —</option>
                     {countryOptions.map((c) => <option key={c.id} value={c.code}>{c.name}</option>)}
                   </select></label>
@@ -346,7 +351,7 @@ export default function LeadDetailPage() {
                     {/* A zone since deactivated in Admin stays selectable for the lead
                         still on it, so opening the form never silently blanks it. */}
                     {form.timezone && !leadTzOpts.some((t) => t.value === form.timezone) && (
-                      <option value={form.timezone}>{timezoneLabel(form.timezone)} (inactive)</option>
+                      <option value={form.timezone}>{timezoneLabel(form.timezone)} ({countryOfZone(form.timezone) && !zoneMatchesCountry(form.timezone, form.country || null) ? `not in ${form.country}` : 'inactive'})</option>
                     )}
                     {leadTzOpts.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select></label>

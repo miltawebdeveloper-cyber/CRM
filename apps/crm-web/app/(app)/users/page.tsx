@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Users, Shield, UserCheck, Phone, Check, Pencil, Filter, X, Ban, RotateCcw, Wifi, WifiOff, Trash2 } from 'lucide-react';
+import { Plus, Users, Shield, UserCheck, Phone, Check, Pencil, Filter, X, Ban, RotateCcw, Wifi, WifiOff, Trash2, Globe, Clock } from 'lucide-react';
 import { usersApi, type User, type UserRole } from '@/lib/users';
 import { availabilityApi } from '@/lib/availability';
 import { api } from '@/lib/api';
@@ -14,6 +14,8 @@ import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-contr
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { formatDate } from '@/lib/display-settings';
+import { countriesApi, type Country } from '@/lib/crm';
+import { countryOfZone, timezoneLabel, useLeadTimezones, useTimezoneFilterOptions, zoneMatchesCountry } from '@/lib/timezone';
 
 /**
  * Pull the API's message out of an axios error, with a usable fallback.
@@ -51,6 +53,26 @@ export default function UsersPage() {
   const qc = useQueryClient();
   const { data: users = [] } = useQuery<User[]>({ queryKey: ['users'], queryFn: usersApi.list, retry: false });
   const [role, setRole] = useState('');
+  // Country -> Time Zone, read off each employee's shift zone. Admins and team
+  // leaders have no shift zone, so either filter narrows the list to employees.
+  const [country, setCountry] = useState('');
+  const [tz, setTz] = useState('');
+  const { data: countries = [] } = useQuery({ queryKey: ['countries-config'], queryFn: countriesApi.list });
+  const tzFilterOpts = useTimezoneFilterOptions(country || null);
+  const tzOpts = useMemo(
+    () => tzFilterOpts.map((o) => (o.value === '' && !country ? { ...o, label: 'Time Zones' } : o)),
+    [tzFilterOpts, country],
+  );
+  const countryOpts = useMemo(() => [{ label: 'Countries', value: '' }, ...countries.map((c) => ({ label: c.name, value: c.code }))], [countries]);
+  const pickCountry = (v: string) => {
+    setCountry(v);
+    if (tz && !zoneMatchesCountry(tz, v || null)) setTz('');
+  };
+  const pickZone = (v: string) => {
+    setTz(v);
+    const owner = countryOfZone(v);
+    if (owner && !country) setCountry(owner);
+  };
   const [dateRange, setDateRange] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
   const [creating, setCreating] = useState(false);
@@ -135,6 +157,12 @@ export default function UsersPage() {
         return <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-[3px] text-[11px] font-semibold ${online ? 'bg-[var(--brand-surface)] text-[var(--brand-on-surface)]' : 'bg-[var(--tone-red-bg)] text-[var(--tone-red-fg)]'}`}><span className="h-1.5 w-1.5 rounded-full" style={{ background: 'currentColor' }} />{online ? 'Online' : 'Offline'}</span>;
       },
     },
+    {
+      key: 'timezone', header: 'Time Zone', trackable: true,
+      render: (u) => u.employee?.shiftTimezone
+        ? <span title={timezoneLabel(u.employee.shiftTimezone)}>{u.employee.shiftTimezone}{countryOfZone(u.employee.shiftTimezone) ? <span className="text-muted-foreground"> · {countryOfZone(u.employee.shiftTimezone)}</span> : null}</span>
+        : <span className="text-muted-foreground">—</span>,
+    },
     { key: 'shift', header: 'Shift', trackable: true, render: (u) => u.shiftStart ? <span className="font-mono text-[11.5px]">{u.shiftStart}</span> : <span className="text-muted-foreground">—</span> },
     { key: 'openphone', header: 'OpenPhone #', searchable: true, searchValue: (u) => u.openphoneNumber, render: (u) => u.openphoneNumber ? <span className="font-mono text-[11.5px]">{u.openphoneNumber}</span> : <span className="text-muted-foreground">—</span> },
     { key: 'created', header: 'Created', cellClassName: 'text-muted-foreground', render: (u) => formatDate(u.createdAt) },
@@ -183,6 +211,8 @@ export default function UsersPage() {
   const shown = users.filter(
     (u) =>
       (!role || u.role === role) &&
+      (!country || countryOfZone(u.employee?.shiftTimezone) === country) &&
+      (!tz || u.employee?.shiftTimezone === tz) &&
       inDateBounds(u.createdAt, dateRange) &&
       (!term ||
         searchCols.some(
@@ -231,6 +261,8 @@ export default function UsersPage() {
           <>
             <SearchInput value={q} onChange={setQ} placeholder="Search name or email…" className="min-w-[220px]" />
             <FilterSelect icon={Filter} value={role} onChange={setRole} options={ROLE_OPTS} />
+            <FilterSelect icon={Globe} value={country} onChange={pickCountry} options={countryOpts} />
+            <FilterSelect icon={Clock} value={tz} onChange={pickZone} options={tzOpts} />
             <DateFilter value={dateRange} onChange={setDateRange} iconOnly />
           </>
         }
@@ -284,12 +316,23 @@ function UserModal({ user, onClose, onSaved }: { user: User | null; onClose: () 
   const [isActive, setIsActive] = useState(user?.isActive ?? true);
   const [shiftStart, setShiftStart] = useState(user?.shiftStart ?? '');
   const [openphoneNumber, setOpenphoneNumber] = useState(user?.openphoneNumber ?? '');
+  // Only the zone is stored; the country picker just narrows which zones are
+  // offered. New employees start on EST, the same default the database uses.
+  const [shiftTz, setShiftTz] = useState(user?.employee?.shiftTimezone ?? 'EST');
+  const [shiftCountry, setShiftCountry] = useState(countryOfZone(user?.employee?.shiftTimezone ?? 'EST') ?? '');
+  const { data: countries = [] } = useQuery<Country[]>({ queryKey: ['countries-config'], queryFn: countriesApi.list });
+  const shiftZones = useLeadTimezones(shiftCountry || null);
+  const pickShiftCountry = (c: string) => {
+    setShiftCountry(c);
+    if (!zoneMatchesCountry(shiftTz, c || null)) setShiftTz(countries.find((d) => d.code === c)?.defaultTimezone ?? '');
+  };
+  const shiftPayload = role === 'employee' && shiftTz ? { shiftTimezone: shiftTz } : {};
 
   const save = useMutation({
     mutationFn: () =>
       isEdit
-        ? usersApi.update(user!.id, { name, email, role, isActive, shiftStart, openphoneNumber, ...(password ? { password } : {}) })
-        : usersApi.create({ name, email, password, role, ...(openphoneNumber.trim() ? { openphoneNumber } : {}) }),
+        ? usersApi.update(user!.id, { name, email, role, isActive, shiftStart, openphoneNumber, ...shiftPayload, ...(password ? { password } : {}) })
+        : usersApi.create({ name, email, password, role, ...shiftPayload, ...(openphoneNumber.trim() ? { openphoneNumber } : {}) }),
     onSuccess: onSaved,
   });
 
@@ -325,6 +368,25 @@ function UserModal({ user, onClose, onSaved }: { user: User | null; onClose: () 
               {ROLE_SELECT.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </label>
+          {role === 'employee' && (
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block space-y-1 text-sm">
+                <span className="font-medium">Country</span>
+                <select value={shiftCountry} onChange={(e) => pickShiftCountry(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                  <option value="">Any country</option>
+                  {countries.map((c) => <option key={c.id} value={c.code}>{c.name}</option>)}
+                </select>
+              </label>
+              <label className="block space-y-1 text-sm">
+                <span className="font-medium">Shift time zone</span>
+                <select value={shiftTz} onChange={(e) => setShiftTz(e.target.value)} required className="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                  <option value="" disabled>— Pick a zone —</option>
+                  {shiftTz && !shiftZones.some((z) => z.value === shiftTz) && <option value={shiftTz}>{timezoneLabel(shiftTz)}</option>}
+                  {shiftZones.map((z) => <option key={z.value} value={z.value}>{z.label}</option>)}
+                </select>
+              </label>
+            </div>
+          )}
           <label className="block space-y-1 text-sm">
             <span className="font-medium">OpenPhone number <span className="text-muted-foreground">(E.164 — the number this caller sends SMS / dials from; blank = use workspace default)</span></span>
             <input value={openphoneNumber} onChange={(e) => setOpenphoneNumber(e.target.value)} placeholder="+15551234567" className="w-full rounded-md border bg-background px-3 py-2 font-mono text-sm" />

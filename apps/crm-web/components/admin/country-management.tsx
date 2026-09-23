@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Globe, Plus, Check } from 'lucide-react';
-import { countriesApi, type Country } from '@/lib/crm';
+import { countriesApi, timezonesApi, type Country, type TimezoneOption } from '@/lib/crm';
 
 function useInvalidate() {
   const qc = useQueryClient();
@@ -13,20 +13,24 @@ function useInvalidate() {
   };
 }
 
-function CountryRow({ c }: { c: Country }) {
+function CountryRow({ c, zones }: { c: Country; zones: TimezoneOption[] }) {
   const invalidate = useInvalidate();
   const [name, setName] = useState(c.name);
   const [active, setActive] = useState(c.isActive);
+  const [defaultTz, setDefaultTz] = useState(c.defaultTimezone ?? '');
 
   // Re-sync local state after a save (server is the source of truth).
-  useEffect(() => { setName(c.name); setActive(c.isActive); }, [c.name, c.isActive]);
+  useEffect(() => { setName(c.name); setActive(c.isActive); setDefaultTz(c.defaultTimezone ?? ''); }, [c.name, c.isActive, c.defaultTimezone]);
 
   const save = useMutation({
-    mutationFn: () => countriesApi.update(c.id, { name, isActive: active }),
+    mutationFn: () => countriesApi.update(c.id, { name, isActive: active, defaultTimezone: defaultTz || null }),
     onSuccess: invalidate,
   });
 
-  const dirty = name !== c.name || active !== c.isActive;
+  // Only this country's own zones can be its default (set a zone's country
+  // in the Time Zones card first).
+  const ownZones = zones.filter((z) => z.countryCode === c.code);
+  const dirty = name !== c.name || active !== c.isActive || defaultTz !== (c.defaultTimezone ?? '');
 
   return (
     <div className="flex flex-wrap items-center gap-3 border-b py-2.5 last:border-0">
@@ -36,6 +40,16 @@ function CountryRow({ c }: { c: Country }) {
         className={`min-w-[160px] flex-1 rounded-md border bg-background px-2.5 py-1.5 text-[12.5px] ${active ? '' : 'opacity-50 line-through'}`}
       />
       <span className="text-[11.5px] text-muted-foreground" title="Exact value stored on leads; set at creation">{c.code}</span>
+      <select
+        value={defaultTz}
+        onChange={(e) => setDefaultTz(e.target.value)}
+        disabled={ownZones.length === 0}
+        title={ownZones.length ? 'Time zone filled in when this country is picked' : 'No time zones belong to this country yet — link one in the Time Zones card'}
+        className="rounded-md border bg-background px-2 py-1.5 text-[12px] disabled:opacity-50"
+      >
+        <option value="">No default zone</option>
+        {ownZones.map((z) => <option key={z.id} value={z.code}>{z.code}</option>)}
+      </select>
       <label className="flex items-center gap-1.5 text-[12px] font-medium">
         <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} className="h-4 w-4 accent-[var(--brand)]" /> Active
       </label>
@@ -54,6 +68,7 @@ function CountryRow({ c }: { c: Country }) {
 export function CountryManagement() {
   const invalidate = useInvalidate();
   const { data: list = [], isLoading } = useQuery({ queryKey: ['countries-all'], queryFn: countriesApi.listAll, retry: false });
+  const { data: zones = [] } = useQuery({ queryKey: ['timezones-config'], queryFn: timezonesApi.list });
   const [newName, setNewName] = useState('');
 
   const create = useMutation({
@@ -78,7 +93,7 @@ export function CountryManagement() {
 
       <div className="px-[18px] py-2">
         {isLoading && <p className="py-4 text-sm text-muted-foreground">Loading…</p>}
-        {list.map((c) => <CountryRow key={c.id} c={c} />)}
+        {list.map((c) => <CountryRow key={c.id} c={c} zones={zones} />)}
         {!isLoading && list.length === 0 && <p className="py-4 text-sm text-muted-foreground">No countries yet.</p>}
       </div>
 

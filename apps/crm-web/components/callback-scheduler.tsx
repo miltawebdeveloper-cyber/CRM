@@ -40,6 +40,8 @@ export interface CallbackSchedulerProps {
   leadId: string;
   /** The lead's configured zone, or null/'' when nobody has set one. */
   timezone?: string | null;
+  /** The lead's country, if known — the zone prompt then offers only its zones. */
+  country?: string | null;
   /** Wall clock as typed, `YYYY-MM-DDTHH:mm`. Never carries a zone — see lib/timezone. */
   value: string;
   onChange: (wallClock: string) => void;
@@ -64,12 +66,13 @@ export function callbackInputError(value: string, timezone?: string | null): str
 export function CallbackScheduler({
   leadId,
   timezone,
+  country,
   value,
   onChange,
   onTimezoneSet,
   className = '',
 }: CallbackSchedulerProps) {
-  const leadTzOpts = useLeadTimezones();
+  const leadTzOpts = useLeadTimezones(country);
   const qc = useQueryClient();
   const zoned = hasLeadZone(timezone);
 

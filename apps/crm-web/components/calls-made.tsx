@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Phone, PhoneOutgoing, PhoneIncoming, PhoneMissed, PhoneOff, CheckCircle2, Clock, Timer, Upload, MapPin, Building2, Tag, PhoneCall, User as UserIcon, Info, ClipboardCheck, Hourglass, HelpCircle } from 'lucide-react';
+import { Phone, PhoneOutgoing, PhoneIncoming, PhoneMissed, PhoneOff, CheckCircle2, Clock, Timer, Upload, MapPin, Building2, Tag, PhoneCall, User as UserIcon, Info, ClipboardCheck, Hourglass, HelpCircle, Globe } from 'lucide-react';
 import { callsApi, outcomesApi, formatDuration, type CallRecord } from '@/lib/crm';
 import { OutcomePill } from '@/components/outcome-pill';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
@@ -11,7 +11,7 @@ import { Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { CAT, DirectionPill, useCallFilters } from '@/components/calls-shared';
 import { DateFilter, FilterSelect, optionsFrom } from '@/components/filter-controls';
-import { useTimezoneFilterOptions } from '@/lib/timezone';
+import { useTimezoneFilterOptions, countryOfZone, zoneMatchesCountry, UNSET_TIMEZONE_LABEL } from '@/lib/timezone';
 import { useCallingEnabled } from '@/lib/use-calling-enabled';
 import { useCall } from '@/components/call-provider';
 import { useCanCall } from '@/lib/use-can-call';
@@ -45,8 +45,9 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
   const { placeCallNumber, active: onCall } = useCall();
   const { dial } = useCanCall();
 
+  const [country, setCountry] = useState('');
   const [tz, setTz] = useState('');
-  const tzFilterOpts = useTimezoneFilterOptions();
+  const tzFilterOpts = useTimezoneFilterOptions(country || null);
   const [state, setState] = useState('');
   const [city, setCity] = useState('');
   const [leadStatus, setLeadStatus] = useState('');
@@ -63,13 +64,14 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
   const params = useMemo(
     () => ({
       ...scope,
+      ...(country ? { country } : {}),
       ...(tz ? { timezone: tz } : {}),
       ...(state ? { state } : {}),
       ...(city ? { city } : {}),
       ...(leadStatus ? { leadStatus } : {}),
       ...(outcomeFilter ? { outcome: outcomeFilter } : {}),
     }),
-    [scope, tz, state, city, leadStatus, outcomeFilter],
+    [scope, country, tz, state, city, leadStatus, outcomeFilter],
   );
 
   // Both queries key off the same params, so the summary and rows always agree.
@@ -288,17 +290,36 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
   // Cascading geography menus, built from the whole scope rather than the loaded
   // page, so every state/city that actually has calls is offered.
   const geo = useMemo(() => filterOpts?.geo ?? [], [filterOpts]);
+  const countryOpts = useMemo(
+    () => optionsFrom(geo.map((g) => g.country).filter((c): c is string => !!c), 'All Countries'),
+    [geo],
+  );
+  const inCountry = useMemo(() => geo.filter((g) => !country || g.country === country), [geo, country]);
   const stateOpts = useMemo(
-    () => optionsFrom(geo.filter((g) => !tz || g.timezone === tz).map((g) => g.state), 'All States'),
-    [geo, tz],
+    () => optionsFrom(inCountry.filter((g) => !tz || g.timezone === tz).map((g) => g.state), 'All States'),
+    [inCountry, tz],
   );
   const cityOpts = useMemo(
     () => optionsFrom(
-      geo.filter((g) => (!tz || g.timezone === tz) && (!state || g.state === state)).map((g) => g.city),
+      inCountry.filter((g) => (!tz || g.timezone === tz) && (!state || g.state === state)).map((g) => g.city),
       'All Cities',
     ),
-    [geo, tz, state],
+    [inCountry, tz, state],
   );
+  // Same Country -> Time Zone rules as the lead screens.
+  const pickCountry = (v: string) => {
+    setCountry(v);
+    if (tz && !zoneMatchesCountry(tz === UNSET_TIMEZONE_LABEL ? null : tz, v || null)) setTz('');
+    setState('');
+    setCity('');
+  };
+  const pickZone = (v: string) => {
+    setTz(v);
+    setState('');
+    setCity('');
+    const owner = countryOfZone(v);
+    if (owner && !country) setCountry(owner);
+  };
 
   // Driven by the configured outcome list (Admin → Outcomes) instead of a frozen
   // copy of it, plus any legacy imported statuses still present in the data, so
@@ -439,7 +460,8 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
           and one row from `lg` up for the same reason; see the note there. */}
       <div className="mb-[14px] flex flex-wrap items-center gap-2.5 lg:flex-nowrap">
         {isManager && <FilterSelect className="min-w-0 flex-1" icon={UserIcon} value={userId} onChange={setUserId} options={userOpts} />}
-        <FilterSelect className="min-w-0 flex-1" icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={tzFilterOpts} />
+        <FilterSelect className="min-w-0 flex-1" icon={Globe} value={country} onChange={pickCountry} options={countryOpts} />
+        <FilterSelect className="min-w-0 flex-1" icon={Clock} value={tz} onChange={pickZone} options={tzFilterOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={Tag} value={leadStatus} onChange={setLeadStatus} options={LEAD_STATUS_OPTS} />

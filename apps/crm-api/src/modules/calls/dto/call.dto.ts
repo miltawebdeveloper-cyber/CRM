@@ -74,6 +74,11 @@ export class CallStatsQueryDto {
   // SAME set of calls, and so filtering spans the whole range rather than only
   // the page of rows the table happens to have loaded.
 
+  @ApiPropertyOptional({ description: 'Lead country' })
+  @IsOptional()
+  @IsString()
+  country?: string;
+
   @ApiPropertyOptional({ description: "Lead timezone (EST/CST/MST/PST)" })
   @IsOptional()
   @IsString()

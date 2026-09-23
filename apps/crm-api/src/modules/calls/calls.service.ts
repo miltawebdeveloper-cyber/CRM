@@ -1307,6 +1307,7 @@ export class CallsService {
     const lead: Prisma.LeadWhereInput = {};
     // `Unassigned` comes back from the geo options for leads with no zone and
     // has to select `timezone IS NULL`, not a zone literally named that.
+    if (query.country) lead.country = query.country;
     Object.assign(lead, timezoneWhere(query.timezone));
     if (query.state) lead.state = query.state;
     if (query.city) lead.city = query.city;
@@ -1788,17 +1789,18 @@ export class CallsService {
     const where = await this.callsMadeWhere({ from: query.from, to: query.to, userId: query.userId }, current);
     const calls = await this.prisma.call.findMany({
       where,
-      select: { lead: { select: { timezone: true, state: true, city: true, callStatus: true } } },
+      select: { lead: { select: { country: true, timezone: true, state: true, city: true, callStatus: true } } },
       take: PIVOT_MAX,
     });
 
-    // Whole triples, so the web side can cascade timezone → state → city without
+    // Whole tuples, so the web side can cascade country → timezone → state → city without
     // another request and without offering combinations that have no calls.
-    const geo = new Map<string, { timezone: string; state: string; city: string }>();
+    const geo = new Map<string, { country: string | null; timezone: string; state: string; city: string }>();
     const callStatuses = new Set<string>();
     for (const { lead } of calls) {
       if (!lead) continue;
-      geo.set(`${tzLabel(lead.timezone)}\u0000${lead.state}\u0000${lead.city}`, {
+      geo.set(`${lead.country ?? ''}\u0000${tzLabel(lead.timezone)}\u0000${lead.state}\u0000${lead.city}`, {
+        country: lead.country,
         // A lead with no zone is filed under "Unassigned" rather than folded
         // into Eastern, so the cascade can still reach it.
         timezone: tzLabel(lead.timezone),

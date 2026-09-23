@@ -17,7 +17,7 @@ import { useCanCall } from '@/lib/use-can-call';
 import { TimezoneChip } from '@/components/timezone-chip';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { useLeadTimezones, useTimezoneFilterOptions, leadDate, leadDateTime, zoneNote } from '@/lib/timezone';
+import { useLeadTimezones, useTimezoneFilterOptions, countryOfZone, zoneMatchesCountry, UNSET_TIMEZONE_LABEL, leadDate, leadDateTime, zoneNote } from '@/lib/timezone';
 import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
 import { type SortState } from '@/lib/use-column-prefs';
@@ -138,8 +138,8 @@ export default function LeadLibraryPage() {
   const sentinelRef = useLeadScrollSentinel(leadsQuery);
 
   const { data: filterOpts } = useQuery({
-    queryKey: ['leads', 'filter-options', tz, state],
-    queryFn: ({ signal }) => leadsApi.filterOptions({ closed: false, timezone: tz || undefined, state: state || undefined }, signal),
+    queryKey: ['leads', 'filter-options', country, tz, state],
+    queryFn: ({ signal }) => leadsApi.filterOptions({ closed: false, country: country || undefined, timezone: tz || undefined, state: state || undefined }, signal),
     staleTime: 5 * 60_000,
     placeholderData: keepPreviousData,
   });
@@ -176,12 +176,35 @@ export default function LeadLibraryPage() {
   // option matching its current value, or the browser silently shows the
   // first real option instead of "nothing chosen" the moment the blank one
   // is removed.
-  const tzFilterOpts = useTimezoneFilterOptions();
-  const leadTzOpts = useLeadTimezones();
+  const tzFilterOpts = useTimezoneFilterOptions(country || null);
+  const leadTzOpts = useLeadTimezones(form.country || null);
+  // Picking a country keeps the zone if it belongs there, otherwise swaps in the
+  // country's default — so the form can't hold India + EST.
+  const pickFormCountry = (c: string) => {
+    const keep = form.timezone && zoneMatchesCountry(form.timezone, c || null);
+    const fallback = countryDefs.find((d) => d.code === c)?.defaultTimezone ?? '';
+    setForm({ ...form, country: c, timezone: keep ? form.timezone : fallback });
+  };
   const tzOpts = useMemo(
-    () => tzFilterOpts.map((o) => (o.value === '' ? { ...o, label: 'Time Zones' } : o)),
-    [tzFilterOpts],
+    () => tzFilterOpts.map((o) => (o.value === '' && !country ? { ...o, label: 'Time Zones' } : o)),
+    [tzFilterOpts, country],
   );
+  // Country -> Time Zone -> State -> City. A country drops any zone that isn't
+  // in it; a zone picked with no country set fills its own country in, so the
+  // pair on screen can never be India + EST.
+  const pickCountry = (v: string) => {
+    setCountry(v);
+    if (tz && !zoneMatchesCountry(tz === UNSET_TIMEZONE_LABEL ? null : tz, v || null)) setTz('');
+    setState('');
+    setCity('');
+  };
+  const pickZone = (v: string) => {
+    setTz(v);
+    setState('');
+    setCity('');
+    const owner = countryOfZone(v);
+    if (owner && !country) setCountry(owner);
+  };
 
   const { data: s } = useQuery({
     queryKey: ['metrics', 'summary', dateFilter.from, dateFilter.to, dateField],
@@ -417,8 +440,8 @@ export default function LeadLibraryPage() {
           sits right after Time Zone, ahead of the State/City cascade. */}
       <div className="mb-[18px] flex flex-wrap items-center gap-2.5 lg:flex-nowrap">
         <SearchInput value={q} onChange={setQ} placeholder="Search business, ID, phone, email…" className="min-w-[260px] flex-[2]" />
-        <FilterSelect className="min-w-0 flex-1" icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={tzOpts} />
-        <FilterSelect className="min-w-0 flex-1" icon={Globe} value={country} onChange={setCountry} options={countryOpts} />
+        <FilterSelect className="min-w-0 flex-1" icon={Globe} value={country} onChange={pickCountry} options={countryOpts} />
+        <FilterSelect className="min-w-0 flex-1" icon={Clock} value={tz} onChange={pickZone} options={tzOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         {isAdmin && <FilterSelect className="min-w-0 flex-1" icon={UserIcon} value={employeeId} onChange={setEmployeeId} options={employeeOpts} />}
@@ -475,7 +498,7 @@ export default function LeadLibraryPage() {
           ))}
           <label className="space-y-1 text-sm">
             <span className="font-medium">Country</span>
-            <select value={form.country ?? ''} onChange={(e) => setForm({ ...form, country: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2">
+            <select value={form.country ?? ''} onChange={(e) => pickFormCountry(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2">
               <option value="">— none —</option>
               {countryDefs.map((c) => <option key={c.id} value={c.code}>{c.name}</option>)}
             </select>

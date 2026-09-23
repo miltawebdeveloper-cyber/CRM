@@ -30,7 +30,7 @@ export class TimezonesCacheService implements OnModuleInit {
   async refresh() {
     try {
       const rows = await this.prisma.timezoneOption.findMany({ orderBy: { sortOrder: 'asc' } });
-      setTimezoneSnapshot(rows.map((r) => ({ code: r.code, label: r.label, ianaZone: r.ianaZone })));
+      setTimezoneSnapshot(rows.map((r) => ({ code: r.code, label: r.label, ianaZone: r.ianaZone, countryCode: r.countryCode })));
     } catch (e) {
       // A transient DB hiccup must not take down the interval or wipe out the
       // last-known-good snapshot — setTimezoneSnapshot() already refuses an

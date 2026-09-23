@@ -21,12 +21,14 @@ export class TimezonesService {
     if (!code) throw new BadRequestException('code is required');
     const exists = await this.prisma.timezoneOption.findUnique({ where: { code } });
     if (exists) throw new BadRequestException(`A time zone with code "${code}" already exists`);
+    await this.assertCountry(dto.countryCode);
     const max = await this.prisma.timezoneOption.aggregate({ _max: { sortOrder: true } });
     const created = await this.prisma.timezoneOption.create({
       data: {
         code,
         label: dto.label,
         ianaZone: dto.ianaZone,
+        countryCode: dto.countryCode || null,
         sortOrder: dto.sortOrder ?? (max._max.sortOrder ?? 0) + 10,
         isActive: dto.isActive ?? true,
       },
@@ -38,15 +40,25 @@ export class TimezonesService {
   }
 
   async update(id: string, dto: UpdateTimezoneDto) {
+    await this.assertCountry(dto.countryCode);
     try {
       const updated = await this.prisma.timezoneOption.update({
         where: { id },
         data: {
           ...(dto.label !== undefined ? { label: dto.label } : {}),
+          ...(dto.countryCode !== undefined ? { countryCode: dto.countryCode || null } : {}),
           ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
           ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
         },
       });
+      if (dto.countryCode !== undefined) {
+        // A country whose default was this zone can't keep it once the zone
+        // belongs elsewhere — that default would fill in a mismatched pair.
+        await this.prisma.country.updateMany({
+          where: { defaultTimezone: updated.code, NOT: { code: updated.countryCode ?? '' } },
+          data: { defaultTimezone: null },
+        });
+      }
       await this.cache.refresh();
       return updated;
     } catch (e) {
@@ -55,5 +67,11 @@ export class TimezonesService {
       }
       throw e;
     }
+  }
+
+  private async assertCountry(code?: string | null) {
+    if (!code) return;
+    const found = await this.prisma.country.findUnique({ where: { code } });
+    if (!found) throw new BadRequestException(`Unknown country "${code}"`);
   }
 }

@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AssignmentType, LeadStatus, Role, Prisma } from '@crm/database';
-import { allTimezoneCodes, dayInZone, parseInZone, timezoneWhere, tzLabel } from '../../common/timezone.js';
+import { allTimezoneCodes, dayInZone, parseInZone, timezoneWhere, tzLabel, zoneMatchesCountry } from '../../common/timezone.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto.js';
@@ -409,6 +409,7 @@ export class LeadsService {
     };
   }
   async create(dto: CreateLeadDto, userId?: string, role?: Role) {
+    this.assertZoneMatchesCountry(dto.timezone, dto.country);
     /**
      * Refuse a lead that already exists, unless the caller says to make it
      * anyway. The import has warned about duplicates for a long time; this form
@@ -760,6 +761,12 @@ export class LeadsService {
     // the import can be rolled back to exactly this batch — deleting these leaves
     // every pre-existing lead the import touched untouched.
     const createdIds: string[] = [];
+    // Each country's default zone, for rows that name a country but no zone.
+    const countryDefaults = new Map(
+      (await this.prisma.country.findMany({ select: { code: true, defaultTimezone: true } }))
+        .filter((c) => c.defaultTimezone)
+        .map((c) => [c.code, c.defaultTimezone as string]),
+    );
 
     const resolveAssigned = async (caller?: string) => {
       const key = caller?.trim().toLowerCase();
@@ -833,8 +840,12 @@ export class LeadsService {
       setIf('city', row.city);
       // Normalize + validate against the live admin-managed list so a stray
       // value can never crash the import.
+      // A zone belonging to a different country than the row's (India + EST)
+      // is dropped like an unknown code — the lead lands zone-less and gets
+      // asked for one, rather than being called on the wrong clock.
       const tz = (row.timezone ?? '').trim().toUpperCase();
-      if (allTimezoneCodes().includes(tz)) data.timezone = tz;
+      const rowCountry = (row.country ?? '').trim() || null;
+      if (allTimezoneCodes().includes(tz) && zoneMatchesCountry(tz, rowCountry)) data.timezone = tz;
       const stRaw = (row.status ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
       const stAlias: Record<string, string> = { closed_won: 'closed', won: 'closed', lost: 'rejected', new_lead: 'new' };
       const st = stAlias[stRaw] ?? stRaw;
@@ -915,6 +926,15 @@ export class LeadsService {
           const cacheKey = row.leadId ? `lead:${row.leadId}` : `phone:${last10}`;
           importLeadCache.set(cacheKey, existing);
         }
+      }
+
+      if (!existing && data.timezone === undefined && rowCountry && countryDefaults.has(rowCountry)) {
+        // New lead with a country but no zone: the country's default. Only on
+        // create — an update must never swap a zone the lead already has.
+        data.timezone = countryDefaults.get(rowCountry);
+      }
+      if (existing && typeof data.timezone === 'string' && !rowCountry && !zoneMatchesCountry(data.timezone, existing.country)) {
+        delete data.timezone;
       }
 
       if (existing) {
@@ -1710,6 +1730,13 @@ export class LeadsService {
    * those within the chosen timezone and state — because that is how the
    * dropdowns behaved when they were derived in the browser.
    */
+  /** India + EST is refused outright on a form/API write; see zoneMatchesCountry. */
+  private assertZoneMatchesCountry(zone?: string | null, country?: string | null) {
+    if (!zoneMatchesCountry(zone, country?.trim() || null)) {
+      throw new BadRequestException(`${zone} is not a time zone in ${country}`);
+    }
+  }
+
   async filterOptions(query: ListLeadsQueryDto, user?: { id: string; role: Role }) {
     const scope = user?.role === Role.employee ? { assignedToId: user.id } : {};
     const base: Prisma.LeadWhereInput = {
@@ -1717,16 +1744,18 @@ export class LeadsService {
       ...scope,
       ...(query.closed === true ? { status: LeadStatus.closed } : query.closed === false ? { status: { not: LeadStatus.closed } } : {}),
     };
+    // Country -> Time Zone -> State -> City: each level narrows by every level
+    // above it, never below — the country list stays whole whatever else is set.
+    const byCountry = query.country ? { country: query.country } : {};
+    const byZone = { ...byCountry, ...timezoneWhere(query.timezone) };
     const [zones, states, cities, countries, closers] = await Promise.all([
-      this.prisma.lead.groupBy({ by: ['timezone'], where: base, orderBy: { timezone: 'asc' } }),
-      this.prisma.lead.groupBy({ by: ['state'], where: { ...base, ...timezoneWhere(query.timezone) }, orderBy: { state: 'asc' } }),
+      this.prisma.lead.groupBy({ by: ['timezone'], where: { ...base, ...byCountry }, orderBy: { timezone: 'asc' } }),
+      this.prisma.lead.groupBy({ by: ['state'], where: { ...base, ...byZone }, orderBy: { state: 'asc' } }),
       this.prisma.lead.groupBy({
         by: ['city'],
-        where: { ...base, ...timezoneWhere(query.timezone), ...(query.state ? { state: query.state } : {}) },
+        where: { ...base, ...byZone, ...(query.state ? { state: query.state } : {}) },
         orderBy: { city: 'asc' },
       }),
-      // Independent of the timezone/state cascade above — Country sits outside
-      // that chain in the filter bar, not nested inside it.
       this.prisma.lead.groupBy({ by: ['country'], where: base, orderBy: { country: 'asc' } }),
       // Who has closed anything — the Closed Leads module's employee filter.
       // Read from the users who actually appear as closers rather than from the
@@ -1814,6 +1843,13 @@ export class LeadsService {
       include: { assignedTo: { select: { id: true, name: true } } },
     });
     if (!existing) throw new NotFoundException('Lead not found');
+    if (dto.timezone !== undefined || dto.country !== undefined) {
+      // Judge the pair the lead will END UP with, so changing only one side
+      // can't leave it inconsistent either.
+      const nextCountry = dto.country !== undefined ? dto.country.trim() || null : existing.country;
+      const nextZone = dto.timezone !== undefined ? dto.timezone || null : existing.timezone;
+      this.assertZoneMatchesCountry(nextZone, nextCountry);
+    }
 
     const data: Prisma.LeadUpdateInput = {};
     const logs: Array<{ action: string; field: string; oldValue: string | null; newValue: string | null }> = [];

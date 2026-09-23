@@ -40,6 +40,12 @@ export class CreateTimezoneDto {
   @Validate(IsIanaTimezoneConstraint)
   ianaZone: string;
 
+  @ApiPropertyOptional({ description: 'Country.code this zone belongs to; null = not tied to a country' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  countryCode?: string | null;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsInt()
@@ -55,9 +61,15 @@ export class CreateTimezoneDto {
 // `code` and `ianaZone` are deliberately not here — both are referenced by
 // existing leads/targets/employees going forward, and editing either after
 // the fact would retroactively change how a past callback/call is understood
-// to have been timed. Only `label` (display-only) and `isActive` are safe to
-// change post-creation, matching Country's own edit surface.
+// to have been timed. `label` (display-only), `countryCode` (only decides
+// which pickers offer the zone) and `isActive` are safe to change.
 export class UpdateTimezoneDto {
+  @ApiPropertyOptional({ description: 'Country.code this zone belongs to; null unlinks it. Safe to change: it affects which pickers offer the zone, never how a time is read' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  countryCode?: string | null;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

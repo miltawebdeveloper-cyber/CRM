@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { countryOfZone } from '../../common/timezone.js';
 import { CreateCountryDto, UpdateCountryDto } from './dto/country.dto.js';
 
 @Injectable()
@@ -34,11 +35,18 @@ export class CountriesService {
   }
 
   async update(id: string, dto: UpdateCountryDto) {
+    if (dto.defaultTimezone) {
+      const country = await this.prisma.country.findUnique({ where: { id } });
+      if (country && countryOfZone(dto.defaultTimezone) !== country.code) {
+        throw new BadRequestException(`${dto.defaultTimezone} is not a time zone in ${country.name}`);
+      }
+    }
     try {
       return await this.prisma.country.update({
         where: { id },
         data: {
           ...(dto.name !== undefined ? { name: dto.name } : {}),
+          ...(dto.defaultTimezone !== undefined ? { defaultTimezone: dto.defaultTimezone || null } : {}),
           ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
           ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
         },

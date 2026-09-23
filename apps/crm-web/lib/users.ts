@@ -13,6 +13,8 @@ export interface User {
   shiftStart?: string | null;
   /** OpenPhone number this caller sends SMS / dials from (E.164). */
   openphoneNumber?: string | null;
+  /** Employees only — admins and team leaders have no employee row. */
+  employee?: { shiftTimezone: string } | null;
   createdAt: string;
   updatedAt?: string;
 }
@@ -23,6 +25,8 @@ export interface CreateUserInput {
   password: string;
   role: UserRole;
   openphoneNumber?: string;
+  /** Employees only. */
+  shiftTimezone?: string;
 }
 
 export interface UpdateUserInput {
@@ -36,6 +40,8 @@ export interface UpdateUserInput {
   shiftStart?: string;
   /** OpenPhone number (E.164, or '' to clear). */
   openphoneNumber?: string;
+  /** Employees only — the zone their shift runs on. */
+  shiftTimezone?: string;
 }
 
 export const usersApi = {

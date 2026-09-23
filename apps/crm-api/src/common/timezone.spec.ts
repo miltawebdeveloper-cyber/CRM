@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { dayInZone, sameDayInZone, startOfDayInZone } from './timezone.js';
+import { dayInZone, sameDayInZone, startOfDayInZone, zoneMatchesCountry, zonesOfCountry } from './timezone.js';
 
 /**
  * The server runs on IST and the leads are American. Every date decision about a
@@ -67,5 +67,22 @@ describe('lead-zone calendar boundaries', () => {
     // Unset zones default to a US zone, never to IST — wrong by hours beats
     // wrong by half a day, and half a day is what flips the date.
     expect(dayInZone(indianMidnightPassed, null)).toBe('2026-08-13');
+  });
+});
+
+describe('country / zone matching (built-in zones)', () => {
+  it('accepts a zone in its own country and rejects one from another', () => {
+    expect(zoneMatchesCountry('EST', 'USA')).toBe(true);
+    expect(zoneMatchesCountry('EST', 'India')).toBe(false);
+    expect(zoneMatchesCountry('IND', 'India')).toBe(true);
+  });
+
+  it('never blocks when either side is missing', () => {
+    expect(zoneMatchesCountry(null, 'India')).toBe(true);
+    expect(zoneMatchesCountry('EST', null)).toBe(true);
+  });
+
+  it("lists a country's zones in configured order", () => {
+    expect(zonesOfCountry('USA')).toEqual(['EST', 'CST', 'MST', 'PST', 'AKST', 'HST']);
   });
 });

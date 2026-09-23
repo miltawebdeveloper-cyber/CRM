@@ -18,7 +18,7 @@ import { StatusPill } from '@/components/status-pill';
 import { TimezoneChip } from '@/components/timezone-chip';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { useTimezoneFilterOptions, leadDate, leadDateTime, zoneNote } from '@/lib/timezone';
+import { useTimezoneFilterOptions, countryOfZone, zoneMatchesCountry, UNSET_TIMEZONE_LABEL, leadDate, leadDateTime, zoneNote } from '@/lib/timezone';
 import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
 import { type SortState } from '@/lib/use-column-prefs';
@@ -148,8 +148,8 @@ export default function LeadsPage() {
   // The dropdown values come from the whole book, not from the page on screen —
   // a filter offering only the cities that happen to be on page 3 is no filter.
   const { data: filterOpts } = useQuery({
-    queryKey: ['leads', 'filter-options', tz, state],
-    queryFn: ({ signal }) => leadsApi.filterOptions({ closed: false, timezone: tz || undefined, state: state || undefined }, signal),
+    queryKey: ['leads', 'filter-options', country, tz, state],
+    queryFn: ({ signal }) => leadsApi.filterOptions({ closed: false, country: country || undefined, timezone: tz || undefined, state: state || undefined }, signal),
     staleTime: 5 * 60_000,
     // Keys on the zone and the state, so picking either one changes the key and
     // would otherwise leave `filterOpts` undefined for the length of a request —
@@ -229,11 +229,27 @@ export default function LeadsPage() {
   // option matching its current value, or the browser silently shows the
   // first real option instead of "nothing chosen" the moment the blank one
   // is removed.
-  const tzFilterOpts = useTimezoneFilterOptions();
+  const tzFilterOpts = useTimezoneFilterOptions(country || null);
   const tzOpts = useMemo(
-    () => tzFilterOpts.map((o) => (o.value === '' ? { ...o, label: 'Time Zones' } : o)),
-    [tzFilterOpts],
+    () => tzFilterOpts.map((o) => (o.value === '' && !country ? { ...o, label: 'Time Zones' } : o)),
+    [tzFilterOpts, country],
   );
+  // Country -> Time Zone -> State -> City. A country drops any zone that isn't
+  // in it; a zone picked with no country set fills its own country in, so the
+  // pair on screen can never be India + EST.
+  const pickCountry = (v: string) => {
+    setCountry(v);
+    if (tz && !zoneMatchesCountry(tz === UNSET_TIMEZONE_LABEL ? null : tz, v || null)) setTz('');
+    setState('');
+    setCity('');
+  };
+  const pickZone = (v: string) => {
+    setTz(v);
+    setState('');
+    setCity('');
+    const owner = countryOfZone(v);
+    if (owner && !country) setCountry(owner);
+  };
 
   // KPI cards respect the same date filter as the table, ON THE SAME DATE —
   // `dateField` goes with the range, so switching the grid to scheduled dates
@@ -547,8 +563,8 @@ export default function LeadsPage() {
           wraps, which is what a tablet and a phone want. */}
       <div className="mb-[18px] flex flex-wrap items-center gap-2.5 lg:flex-nowrap">
         <SearchInput value={q} onChange={setQ} placeholder="Search business, ID, phone, email…" className="min-w-[260px] flex-[2]" />
-        <FilterSelect className="min-w-0 flex-1" icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={tzOpts} />
-        <FilterSelect className="min-w-0 flex-1" icon={Globe} value={country} onChange={setCountry} options={countryOpts} />
+        <FilterSelect className="min-w-0 flex-1" icon={Globe} value={country} onChange={pickCountry} options={countryOpts} />
+        <FilterSelect className="min-w-0 flex-1" icon={Clock} value={tz} onChange={pickZone} options={tzOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         {/* Admin only. Hidden rather than disabled for other roles: a team

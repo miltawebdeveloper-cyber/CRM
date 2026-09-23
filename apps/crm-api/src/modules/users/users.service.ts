@@ -1,9 +1,10 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, ConflictException, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { Prisma, Role } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { TrustedDeviceService } from '../auth/trusted-device.service.js';
 import { CreateUserDto, UpdateUserDto, ListUsersQueryDto } from './dto/user.dto.js';
+import { zonesOfCountry } from '../../common/timezone.js';
 
 // Never leak secrets — select excludes passwordHash / mfaSecret.
 const SAFE_SELECT = {
@@ -16,6 +17,7 @@ const SAFE_SELECT = {
   availability: true,
   shiftStart: true,
   openphoneNumber: true,
+  employee: { select: { shiftTimezone: true } },
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.UserSelect;
@@ -45,7 +47,17 @@ export class UsersService {
   // LGN-012 — admin user list, filterable by role/status
   async findAll(query: ListUsersQueryDto) {
     return this.prisma.user.findMany({
-      where: { role: query.role, isActive: query.isActive },
+      where: {
+        role: query.role,
+        isActive: query.isActive,
+        // Only employees carry a shift zone, so either geo filter narrows the
+        // list to employees — admins/leaders have no zone to match.
+        ...(query.timezone
+          ? { employee: { shiftTimezone: query.timezone } }
+          : query.country
+            ? { employee: { shiftTimezone: { in: zonesOfCountry(query.country) } } }
+            : {}),
+      },
       select: SAFE_SELECT,
       orderBy: { createdAt: 'desc' },
     });
@@ -73,7 +85,7 @@ export class UsersService {
         role: dto.role,
         passwordHash,
         ...(number ? { openphoneNumber: number } : {}),
-        ...(dto.role === 'employee' ? { employee: { create: {} } } : {}),
+        ...(dto.role === 'employee' ? { employee: { create: dto.shiftTimezone ? { shiftTimezone: dto.shiftTimezone } : {} } } : {}),
       },
       select: SAFE_SELECT,
     });
@@ -81,7 +93,10 @@ export class UsersService {
 
   // LGN-010 — edit user (name/email/role/password)
   async update(id: string, dto: UpdateUserDto) {
-    await this.findOne(id);
+    const current = await this.findOne(id);
+    if (dto.shiftTimezone !== undefined && (dto.role ?? current.role) !== Role.employee) {
+      throw new BadRequestException('Only employees have a shift time zone');
+    }
     // A non-empty number must be free (not held by another user) before assigning.
     if (dto.openphoneNumber !== undefined && dto.openphoneNumber.trim()) {
       await this.assertNumberAvailable(dto.openphoneNumber.trim(), id);
@@ -93,6 +108,9 @@ export class UsersService {
       isActive: dto.isActive,
       ...(dto.shiftStart !== undefined ? { shiftStart: dto.shiftStart.trim() || null } : {}),
       ...(dto.openphoneNumber !== undefined ? { openphoneNumber: dto.openphoneNumber.trim() || null } : {}),
+      ...(dto.shiftTimezone
+        ? { employee: { upsert: { create: { shiftTimezone: dto.shiftTimezone }, update: { shiftTimezone: dto.shiftTimezone } } } }
+        : {}),
     };
     if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 12);
     const user = await this.prisma.user.update({ where: { id }, data, select: SAFE_SELECT });

@@ -98,21 +98,30 @@ const callerNumber = (slot: number) => `+1305555${String(slot).padStart(4, '0')}
 // fresh `db push` + seed on an empty database (no migration history) is
 // self-contained rather than depending on that specific migration having run.
 const TIMEZONE_OPTIONS = [
-  { code: 'UK', label: 'UK (Europe/London)', ianaZone: 'Europe/London', sortOrder: 10 },
-  { code: 'IND', label: 'India (Asia/Kolkata)', ianaZone: 'Asia/Kolkata', sortOrder: 20 },
-  { code: 'EST', label: 'EST (Eastern Standard Time)', ianaZone: 'America/New_York', sortOrder: 30 },
-  { code: 'CST', label: 'CST (Central Standard Time)', ianaZone: 'America/Chicago', sortOrder: 40 },
-  { code: 'MST', label: 'MST (Mountain Standard Time)', ianaZone: 'America/Denver', sortOrder: 50 },
-  { code: 'PST', label: 'PST (Pacific Standard Time)', ianaZone: 'America/Los_Angeles', sortOrder: 60 },
-  { code: 'AKST', label: 'AKST (Alaska Standard Time)', ianaZone: 'America/Anchorage', sortOrder: 70 },
-  { code: 'HST', label: 'HST (Hawaii Standard Time)', ianaZone: 'Pacific/Honolulu', sortOrder: 80 },
+  { code: 'UK', label: 'UK (Europe/London)', ianaZone: 'Europe/London', sortOrder: 10, countryCode: 'UK' },
+  { code: 'IND', label: 'India (Asia/Kolkata)', ianaZone: 'Asia/Kolkata', sortOrder: 20, countryCode: 'India' },
+  { code: 'EST', label: 'EST (Eastern Standard Time)', ianaZone: 'America/New_York', sortOrder: 30, countryCode: 'USA' },
+  { code: 'CST', label: 'CST (Central Standard Time)', ianaZone: 'America/Chicago', sortOrder: 40, countryCode: 'USA' },
+  { code: 'MST', label: 'MST (Mountain Standard Time)', ianaZone: 'America/Denver', sortOrder: 50, countryCode: 'USA' },
+  { code: 'PST', label: 'PST (Pacific Standard Time)', ianaZone: 'America/Los_Angeles', sortOrder: 60, countryCode: 'USA' },
+  { code: 'AKST', label: 'AKST (Alaska Standard Time)', ianaZone: 'America/Anchorage', sortOrder: 70, countryCode: 'USA' },
+  { code: 'HST', label: 'HST (Hawaii Standard Time)', ianaZone: 'Pacific/Honolulu', sortOrder: 80, countryCode: 'USA' },
+];
+
+const COUNTRIES = [
+  { code: 'USA', name: 'USA', defaultTimezone: 'EST', sortOrder: 10 },
+  { code: 'UK', name: 'UK', defaultTimezone: 'UK', sortOrder: 20 },
+  { code: 'India', name: 'India', defaultTimezone: 'IND', sortOrder: 30 },
 ];
 
 async function main() {
   console.log('Seeding…');
   const passwordHash = await bcrypt.hash(PASSWORD, 12);
 
-  // ── Time zones ─────────────────────────────────────────
+  // ── Countries + time zones ─────────────────────────────
+  for (const c of COUNTRIES) {
+    await prisma.country.upsert({ where: { code: c.code }, update: {}, create: c });
+  }
   for (const tz of TIMEZONE_OPTIONS) {
     await prisma.timezoneOption.upsert({ where: { code: tz.code }, update: {}, create: tz });
   }

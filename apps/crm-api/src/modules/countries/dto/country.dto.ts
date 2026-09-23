@@ -28,6 +28,12 @@ export class CreateCountryDto {
 }
 
 export class UpdateCountryDto {
+  @ApiPropertyOptional({ description: 'Zone code filled in when this country is picked; must belong to this country' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  defaultTimezone?: string | null;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

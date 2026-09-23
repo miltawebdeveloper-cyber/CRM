@@ -10,7 +10,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageHead } from '@/components/page-head';
 import { downloadCsv } from '@/lib/export';
 import { formatDate } from '@/lib/display-settings';
-import { timezoneCodes } from '@/lib/timezone';
+import { timezoneCodes, zoneMatchesCountry } from '@/lib/timezone';
 
 /**
  * Which fields the duplicate check compares on — mirrors the API's `checkFields`.
@@ -202,7 +202,11 @@ function buildRows(file: ParsedFile, mapping: Mapping): LeadRow[] {
       country: row.country,
       state: row.state ?? '',
       city: row.city ?? '',
-      timezone: row.timezone,
+      // A zone from another country (India + EST) is left blank, like an
+      // unknown code — see `zoneMismatches` for the warning. A missing zone is
+      // NOT defaulted here: the API fills the country's default on new leads
+      // only, so an update can never overwrite a lead's existing zone.
+      timezone: zoneMatchesCountry(row.timezone, row.country) ? row.timezone : undefined,
       industry: row.industry,
       companySize: row.companySize,
       foundedYear: row.foundedYear,
@@ -283,7 +287,7 @@ const templateNotes = (): string[][] => [
   ['Phone', '+1 305 555 1234', 'Any format — matched on the last 10 digits. A row whose number is already in the CRM UPDATES that lead rather than creating a second one.'],
   ['Alt Phone', '+1 305 555 5678', 'Also read by the duplicate check, against both phone columns on both sides.'],
   ['Email', 'john@acme.com', 'The duplicate check ignores +tags, and dots on Gmail addresses only.'],
-  ['Time Zone', timezoneCodes().join(' / '), 'Must be one of these codes. Anything else is left BLANK rather than guessed — a lead with no zone is asked for one before a callback can be booked, which is safer than booking on the wrong clock.'],
+  ['Time Zone', timezoneCodes().join(' / '), "Must be one of these codes, and belong to the row's Country (India + EST is left blank). A new lead with a Country but no zone gets that country's default zone. Anything else is left BLANK rather than guessed — a lead with no zone is asked for one before a callback can be booked, which is safer than booking on the wrong clock."],
   ['Assigned To', 'Lisa   ·   lisa@crm.local   ·   Lisa - MAS21072', "The employee's name or login email; a trailing \" - CODE\" is ignored. A name that matches nobody is reported row by row and the lead imports unassigned. An import never takes a lead off the employee already holding it."],
   ['Dates', '2026-07-15', 'First Contact, Last Contact, Next Follow-up, Meeting Date. Use YYYY-MM-DD; a date that cannot be read is left blank rather than failing the row.'],
   ['Created Date & Time', '2026-07-01 09:30', "The lead's ORIGINAL creation date, for a back catalogue being brought in — leave it blank and the lead is stamped with the moment it was imported. YYYY-MM-DD, or add HH:MM to keep the hour. Read on the LEAD's own time zone, so 09:30 against an EST lead means half past nine in New York. Applied only when the row CREATES a lead: a row matching a lead already in the CRM updates its fields and never rewrites what it says here."],
@@ -399,6 +403,17 @@ export default function ImportPage() {
   const [mergeOpen, setMergeOpen] = useState<number | null>(null);
 
   const rows = useMemo(() => (file.headers.length ? buildRows(file, mapping) : []), [file, mapping]);
+  // Rows whose zone was blanked for belonging to another country than the row's.
+  const zoneMismatches = useMemo(() => {
+    const tzCol = mapping.timezone ?? NOT_MAPPED;
+    const cCol = mapping.country ?? NOT_MAPPED;
+    if (tzCol < 0 || cCol < 0) return 0;
+    return file.cells.filter((cells) => {
+      const tz = normalize('timezone', cells[tzCol] ?? '');
+      const c = normalize('country', cells[cCol] ?? '');
+      return !zoneMatchesCountry(tz, c);
+    }).length;
+  }, [file, mapping]);
 
   /**
    * The rows as they will actually be sent, with every field the reviewer chose
@@ -784,6 +799,15 @@ export default function ImportPage() {
               );
             })}
           </div>
+
+          {zoneMismatches > 0 && (
+            <div className="mt-3 flex items-start gap-2 rounded-md bg-[var(--tone-amber-bg)] px-3 py-2 text-[12px] text-[#8a6a12]">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                {zoneMismatches} {zoneMismatches === 1 ? 'row has a time zone' : 'rows have a time zone'} that doesn&apos;t belong to {zoneMismatches === 1 ? 'its' : 'their'} country — left blank. A lead with no zone is asked for one before a callback can be booked.
+              </span>
+            </div>
+          )}
 
           {unmapped.length > 0 && (
             <div className="mt-3 flex items-start gap-2 rounded-md bg-[var(--tone-amber-bg)] px-3 py-2 text-[12px] text-[#8a6a12]">

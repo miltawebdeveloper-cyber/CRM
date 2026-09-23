@@ -290,6 +290,9 @@ model Country {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   code      String   @unique
   name      String
+  /// Zone code filled in when this country is picked on a form or import row.
+  /// Must be one of this country's own zones (TimezoneOption.countryCode).
+  defaultTimezone String? @map("default_timezone")
   sortOrder Int      @default(0) @map("sort_order")
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
@@ -310,6 +313,9 @@ model TimezoneOption {
   code      String   @unique
   label     String
   ianaZone  String   @map("iana_zone")
+  /// Country.code this zone belongs to — soft reference, same no-FK style as
+  /// Lead.country. Null = not tied to a country, offered everywhere.
+  countryCode String? @map("country_code")
   sortOrder Int      @default(0) @map("sort_order")
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")

@@ -37,6 +37,8 @@ interface TimezoneEntry {
   /** Omitted = active. An inactive zone still resolves (a lead may still be on
    *  it) but is no longer offered in pickers, filters or the import. */
   isActive?: boolean;
+  /** Country.code the zone belongs to; null/omitted = offered with any country. */
+  countryCode?: string | null;
 }
 
 /**
@@ -59,6 +61,7 @@ const FALLBACK: TimezoneEntry[] = [
 interface Snapshot {
   ianaByCode: Record<string, string>;
   labelByCode: Record<string, string>;
+  countryByCode: Record<string, string | null>;
   /** Active codes only — what pickers, filters and the import offer. */
   codes: string[];
 }
@@ -66,13 +69,15 @@ interface Snapshot {
 function buildSnapshot(rows: TimezoneEntry[]): Snapshot {
   const ianaByCode: Record<string, string> = {};
   const labelByCode: Record<string, string> = {};
+  const countryByCode: Record<string, string | null> = {};
   const codes: string[] = [];
   for (const r of rows) {
     ianaByCode[r.code] = r.ianaZone;
     labelByCode[r.code] = r.label;
+    countryByCode[r.code] = r.countryCode ?? null;
     if (r.isActive !== false) codes.push(r.code);
   }
-  return { ianaByCode, labelByCode, codes };
+  return { ianaByCode, labelByCode, countryByCode, codes };
 }
 
 let snapshot: Snapshot = buildSnapshot(FALLBACK);
@@ -95,20 +100,37 @@ const getSnapshot = () => snapshot;
 // Plain functions can't make a component repaint when the list changes, so a
 // component that RENDERS the zone list (a picker or filter) reads it through
 // one of these hooks instead. Formatters stay plain functions.
-export function useLeadTimezones() {
+//
+// Pass a country to get only that country's zones (plus any zone tied to no
+// country) — this is what keeps India + EST from ever being offered.
+export function useLeadTimezones(country?: string | null) {
   const s = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  return useMemo(() => pickerOptions(s), [s]);
+  return useMemo(() => pickerOptions(s, country), [s, country]);
 }
-export function useTimezoneFilterOptions() {
+export function useTimezoneFilterOptions(country?: string | null) {
   const s = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  return useMemo(() => filterOptions(s), [s]);
+  return useMemo(() => filterOptions(s, country), [s, country]);
 }
 
-const pickerOptions = (s: Snapshot) => s.codes.map((value) => ({ value, label: s.labelByCode[value] }));
-const filterOptions = (s: Snapshot) => [
-  { value: '', label: 'All Time Zones' },
-  ...s.codes.map((value) => ({ value, label: value === 'IND' ? 'India' : value })),
+const codesFor = (s: Snapshot, country?: string | null) =>
+  country ? s.codes.filter((c) => !s.countryByCode[c] || s.countryByCode[c] === country) : s.codes;
+const pickerOptions = (s: Snapshot, country?: string | null) =>
+  codesFor(s, country).map((value) => ({ value, label: s.labelByCode[value] }));
+const filterOptions = (s: Snapshot, country?: string | null) => [
+  { value: '', label: country ? `${country} Time Zones` : 'All Time Zones' },
+  ...codesFor(s, country).map((value) => ({ value, label: value === 'IND' ? 'India' : value })),
 ];
+
+/** The country a zone belongs to, or null when it isn't tied to one. */
+export const countryOfZone = (code?: string | null): string | null =>
+  (code && snapshot.countryByCode[code]) || null;
+
+/** Mirrors the API rule: only a zone owned by a DIFFERENT country mismatches. */
+export function zoneMatchesCountry(zone?: string | null, country?: string | null): boolean {
+  if (!zone || !country) return true;
+  const owner = countryOfZone(zone);
+  return !owner || owner === country;
+}
 
 /** A lead zone code. Data now, not a fixed set of literals. */
 export type LeadTimezone = string;
@@ -125,7 +147,7 @@ export const timezoneCodes = (): string[] => snapshot.codes;
  * The zones a rep can pick from: the scheduler's inline zone prompt, the lead
  * form, the import mapper and every zone filter all read this one list.
  */
-export const leadTimezones = (): { value: string; label: string }[] => pickerOptions(snapshot);
+export const leadTimezones = (country?: string | null): { value: string; label: string }[] => pickerOptions(snapshot, country);
 
 /**
  * Options for a zone <select> that can also mean "don't filter", by CODE. The
