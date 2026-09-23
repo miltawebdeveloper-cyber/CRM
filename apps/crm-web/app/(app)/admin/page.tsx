@@ -11,6 +11,7 @@ import { KpiCard } from '@/components/dashboard/kpi-card';
 import { EmailNotificationSettings } from '@/components/admin/email-notification-settings';
 import { OutcomeManagement } from '@/components/admin/outcome-management';
 import { CountryManagement } from '@/components/admin/country-management';
+import { TimezoneManagement } from '@/components/admin/timezone-management';
 import { formatTime } from '@/lib/display-settings';
 
 function Toggle({ on: initial }: { on: boolean }) {
@@ -89,10 +90,9 @@ export default function AdminPage() {
         <OutcomeManagement />
       </div>
 
-      {/* Own row for now — Timezone management joins it here as the second
-          column once that reference-data conversion ships. */}
       <div className="mt-[18px] grid gap-[18px] lg:grid-cols-2">
         <CountryManagement />
+        <TimezoneManagement />
       </div>
 
       <div className="mt-[18px] rounded-2xl border bg-card shadow-sm">

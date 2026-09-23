@@ -1,8 +1,9 @@
 import { ArrayNotEmpty, IsArray, IsBoolean, IsEmail, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min, MinLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
-import { Timezone, LeadStatus } from '@crm/database';
-import { UNSET_TIMEZONE_LABEL } from '../../../common/timezone.js';
+import { LeadStatus } from '@crm/database';
+import { DEFAULT_TIMEZONE, UNSET_TIMEZONE_LABEL } from '../../../common/timezone.js';
+import { IsTimezoneCode } from '../../../common/validators/is-timezone-code.validator.js';
 
 export class CreateLeadDto {
   @ApiPropertyOptional({ description: 'External lead id; auto-generated if omitted (IMP-006)' })
@@ -33,10 +34,10 @@ export class CreateLeadDto {
   @IsString()
   city: string;
 
-  @ApiPropertyOptional({ enum: Timezone, default: Timezone.EST })
+  @ApiPropertyOptional({ description: 'A time zone code, see GET /timezones', default: DEFAULT_TIMEZONE })
   @IsOptional()
-  @IsEnum(Timezone)
-  timezone?: Timezone;
+  @IsTimezoneCode()
+  timezone?: string;
 
   @ApiPropertyOptional({ enum: LeadStatus, default: LeadStatus.new })
   @IsOptional()
@@ -540,9 +541,9 @@ export class ListLeadsQueryDto {
    * booked against until someone gives them a zone. Validated as a plain string
    * for that reason; `leadFilter` maps it back to `timezone IS NULL`.
    */
-  @ApiPropertyOptional({ enum: [...Object.values(Timezone), UNSET_TIMEZONE_LABEL] })
+  @ApiPropertyOptional({ description: 'A time zone code, or Unassigned — see GET /timezones' })
   @IsOptional()
-  @IsIn([...Object.values(Timezone), UNSET_TIMEZONE_LABEL])
+  @IsTimezoneCode({ allowValues: [UNSET_TIMEZONE_LABEL] })
   timezone?: string;
 
   /** Outcome slug, or the display name carried by leads imported before the

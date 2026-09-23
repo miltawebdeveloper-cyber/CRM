@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { LeadStatus, Prisma, Role, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { ALL_TIMEZONES, tzLabel, UNSET_TIMEZONE_LABEL } from '../../common/timezone.js';
+import { allTimezoneCodes, tzLabel, UNSET_TIMEZONE_LABEL } from '../../common/timezone.js';
 import { MetricsQueryDto } from './dto/metrics.dto.js';
 import { CONNECTED_CALL, MISSED_INBOUND_CALL } from '../calls/call-status.js';
 
@@ -358,10 +358,11 @@ export class MetricsService {
       where: this.leadWhere(q, user),
       _count: { _all: true },
     });
-    // Read off the enum rather than a hand-written list: the four US zones used
-    // to be spelled out here, so UK, India, Alaska and Hawaii leads would have
-    // been dropped from the chart the day they became selectable.
-    const rows: { timezone: string; count: number }[] = ALL_TIMEZONES.map((tz) => ({
+    // Read off the live admin-managed list rather than a hand-written one: the
+    // four US zones used to be spelled out here, so UK, India, Alaska and
+    // Hawaii leads would have been dropped from the chart the day they became
+    // selectable — and a zone an admin adds today shows up here too.
+    const rows: { timezone: string; count: number }[] = allTimezoneCodes().map((tz) => ({
       timezone: tz,
       count: grouped.find((g) => g.timezone === tz)?._count._all ?? 0,
     }));

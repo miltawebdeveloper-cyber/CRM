@@ -1,6 +1,6 @@
-import { IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Timezone } from '@crm/database';
+import { IsTimezoneCode } from '../../../common/validators/is-timezone-code.validator.js';
 
 export class UpsertTargetDto {
   @ApiProperty()
@@ -11,9 +11,9 @@ export class UpsertTargetDto {
   @IsString()
   city: string;
 
-  @ApiProperty({ enum: Timezone })
-  @IsEnum(Timezone)
-  timezone: Timezone;
+  @ApiProperty({ description: 'A time zone code, see GET /timezones' })
+  @IsTimezoneCode()
+  timezone: string;
 
   @ApiProperty({ minimum: 0 })
   @IsInt()
@@ -22,10 +22,10 @@ export class UpsertTargetDto {
 }
 
 export class ListTargetsQueryDto {
-  @ApiPropertyOptional({ enum: Timezone })
+  @ApiPropertyOptional({ description: 'A time zone code, see GET /timezones' })
   @IsOptional()
-  @IsEnum(Timezone)
-  timezone?: Timezone;
+  @IsTimezoneCode()
+  timezone?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

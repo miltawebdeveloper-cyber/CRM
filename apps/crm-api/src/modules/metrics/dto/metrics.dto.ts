@@ -1,13 +1,13 @@
-import { IsEnum, IsIn, IsOptional, IsString, IsDateString } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsDateString } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Timezone } from '@crm/database';
+import { IsTimezoneCode } from '../../../common/validators/is-timezone-code.validator.js';
 
 /** Shared dashboard filter (FLT-001..005). */
 export class MetricsQueryDto {
-  @ApiPropertyOptional({ enum: Timezone })
+  @ApiPropertyOptional({ description: 'A time zone code, see GET /timezones' })
   @IsOptional()
-  @IsEnum(Timezone)
-  timezone?: Timezone;
+  @IsTimezoneCode()
+  timezone?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

@@ -26,6 +26,7 @@ import { MailModule } from './modules/mail/mail.module.js';
 import { CallbacksModule } from './modules/callbacks/callbacks.module.js';
 import { OutcomesModule } from './modules/outcomes/outcomes.module.js';
 import { CountriesModule } from './modules/countries/countries.module.js';
+import { TimezonesModule } from './modules/timezones/timezones.module.js';
 import { ZoomModule } from './modules/zoom/zoom.module.js';
 import { AvailabilityModule } from './modules/availability/availability.module.js';
 import { HealthController } from './health.controller.js';
@@ -59,6 +60,7 @@ import { HealthController } from './health.controller.js';
     CallbacksModule,
     OutcomesModule,
     CountriesModule,
+    TimezonesModule,
     ZoomModule,
     AvailabilityModule,
   ],

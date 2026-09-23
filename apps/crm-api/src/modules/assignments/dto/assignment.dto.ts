@@ -1,7 +1,7 @@
 import { ArrayNotEmpty, IsArray, IsBoolean, IsEnum, IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Timezone } from '@crm/database';
+import { IsTimezoneCode } from '../../../common/validators/is-timezone-code.validator.js';
 
 /**
  * A lead has exactly one owner, so bulk assignment refuses to take a lead off the
@@ -104,10 +104,10 @@ export class AutoAssignDto {
   @IsEnum(AssignStrategy)
   strategy: AssignStrategy;
 
-  @ApiPropertyOptional({ enum: Timezone, description: 'Only assign leads in this timezone' })
+  @ApiPropertyOptional({ description: 'Only assign leads in this timezone, see GET /timezones' })
   @IsOptional()
-  @IsEnum(Timezone)
-  timezone?: Timezone;
+  @IsTimezoneCode()
+  timezone?: string;
 
   @ApiPropertyOptional({ description: 'Only assign leads in this state' })
   @IsOptional()

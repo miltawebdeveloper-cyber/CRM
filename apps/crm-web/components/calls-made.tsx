@@ -11,7 +11,7 @@ import { Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { CAT, DirectionPill, useCallFilters } from '@/components/calls-shared';
 import { DateFilter, FilterSelect, optionsFrom } from '@/components/filter-controls';
-import { TIMEZONE_FILTER_OPTIONS_COMPACT } from '@/lib/timezone';
+import { useTimezoneFilterOptions } from '@/lib/timezone';
 import { useCallingEnabled } from '@/lib/use-calling-enabled';
 import { useCall } from '@/components/call-provider';
 import { useCanCall } from '@/lib/use-can-call';
@@ -46,6 +46,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
   const { dial } = useCanCall();
 
   const [tz, setTz] = useState('');
+  const tzFilterOpts = useTimezoneFilterOptions();
   const [state, setState] = useState('');
   const [city, setCity] = useState('');
   const [leadStatus, setLeadStatus] = useState('');
@@ -438,7 +439,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
           and one row from `lg` up for the same reason; see the note there. */}
       <div className="mb-[14px] flex flex-wrap items-center gap-2.5 lg:flex-nowrap">
         {isManager && <FilterSelect className="min-w-0 flex-1" icon={UserIcon} value={userId} onChange={setUserId} options={userOpts} />}
-        <FilterSelect className="min-w-0 flex-1" icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={TIMEZONE_FILTER_OPTIONS_COMPACT} />
+        <FilterSelect className="min-w-0 flex-1" icon={Clock} value={tz} onChange={(v) => { setTz(v); setState(''); setCity(''); }} options={tzFilterOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={Building2} value={city} onChange={setCity} options={cityOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={Tag} value={leadStatus} onChange={setLeadStatus} options={LEAD_STATUS_OPTS} />

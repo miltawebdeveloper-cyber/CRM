@@ -15,6 +15,7 @@ import { SessionGuard } from '@/components/session-guard';
 import { CallProvider } from '@/components/call-provider';
 import { PageTabsProvider } from '@/components/page-tabs';
 import { DisplaySettingsProvider } from '@/components/display-settings-provider';
+import { TimezoneOptionsSync } from '@/components/timezone-options-sync';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -141,6 +142,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 it exists so this tab can never keep showing one account while
                 acting as another. */}
             <SessionGuard />
+            {/* Keeps the admin-managed zone list current for every picker,
+                filter and formatter in lib/timezone.ts. Renders nothing. */}
+            <TimezoneOptionsSync />
             <IncomingCallPopup />
             {/* Callback reminders. Mounted in the shell so a due callback reaches the
                 rep wherever they are in the CRM, not only on the pages that list

@@ -2,7 +2,7 @@
 // across all states/timezones, plus per-city targets.
 import { config as loadEnv } from 'dotenv';
 import { resolve } from 'node:path';
-import { PrismaClient, Role, Timezone, LeadStatus, User } from '@prisma/client';
+import { PrismaClient, Role, LeadStatus, User } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcrypt';
 
@@ -23,7 +23,7 @@ if (!process.env.SEED_PASSWORD) {
 }
 
 // Representative calling locations grouped by timezone (state/region, city).
-const GEO: Record<Timezone, Array<[string, string]>> = {
+const GEO: Record<string, Array<[string, string]>> = {
   UK: [
     ['England', 'London'],
     ['England', 'Manchester'],
@@ -94,9 +94,28 @@ function pick<T>(arr: T[]): T {
 // Users; the seed just guarantees a valid 1:1 mapping for the demo.
 const callerNumber = (slot: number) => `+1305555${String(slot).padStart(4, '0')}`;
 
+// The same 8 zones the reference-table migration seeds, kept here too so a
+// fresh `db push` + seed on an empty database (no migration history) is
+// self-contained rather than depending on that specific migration having run.
+const TIMEZONE_OPTIONS = [
+  { code: 'UK', label: 'UK (Europe/London)', ianaZone: 'Europe/London', sortOrder: 10 },
+  { code: 'IND', label: 'India (Asia/Kolkata)', ianaZone: 'Asia/Kolkata', sortOrder: 20 },
+  { code: 'EST', label: 'EST (Eastern Standard Time)', ianaZone: 'America/New_York', sortOrder: 30 },
+  { code: 'CST', label: 'CST (Central Standard Time)', ianaZone: 'America/Chicago', sortOrder: 40 },
+  { code: 'MST', label: 'MST (Mountain Standard Time)', ianaZone: 'America/Denver', sortOrder: 50 },
+  { code: 'PST', label: 'PST (Pacific Standard Time)', ianaZone: 'America/Los_Angeles', sortOrder: 60 },
+  { code: 'AKST', label: 'AKST (Alaska Standard Time)', ianaZone: 'America/Anchorage', sortOrder: 70 },
+  { code: 'HST', label: 'HST (Hawaii Standard Time)', ianaZone: 'Pacific/Honolulu', sortOrder: 80 },
+];
+
 async function main() {
   console.log('Seeding…');
   const passwordHash = await bcrypt.hash(PASSWORD, 12);
+
+  // ── Time zones ─────────────────────────────────────────
+  for (const tz of TIMEZONE_OPTIONS) {
+    await prisma.timezoneOption.upsert({ where: { code: tz.code }, update: {}, create: tz });
+  }
 
   // ── Users ──────────────────────────────────────────────
   const admin = await prisma.user.upsert({
@@ -119,7 +138,7 @@ async function main() {
     });
   }
 
-  const timezones = Object.keys(GEO) as Timezone[];
+  const timezones = Object.keys(GEO);
   const callers: User[] = [];
   for (let i = 1; i <= 10; i++) {
     const caller = await prisma.user.upsert({

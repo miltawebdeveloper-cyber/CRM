@@ -1,9 +1,9 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { NotificationType, Role, Timezone } from '@crm/database';
+import { NotificationType, Role } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
-import { dayInZone, formatInZone, TIMEZONE_LABELS, UNSET_TIMEZONE_LABEL } from '../../common/timezone.js';
+import { dayInZone, formatInZone, timezoneLabel, UNSET_TIMEZONE_LABEL } from '../../common/timezone.js';
 import { callbackStatus, type CallbackStatus } from './callback-status.js';
 
 const HOUR = 60 * 60 * 1000;
@@ -15,10 +15,10 @@ const MISSED_GRACE_MS = 1 * HOUR;
  * working a California lead from an EST-hosted CRM was told to ring at a time
  * three hours from the one the customer had agreed to.
  */
-const fmt = (d: Date, tz?: Timezone | null) => formatInZone(d, tz);
+const fmt = (d: Date, tz?: string | null) => formatInZone(d, tz);
 
 /** The lead's zone written out in full, for the missed-callback e-mail. */
-const zoneName = (tz?: Timezone | null) => (tz ? TIMEZONE_LABELS[tz] : UNSET_TIMEZONE_LABEL);
+const zoneName = (tz?: string | null) => (tz ? timezoneLabel(tz) : UNSET_TIMEZONE_LABEL);
 
 /**
  * Callback reminder engine (req 4). A cron job scans active callbacks
@@ -315,7 +315,7 @@ export class CallbacksService {
   }
 
   /** Does this callback fall on today's date where the CUSTOMER is? */
-  private isTodayThere(c: { callbackAt: Date; timezone: Timezone | null }, now: Date) {
+  private isTodayThere(c: { callbackAt: Date; timezone: string | null }, now: Date) {
     return dayInZone(c.callbackAt, c.timezone) === dayInZone(now, c.timezone);
   }
 
@@ -360,7 +360,7 @@ type CallbackLead = {
   businessName: string;
   contactName: string | null;
   phone: string;
-  timezone: Timezone | null;
+  timezone: string | null;
   callbackAt: Date | null;
   callbackCompletedAt: Date | null;
   callbackSnoozedUntil: Date | null;

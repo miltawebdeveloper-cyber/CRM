@@ -1,5 +1,4 @@
 import { BadRequestException } from '@nestjs/common';
-import { Timezone } from '@crm/database';
 
 /**
  * Lead time zones, and the one place a wall-clock time is turned into an instant.
@@ -12,49 +11,86 @@ import { Timezone } from '@crm/database';
  * callback the better part of a day out, and the Zoom form disagreed with the
  * callback form because it converted using the BROWSER's zone instead. This
  * module is what makes both mean the same thing.
+ *
+ * Zone codes are admin-managed data (`TimezoneOption`, Admin → Timezones), not a
+ * fixed enum any more — an admin can add one without a deploy. Every function
+ * below reads a synchronous in-memory snapshot rather than the DB directly,
+ * because they are called from deep inside other synchronous code all over the
+ * API and cannot become `async` without rippling into every caller. The one
+ * place that keeps the snapshot current is `TimezonesCacheService`
+ * (modules/timezones) — this file has no Prisma client of its own, deliberately,
+ * so it stays importable (and correct, via the fallback below) from a bare unit
+ * test with no Nest app bootstrapped.
  */
 
+interface TimezoneEntry {
+  code: string;
+  label: string;
+  ianaZone: string;
+}
+
 /**
+ * The exact 8 zones this CRM shipped with, verbatim — what seeds the live
+ * `timezone_options` table, and what this module falls back to before that
+ * table has been read even once, or if a live read ever comes back empty. A
+ * failed/truncated query must never wipe out every zone the CRM knows.
+ *
  * Region zones, not fixed offsets. `America/New_York` is deliberate: the fixed
  * `EST` zone would sit an hour out for the two thirds of the year the US is on
  * daylight time, so a summer callback would fire at the wrong hour. The same
  * reasoning picks `Europe/London` over `GMT` (British Summer Time) and
- * `America/Anchorage` over `AKST`.
- *
- * `Asia/Kolkata` and `Pacific/Honolulu` observe no daylight time, so for those
- * two the region and the offset happen to coincide all year — they are written
- * as regions anyway, so every entry here is read the same way.
+ * `America/Anchorage` over `AKST`. `Asia/Kolkata` and `Pacific/Honolulu` observe
+ * no daylight time, so for those two the region and the offset happen to
+ * coincide all year — they are written as regions anyway, so every entry here
+ * is read the same way.
  */
-export const IANA_BY_TIMEZONE: Record<Timezone, string> = {
-  [Timezone.UK]: 'Europe/London',
-  [Timezone.IND]: 'Asia/Kolkata',
-  [Timezone.EST]: 'America/New_York',
-  [Timezone.CST]: 'America/Chicago',
-  [Timezone.MST]: 'America/Denver',
-  [Timezone.PST]: 'America/Los_Angeles',
-  [Timezone.AKST]: 'America/Anchorage',
-  [Timezone.HST]: 'Pacific/Honolulu',
-};
+const FALLBACK: TimezoneEntry[] = [
+  { code: 'UK', label: 'UK (Europe/London)', ianaZone: 'Europe/London' },
+  { code: 'IND', label: 'India (Asia/Kolkata)', ianaZone: 'Asia/Kolkata' },
+  { code: 'EST', label: 'EST (Eastern Standard Time)', ianaZone: 'America/New_York' },
+  { code: 'CST', label: 'CST (Central Standard Time)', ianaZone: 'America/Chicago' },
+  { code: 'MST', label: 'MST (Mountain Standard Time)', ianaZone: 'America/Denver' },
+  { code: 'PST', label: 'PST (Pacific Standard Time)', ianaZone: 'America/Los_Angeles' },
+  { code: 'AKST', label: 'AKST (Alaska Standard Time)', ianaZone: 'America/Anchorage' },
+  { code: 'HST', label: 'HST (Hawaii Standard Time)', ianaZone: 'Pacific/Honolulu' },
+];
+
+interface Snapshot {
+  ianaByCode: Record<string, string>;
+  labelByCode: Record<string, string>;
+  codes: string[];
+}
+
+function buildSnapshot(rows: TimezoneEntry[]): Snapshot {
+  const ianaByCode: Record<string, string> = {};
+  const labelByCode: Record<string, string> = {};
+  const codes: string[] = [];
+  for (const r of rows) {
+    ianaByCode[r.code] = r.ianaZone;
+    labelByCode[r.code] = r.label;
+    codes.push(r.code);
+  }
+  return { ianaByCode, labelByCode, codes };
+}
+
+let snapshot: Snapshot = buildSnapshot(FALLBACK);
 
 /**
- * Every zone the CRM supports, in the order the UI offers them. Derived from the
- * map above so a zone added to the enum cannot be left out of a filter, a chart
- * or a dropdown — which is how the analytics breakdown came to enumerate four
- * zones by hand and quietly total less than the lead count.
+ * Replace the live snapshot. Called by `TimezonesCacheService` after every DB
+ * read — on boot, a 15s background refresh, and eagerly right after an admin
+ * adds/edits a zone. Never adopts an empty list.
  */
-export const ALL_TIMEZONES = Object.keys(IANA_BY_TIMEZONE) as Timezone[];
+export function setTimezoneSnapshot(rows: TimezoneEntry[]): void {
+  if (rows.length) snapshot = buildSnapshot(rows);
+}
 
-/** Human name for a zone, for dropdowns and reports. */
-export const TIMEZONE_LABELS: Record<Timezone, string> = {
-  [Timezone.UK]: 'UK (Europe/London)',
-  [Timezone.IND]: 'India (Asia/Kolkata)',
-  [Timezone.EST]: 'EST (Eastern Standard Time)',
-  [Timezone.CST]: 'CST (Central Standard Time)',
-  [Timezone.MST]: 'MST (Mountain Standard Time)',
-  [Timezone.PST]: 'PST (Pacific Standard Time)',
-  [Timezone.AKST]: 'AKST (Alaska Standard Time)',
-  [Timezone.HST]: 'HST (Hawaii Standard Time)',
-};
+/**
+ * Every zone the CRM currently supports, in admin-configured order. Read this
+ * rather than hardcoding a list — that is how the analytics breakdown once
+ * came to enumerate four zones by hand and quietly total less than the lead
+ * count.
+ */
+export const allTimezoneCodes = (): string[] => snapshot.codes;
 
 /**
  * Fallback used only when RENDERING a record with no zone — a label has to say
@@ -62,7 +98,7 @@ export const TIMEZONE_LABELS: Record<Timezone, string> = {
  * which refuses rather than guessing, because a guessed zone is a call placed at
  * the wrong hour.
  */
-export const DEFAULT_TIMEZONE = Timezone.EST;
+export const DEFAULT_TIMEZONE = 'EST';
 
 /**
  * How a lead with no configured zone appears in groupings, filters and reports.
@@ -71,21 +107,26 @@ export const DEFAULT_TIMEZONE = Timezone.EST;
  */
 export const UNSET_TIMEZONE_LABEL = 'Unassigned';
 
+/** Human name for a zone, for dropdowns and reports. */
+export const timezoneLabel = (code?: string | null): string =>
+  code ? (snapshot.labelByCode[code] ?? code) : UNSET_TIMEZONE_LABEL;
+
 /** Zone code for display/grouping, with unconfigured leads given their own bucket. */
-export const tzLabel = (tz?: Timezone | null): string => tz ?? UNSET_TIMEZONE_LABEL;
+export const tzLabel = (tz?: string | null): string => tz ?? UNSET_TIMEZONE_LABEL;
 
 /**
  * Turn a zone filter value back into a Prisma `where` fragment. The inverse of
  * `tzLabel`: `Unassigned` selects the rows with no zone rather than looking for
  * a zone by that name, which would match nothing.
  */
-export const timezoneWhere = (value?: string | null): { timezone?: Timezone | null } => {
+export const timezoneWhere = (value?: string | null): { timezone?: string | null } => {
   if (!value) return {};
   if (value === UNSET_TIMEZONE_LABEL) return { timezone: null };
-  return { timezone: value as Timezone };
+  return { timezone: value };
 };
 
-export const ianaFor = (tz?: Timezone | null): string => IANA_BY_TIMEZONE[tz ?? DEFAULT_TIMEZONE];
+export const ianaFor = (tz?: string | null): string =>
+  snapshot.ianaByCode[tz ?? DEFAULT_TIMEZONE] ?? snapshot.ianaByCode[DEFAULT_TIMEZONE] ?? FALLBACK[2].ianaZone;
 
 /** A bare wall clock — no zone, no offset — e.g. `2026-08-01T16:00`. */
 const WALL_CLOCK = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?$/;
@@ -125,7 +166,7 @@ function offsetMsAt(instant: Date, ianaZone: string): number {
  * through, and for a value neither branch can parse — an unparseable date must
  * not silently become `Invalid Date` in the column.
  */
-export function parseInZone(value: string | null | undefined, tz?: Timezone | null): Date | null {
+export function parseInZone(value: string | null | undefined, tz?: string | null): Date | null {
   const raw = value?.trim();
   if (!raw) return null;
 
@@ -151,7 +192,7 @@ export function parseInZone(value: string | null | undefined, tz?: Timezone | nu
  * out. Reminders and notifications go through here: "3:00 PM" with no zone is
  * how a rep rings an hour early, so the label is not optional.
  */
-export function formatInZone(date: Date, tz?: Timezone | null): string {
+export function formatInZone(date: Date, tz?: string | null): string {
   return new Intl.DateTimeFormat('en-US', {
     timeZone: ianaFor(tz),
     month: 'short',
@@ -187,7 +228,7 @@ const PAST_GRACE_MS = 60 * 1000;
  */
 export function parseFutureInZone(
   value: string | null | undefined,
-  tz: Timezone | null | undefined,
+  tz: string | null | undefined,
   what = 'callback',
   now = new Date(),
 ): Date | null {
@@ -211,7 +252,7 @@ export function parseFutureInZone(
 }
 
 /** Calendar day (`yyyy-mm-dd`) an instant falls on in the given zone. */
-export function dayInZone(date: Date, tz?: Timezone | null): string {
+export function dayInZone(date: Date, tz?: string | null): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: ianaFor(tz),
     year: 'numeric',
@@ -235,7 +276,7 @@ export function dayInZone(date: Date, tz?: Timezone | null): string {
  * A lead with no zone falls back to DEFAULT_TIMEZONE rather than to server time:
  * a US default is wrong by at most a few hours, IST is wrong by half a day.
  */
-export function startOfDayInZone(tz?: Timezone | null, at: Date = new Date()): Date {
+export function startOfDayInZone(tz?: string | null, at: Date = new Date()): Date {
   const day = dayInZone(at, tz);
   // Re-read midnight of that day back in the same zone, so DST is handled by the
   // same two-pass offset logic every other conversion here uses.
@@ -246,12 +287,12 @@ export function startOfDayInZone(tz?: Timezone | null, at: Date = new Date()): D
  * Whether two instants fall on the same calendar day in the given zone — the
  * zone-aware replacement for comparing against a server-local midnight.
  */
-export function sameDayInZone(a: Date, b: Date, tz?: Timezone | null): boolean {
+export function sameDayInZone(a: Date, b: Date, tz?: string | null): boolean {
   return dayInZone(a, tz) === dayInZone(b, tz);
 }
 
 /** Wall-clock time (`HH:mm`) an instant reads as in the given zone. */
-export function timeInZone(date: Date, tz?: Timezone | null): string {
+export function timeInZone(date: Date, tz?: string | null): string {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: ianaFor(tz),
     hour12: false,

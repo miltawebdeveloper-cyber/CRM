@@ -5,7 +5,7 @@ import { AlertTriangle, Clock, Globe, Loader2 } from 'lucide-react';
 import { leadsApi } from '@/lib/leads';
 import { pushToast } from '@/lib/toast';
 import {
-  LEAD_TIMEZONES,
+  useLeadTimezones,
   describeWallClock,
   formatInUserZone,
   hasLeadZone,
@@ -69,6 +69,7 @@ export function CallbackScheduler({
   onTimezoneSet,
   className = '',
 }: CallbackSchedulerProps) {
+  const leadTzOpts = useLeadTimezones();
   const qc = useQueryClient();
   const zoned = hasLeadZone(timezone);
 
@@ -96,7 +97,7 @@ export function CallbackScheduler({
           zone and the date and time fields will appear.
         </p>
         <div className="flex flex-wrap items-center gap-1.5">
-          {LEAD_TIMEZONES.map((z) => (
+          {leadTzOpts.map((z) => (
             <button
               key={z.value}
               type="button"

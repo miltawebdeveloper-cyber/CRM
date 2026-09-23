@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, Role, Timezone } from '@crm/database';
+import { Prisma, Role } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { formatInZone } from '../../common/timezone.js';
 import { callbackStatus, type CallbackStatus } from '../callbacks/callback-status.js';
@@ -23,7 +23,7 @@ export interface CalendarEvent {
   /** One-line summary for the compact month cell. */
   label: string;
   /** The customer's zone, or null when the lead has none configured. */
-  timezone: Timezone | null;
+  timezone: string | null;
   /**
    * The scheduled time already rendered on the CUSTOMER's clock, zone named
    * (`Aug 5, 10:00 AM EDT`).

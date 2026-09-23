@@ -25,7 +25,7 @@ import { DialPad } from '@/components/dial-pad';
 import { useCall } from '@/components/call-provider';
 import { useCanCall } from '@/lib/use-can-call';
 import { launchQuoCall } from '@/lib/dialer';
-import { dayInLeadZone, formatScheduleInLeadZone, nowInLeadZone, zoneLabel, TIMEZONE_FILTER_OPTIONS_COMPACT } from '@/lib/timezone';
+import { dayInLeadZone, formatScheduleInLeadZone, nowInLeadZone, zoneLabel, useTimezoneFilterOptions } from '@/lib/timezone';
 import { usePersistedState } from '@/lib/use-persisted-state';
 import { CallbackScheduler, callbackInputError } from '@/components/callback-scheduler';
 import { LeadCommentTrail, useLeadCommentCount } from '@/components/lead-comment-trail';
@@ -136,6 +136,7 @@ function matchesContactSearch(l: Lead, query: string): boolean {
 }
 
 export default function CallingPage() {
+  const tzFilterOpts = useTimezoneFilterOptions();
   const qc = useQueryClient();
   // Which view is showing. The dialer's state lives here, so switching tabs and
   // back doesn't disturb an in-progress call.
@@ -994,7 +995,7 @@ export default function CallingPage() {
                       onChange={(e) => setTzFilter(e.target.value)}
                       className="w-full min-w-0 cursor-pointer truncate border-none bg-transparent font-medium outline-none"
                     >
-                      {TIMEZONE_FILTER_OPTIONS_COMPACT.map((o) => (
+                      {tzFilterOpts.map((o) => (
                         <option key={o.value} value={o.value}>
                           {o.label}
                         </option>

@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { AssignmentType, Timezone, LeadStatus, Role, Prisma } from '@crm/database';
-import { dayInZone, parseInZone, timezoneWhere, tzLabel } from '../../common/timezone.js';
+import { AssignmentType, LeadStatus, Role, Prisma } from '@crm/database';
+import { allTimezoneCodes, dayInZone, parseInZone, timezoneWhere, tzLabel } from '../../common/timezone.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto.js';
@@ -831,9 +831,10 @@ export class LeadsService {
       setIf('email', row.email);
       setIf('state', row.state);
       setIf('city', row.city);
-      // Normalize + validate enums so a stray value can never crash the import.
+      // Normalize + validate against the live admin-managed list so a stray
+      // value can never crash the import.
       const tz = (row.timezone ?? '').trim().toUpperCase();
-      if ((Object.values(Timezone) as string[]).includes(tz)) data.timezone = tz as Timezone;
+      if (allTimezoneCodes().includes(tz)) data.timezone = tz;
       const stRaw = (row.status ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
       const stAlias: Record<string, string> = { closed_won: 'closed', won: 'closed', lost: 'rejected', new_lead: 'new' };
       const st = stAlias[stRaw] ?? stRaw;

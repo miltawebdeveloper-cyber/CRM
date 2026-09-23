@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { NotificationType, Timezone, ZoomMeetingStatus } from '@crm/database';
+import { NotificationType, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { formatInZone } from '../../common/timezone.js';
@@ -8,7 +8,7 @@ import { formatInZone } from '../../common/timezone.js';
 const HOUR = 60 * 60 * 1000;
 
 /** Meeting times are stated in the client's zone, with the zone named. */
-const fmt = (d: Date, tz?: Timezone | null) => formatInZone(d, tz);
+const fmt = (d: Date, tz?: string | null) => formatInZone(d, tz);
 
 /**
  * Zoom meeting reminder engine — mirrors the callback reminder cron. Scans

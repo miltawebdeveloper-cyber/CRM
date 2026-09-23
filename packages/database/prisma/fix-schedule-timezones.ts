@@ -33,7 +33,7 @@
 //
 // Re-running is safe: once a row is corrected it is older than nothing and newer
 // than nothing, so run it once per database and check the preview each time.
-import { PrismaClient, Timezone } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 
 /** When the scheduling fix landed (commit f32bc6f). Rows from before it are suspect. */
@@ -44,7 +44,7 @@ const DEFAULT_FIX_AT = '2026-07-27T12:33:24Z';
  * the source of truth; duplicated here so this one-off script stays standalone
  * and does not depend on the API being built.
  */
-const IANA: Record<Timezone, string> = {
+const IANA: Record<string, string> = {
   UK: 'Europe/London',
   IND: 'Asia/Kolkata',
   EST: 'America/New_York',
@@ -107,13 +107,13 @@ async function main() {
   const changes: Change[] = [];
 
   /** Correct one instant, or null when the two zones agree at that moment. */
-  const correct = (stored: Date, leadZone: Timezone | null | undefined) => {
-    const zone = IANA[leadZone ?? Timezone.EST];
+  const correct = (stored: Date, leadZone: string | null | undefined) => {
+    const zone = IANA[leadZone ?? 'EST'];
     const fixed = parseInZone(wallClockIn(stored, wrongZone), zone);
     return fixed.getTime() === stored.getTime() ? null : fixed;
   };
-  const show = (d: Date, leadZone: Timezone | null | undefined) =>
-    `${d.toISOString()} (${wallClockIn(d, IANA[leadZone ?? Timezone.EST]).slice(11, 16)} local)`;
+  const show = (d: Date, leadZone: string | null | undefined) =>
+    `${d.toISOString()} (${wallClockIn(d, IANA[leadZone ?? 'EST']).slice(11, 16)} local)`;
 
   try {
     // ── Lead callbacks ──

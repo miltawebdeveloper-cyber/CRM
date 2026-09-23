@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { CommDirection, LeadStatus, OutcomeCategory, Prisma, Role, Timezone, ZoomMeetingStatus } from '@crm/database';
+import { CommDirection, LeadStatus, OutcomeCategory, Prisma, Role, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { OutcomesService } from '../outcomes/outcomes.service.js';

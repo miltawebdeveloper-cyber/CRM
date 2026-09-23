@@ -17,7 +17,7 @@ import { api } from '@/lib/api';
 import { invalidateLeadComment } from '@/lib/sync';
 import { formatDateTime, formatTime } from '@/lib/display-settings';
 import { leadDate, leadDateTime } from '@/lib/timezone';
-import { LEAD_TIMEZONES } from '@/lib/timezone';
+import { timezoneLabel, useLeadTimezones } from '@/lib/timezone';
 
 const SMS_TEMPLATES: { label: string; text: (name: string) => string }[] = [
   { label: 'Intro', text: (n) => `Hi, this is the team at Milta reaching out about ${n}. Is now a good time to chat?` },
@@ -26,6 +26,7 @@ const SMS_TEMPLATES: { label: string; text: (name: string) => string }[] = [
 ];
 
 export default function LeadDetailPage() {
+  const leadTzOpts = useLeadTimezones();
   const qc = useQueryClient();
   const router = useRouter();
   const { id } = useParams<{ id: string }>();
@@ -342,7 +343,12 @@ export default function LeadDetailPage() {
                         lead did not have. Disabled, so blank can be shown but not
                         chosen — clearing a zone is not an edit this form offers. */}
                     <option value="" disabled>— Not set —</option>
-                    {LEAD_TIMEZONES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                    {/* A zone since deactivated in Admin stays selectable for the lead
+                        still on it, so opening the form never silently blanks it. */}
+                    {form.timezone && !leadTzOpts.some((t) => t.value === form.timezone) && (
+                      <option value={form.timezone}>{timezoneLabel(form.timezone)} (inactive)</option>
+                    )}
+                    {leadTzOpts.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select></label>
               </div>
               <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Caller (name / email)</span>

@@ -17,7 +17,7 @@ import { useCanCall } from '@/lib/use-can-call';
 import { TimezoneChip } from '@/components/timezone-chip';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { LEAD_TIMEZONES, TIMEZONE_FILTER_OPTIONS_COMPACT, leadDate, leadDateTime, zoneNote } from '@/lib/timezone';
+import { useLeadTimezones, useTimezoneFilterOptions, leadDate, leadDateTime, zoneNote } from '@/lib/timezone';
 import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
 import { type SortState } from '@/lib/use-column-prefs';
@@ -176,9 +176,11 @@ export default function LeadLibraryPage() {
   // option matching its current value, or the browser silently shows the
   // first real option instead of "nothing chosen" the moment the blank one
   // is removed.
+  const tzFilterOpts = useTimezoneFilterOptions();
+  const leadTzOpts = useLeadTimezones();
   const tzOpts = useMemo(
-    () => TIMEZONE_FILTER_OPTIONS_COMPACT.map((o) => (o.value === '' ? { ...o, label: 'Time Zones' } : o)),
-    [],
+    () => tzFilterOpts.map((o) => (o.value === '' ? { ...o, label: 'Time Zones' } : o)),
+    [tzFilterOpts],
   );
 
   const { data: s } = useQuery({
@@ -481,7 +483,7 @@ export default function LeadLibraryPage() {
           <label className="space-y-1 text-sm">
             <span className="font-medium">Timezone</span>
             <select value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2">
-              {LEAD_TIMEZONES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              {leadTzOpts.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </label>
           <label className="space-y-1 text-sm">

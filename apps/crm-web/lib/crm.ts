@@ -268,6 +268,23 @@ export const countriesApi = {
     (await api.patch(`/countries/${id}`, body)).data,
 };
 
+export interface TimezoneOption {
+  id: string;
+  code: string;
+  label: string;
+  ianaZone: string;
+  sortOrder: number;
+  isActive: boolean;
+}
+export const timezonesApi = {
+  list: async (): Promise<TimezoneOption[]> => (await api.get('/timezones')).data,
+  listAll: async (): Promise<TimezoneOption[]> => (await api.get('/timezones/all')).data,
+  create: async (body: { code: string; label: string; ianaZone: string }): Promise<TimezoneOption> =>
+    (await api.post('/timezones', body)).data,
+  update: async (id: string, body: Partial<Pick<TimezoneOption, 'label' | 'sortOrder' | 'isActive'>>): Promise<TimezoneOption> =>
+    (await api.patch(`/timezones/${id}`, body)).data,
+};
+
 export interface Followup {
   kind: 'note' | 'lead';
   id: string;

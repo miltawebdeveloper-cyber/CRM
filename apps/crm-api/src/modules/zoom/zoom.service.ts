@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { NotificationType, Prisma, Role, TaskPriority, TaskStatus, Timezone, ZoomMeetingStatus } from '@crm/database';
+import { NotificationType, Prisma, Role, TaskPriority, TaskStatus, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { CompleteZoomMeetingDto, CreateZoomMeetingDto, UpdateZoomMeetingDto, ZoomQueryDto } from './dto/zoom.dto.js';
@@ -10,7 +10,7 @@ import { formatInZone, parseInZone } from '../../common/timezone.js';
  * Rendering in the server's zone (as this did) means the invite, the reminder and
  * the client's own calendar disagree about when the meeting is.
  */
-const fmtWhen = (d: Date, tz?: Timezone | null) => formatInZone(d, tz);
+const fmtWhen = (d: Date, tz?: string | null) => formatInZone(d, tz);
 
 function startOfToday() {
   const d = new Date();

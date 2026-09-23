@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { AssignmentType, LeadStatus, Prisma, Timezone, ZoomMeetingStatus } from '@crm/database';
+import { AssignmentType, LeadStatus, Prisma, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { dayInZone } from '../../common/timezone.js';
 
@@ -230,7 +230,7 @@ export class AssignmentCarryForwardService {
       take: 5_000,
     });
 
-    const due: Array<{ id: string; assignedToId: string; timezone: Timezone | null; callStatus: string | null }> = [];
+    const due: Array<{ id: string; assignedToId: string; timezone: string | null; callStatus: string | null }> = [];
     let notYet = 0;
     let booked = 0;
     for (const l of leads) {

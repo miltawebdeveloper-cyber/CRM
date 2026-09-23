@@ -21,24 +21,6 @@ enum Role {
   viewer
 }
 
-/// Lead calling regions. Declared in the order they are offered in the UI, which
-/// is also the order Postgres sorts them in — so a `GROUP BY timezone` comes back
-/// west-to-east across the US with the two non-US regions ahead of it, rather
-/// than alphabetically.
-///
-/// These are region labels, not fixed offsets: `EST` selects `America/New_York`
-/// and therefore follows US daylight time. See `common/timezone.ts`, which owns
-/// the mapping and is the only place a wall clock is turned into an instant.
-enum Timezone {
-  UK // Europe/London
-  IND // Asia/Kolkata
-  EST
-  CST
-  MST
-  PST
-  AKST // America/Anchorage
-  HST // Pacific/Honolulu
-}
 
 enum LeadStatus {
   new
@@ -316,6 +298,26 @@ model Country {
   @@map("countries")
 }
 
+/// Admin-manageable replacement for the old fixed `Timezone` enum — see
+/// Admin → Timezones. `code` is what's stored on Lead.timezone,
+/// Target.timezone and Employee.shiftTimezone (all plain string columns as of
+/// this table's introduction). `ianaZone` and `label` are what
+/// `common/timezone.ts` resolves a code to for every wall-clock <-> instant
+/// conversion and every dropdown; that file caches this table in memory
+/// rather than reading it on every call — see its own comment for why.
+model TimezoneOption {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code      String   @unique
+  label     String
+  ianaZone  String   @map("iana_zone")
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("timezone_options")
+}
+
 /// Per-user UI preferences (key-value). Used for customizable table column
 /// layouts (key = "cols:<tableKey>", value = { order, hidden }), and reusable
 /// for other personal settings later.
@@ -335,7 +337,7 @@ model UserPreference {
 model Employee {
   id               String   @id @db.Uuid // FK == users.id
   user             User     @relation(fields: [id], references: [id], onDelete: Cascade)
-  shiftTimezone    Timezone @default(EST) @map("shift_timezone")
+  shiftTimezone    String   @default("EST") @map("shift_timezone")
   performanceScore Float    @default(0) @map("performance_score")
   createdAt        DateTime @default(now()) @map("created_at")
 
@@ -397,7 +399,7 @@ model Lead {
   /// Eastern, and the reason a Texas number got rung an hour early. A lead with
   /// no zone is now honestly blank, and scheduling a callback against it is
   /// refused until someone picks one.
-  timezone     Timezone?
+  timezone     String?
   status       LeadStatus @default(new)
   qualityScore Int?       @map("quality_score") // AI lead score 0..100
 
@@ -597,7 +599,7 @@ model Target {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   state         String
   city          String
-  timezone      Timezone
+  timezone      String
   monthlyTarget Int      @map("monthly_target")
   setById       String?  @map("set_by") @db.Uuid
   setBy         User?    @relation("TargetSetBy", fields: [setById], references: [id])

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { LeadStatus, NotificationType, Timezone } from '@crm/database';
+import { LeadStatus, NotificationType } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { dayInZone, formatInZone, nextWorkingDay, parseInZone, timeInZone, workingDays } from '../../common/timezone.js';
@@ -126,7 +126,7 @@ export class CallbackRolloverService {
    * for the case that matters after an outage: a call missed last Tuesday must
    * not be re-booked into last Wednesday, which is over too.
    */
-  private nextSlot(from: Date, tz: Timezone | null, now: Date, working: Set<number>): Date | null {
+  private nextSlot(from: Date, tz: string | null, now: Date, working: Set<number>): Date | null {
     const scheduledDay = dayInZone(from, tz);
     if (scheduledDay >= dayInZone(now, tz)) return null;
 
@@ -148,7 +148,7 @@ export class CallbackRolloverService {
       id: string;
       leadId: string;
       businessName: string;
-      timezone: Timezone | null;
+      timezone: string | null;
       nextFollowUpDate: Date | null;
       assignedToId: string | null;
       assignedTo: { email: string | null; name: string } | null;

@@ -9,8 +9,17 @@
  * lead's zone. Converting here first, as the Zoom form used to with
  * `new Date(v).toISOString()`, silently books the meeting in the BROWSER's zone,
  * which is wrong for any rep not sitting in the customer's time zone.
+ *
+ * Zone codes are admin-managed data (`TimezoneOption`, Admin → Timezones), not a
+ * fixed set any more — an admin can add one without a deploy. Every lookup below
+ * reads a synchronous in-memory snapshot rather than fetching, because this
+ * module is called from render paths and table column definitions all over the
+ * app that can't await a request. `timezone-options-sync.tsx` (mounted in
+ * `app/(app)/layout.tsx`) is the one place that keeps the snapshot current —
+ * mirrors the API's own `common/timezone.ts` + `TimezonesCacheService` split.
  */
 
+import { useMemo, useSyncExternalStore } from 'react';
 import {
   DATE_FORMAT,
   DATE_TIME_FORMAT,
@@ -21,54 +30,102 @@ import {
   formatTime,
 } from './display-settings';
 
+interface TimezoneEntry {
+  code: string;
+  label: string;
+  ianaZone: string;
+  /** Omitted = active. An inactive zone still resolves (a lead may still be on
+   *  it) but is no longer offered in pickers, filters or the import. */
+  isActive?: boolean;
+}
+
 /**
- * Region zones, not fixed offsets: `America/New_York` follows daylight time,
- * where a literal `EST` would sit an hour out for most of the year. Same reason
- * for `Europe/London` over `GMT`. Mirrors the API's `IANA_BY_TIMEZONE`, and the
- * key order mirrors the `Timezone` enum's declaration order — which is the order
- * every dropdown below offers them in.
+ * The exact 8 zones this CRM shipped with, verbatim — what this module falls
+ * back to before the live list has been fetched even once, or if a fetch ever
+ * comes back empty. A failed/slow request must never leave every zone filter
+ * and picker in the app blank.
  */
-const IANA = {
-  UK: 'Europe/London',
-  IND: 'Asia/Kolkata',
-  EST: 'America/New_York',
-  CST: 'America/Chicago',
-  MST: 'America/Denver',
-  PST: 'America/Los_Angeles',
-  AKST: 'America/Anchorage',
-  HST: 'Pacific/Honolulu',
-} as const;
+const FALLBACK: TimezoneEntry[] = [
+  { code: 'UK', label: 'UK (Europe/London)', ianaZone: 'Europe/London' },
+  { code: 'IND', label: 'India (Asia/Kolkata)', ianaZone: 'Asia/Kolkata' },
+  { code: 'EST', label: 'EST (Eastern Standard Time)', ianaZone: 'America/New_York' },
+  { code: 'CST', label: 'CST (Central Standard Time)', ianaZone: 'America/Chicago' },
+  { code: 'MST', label: 'MST (Mountain Standard Time)', ianaZone: 'America/Denver' },
+  { code: 'PST', label: 'PST (Pacific Standard Time)', ianaZone: 'America/Los_Angeles' },
+  { code: 'AKST', label: 'AKST (Alaska Standard Time)', ianaZone: 'America/Anchorage' },
+  { code: 'HST', label: 'HST (Hawaii Standard Time)', ianaZone: 'Pacific/Honolulu' },
+];
 
-/** The lead time zones the CRM supports. Mirrors the API's Timezone enum. */
-export type LeadTimezone = keyof typeof IANA;
+interface Snapshot {
+  ianaByCode: Record<string, string>;
+  labelByCode: Record<string, string>;
+  /** Active codes only — what pickers, filters and the import offer. */
+  codes: string[];
+}
 
-/** Full names, as the filters and pickers spell them out. */
-export const TIMEZONE_LABELS: Record<LeadTimezone, string> = {
-  UK: 'UK (Europe/London)',
-  IND: 'India (Asia/Kolkata)',
-  EST: 'EST (Eastern Standard Time)',
-  CST: 'CST (Central Standard Time)',
-  MST: 'MST (Mountain Standard Time)',
-  PST: 'PST (Pacific Standard Time)',
-  AKST: 'AKST (Alaska Standard Time)',
-  HST: 'HST (Hawaii Standard Time)',
+function buildSnapshot(rows: TimezoneEntry[]): Snapshot {
+  const ianaByCode: Record<string, string> = {};
+  const labelByCode: Record<string, string> = {};
+  const codes: string[] = [];
+  for (const r of rows) {
+    ianaByCode[r.code] = r.ianaZone;
+    labelByCode[r.code] = r.label;
+    if (r.isActive !== false) codes.push(r.code);
+  }
+  return { ianaByCode, labelByCode, codes };
+}
+
+let snapshot: Snapshot = buildSnapshot(FALLBACK);
+const listeners = new Set<() => void>();
+
+/** Replace the live snapshot. Called by `timezone-options-sync.tsx` after every
+ *  fetch. Never adopts an empty list. */
+export function setTimezoneSnapshot(rows: TimezoneEntry[]): void {
+  if (!rows.length) return;
+  snapshot = buildSnapshot(rows);
+  listeners.forEach((l) => l());
+}
+
+const subscribe = (l: () => void) => {
+  listeners.add(l);
+  return () => { listeners.delete(l); };
 };
+const getSnapshot = () => snapshot;
+
+// Plain functions can't make a component repaint when the list changes, so a
+// component that RENDERS the zone list (a picker or filter) reads it through
+// one of these hooks instead. Formatters stay plain functions.
+export function useLeadTimezones() {
+  const s = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  return useMemo(() => pickerOptions(s), [s]);
+}
+export function useTimezoneFilterOptions() {
+  const s = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  return useMemo(() => filterOptions(s), [s]);
+}
+
+const pickerOptions = (s: Snapshot) => s.codes.map((value) => ({ value, label: s.labelByCode[value] }));
+const filterOptions = (s: Snapshot) => [
+  { value: '', label: 'All Time Zones' },
+  ...s.codes.map((value) => ({ value, label: value === 'IND' ? 'India' : value })),
+];
+
+/** A lead zone code. Data now, not a fixed set of literals. */
+export type LeadTimezone = string;
 
 /**
- * Every zone code, in offer order. Derived from `IANA` rather than written out
- * again, so a zone can't be added to the CRM and then be missing from one filter
- * — which is exactly how six screens ended up hardcoding the four US zones.
+ * Every zone code the CRM currently supports, in admin-configured order.
+ * Read this rather than caching your own copy — a zone added to the admin
+ * list and then missing from a call site is exactly how six screens once
+ * ended up hardcoding just the four US zones.
  */
-export const TIMEZONE_CODES = Object.keys(IANA) as LeadTimezone[];
+export const timezoneCodes = (): string[] => snapshot.codes;
 
 /**
  * The zones a rep can pick from: the scheduler's inline zone prompt, the lead
  * form, the import mapper and every zone filter all read this one list.
  */
-export const LEAD_TIMEZONES: { value: LeadTimezone; label: string }[] = TIMEZONE_CODES.map((value) => ({
-  value,
-  label: TIMEZONE_LABELS[value],
-}));
+export const leadTimezones = (): { value: string; label: string }[] => pickerOptions(snapshot);
 
 /**
  * Options for a zone <select> that can also mean "don't filter", by CODE. The
@@ -86,13 +143,10 @@ export const LEAD_TIMEZONES: { value: LeadTimezone; label: string }[] = TIMEZONE
  *
  * The full-label variant that used to sit here had one caller, the Call Panel,
  * which now shares its row with Contact Search and takes the codes too. Use
- * LEAD_TIMEZONES where a zone is being CHOSEN rather than filtered on — the
+ * `leadTimezones()` where a zone is being CHOSEN rather than filtered on — the
  * lead form and the scheduler, which have the room and want the full names.
  */
-export const TIMEZONE_FILTER_OPTIONS_COMPACT: { value: string; label: string }[] = [
-  { value: '', label: 'All Time Zones' },
-  ...TIMEZONE_CODES.map((value) => ({ value, label: value === 'IND' ? 'India' : value })),
-];
+export const timezoneFilterOptions = (): { value: string; label: string }[] => filterOptions(snapshot);
 
 /**
  * How a lead with no zone set is named in filters and groupings. Must match the
@@ -101,13 +155,18 @@ export const TIMEZONE_FILTER_OPTIONS_COMPACT: { value: string; label: string }[]
  */
 export const UNSET_TIMEZONE_LABEL = 'Unassigned';
 
+/** Human name for a zone, for dropdowns and reports. */
+export const timezoneLabel = (code?: string | null): string =>
+  code ? (snapshot.labelByCode[code] ?? code) : UNSET_TIMEZONE_LABEL;
+
 /** Is this lead's zone actually configured? Nothing may be scheduled until it is. */
 export const hasLeadZone = (tz?: string | null): tz is LeadTimezone =>
-  !!tz && tz in IANA;
+  !!tz && tz in snapshot.ianaByCode;
 
-const DEFAULT_TZ: LeadTimezone = 'EST';
+const DEFAULT_TZ = 'EST';
 
-const zoneOf = (tz?: string | null): string => IANA[(tz as LeadTimezone) ?? DEFAULT_TZ] ?? IANA[DEFAULT_TZ];
+const zoneOf = (tz?: string | null): string =>
+  snapshot.ianaByCode[tz ?? DEFAULT_TZ] ?? snapshot.ianaByCode[DEFAULT_TZ] ?? FALLBACK[2].ianaZone;
 
 // ── A lead's own timestamps, on the lead's own clock ──
 //
@@ -140,7 +199,7 @@ const zoneOf = (tz?: string | null): string => IANA[(tz as LeadTimezone) ?? DEFA
  * call placed at the wrong hour — and `zoneNote` says plainly when a displayed
  * time is resting on the default.
  */
-const leadZone = (tz?: string | null): string => (hasLeadZone(tz) ? IANA[tz] : IANA[DEFAULT_TZ]);
+const leadZone = (tz?: string | null): string => (hasLeadZone(tz) ? zoneOf(tz) : zoneOf(DEFAULT_TZ));
 
 /** `Aug 5, 2026` on the lead's clock. Same format as `formatDate`. */
 export const leadDate = (v: string | number | Date | null | undefined, tz?: string | null, fallback?: string) =>
@@ -170,9 +229,9 @@ export const leadTime = (v: string | number | Date | null | undefined, tz?: stri
  */
 export function zoneNote(tz?: string | null): string {
   if (!hasLeadZone(tz)) {
-    return `This lead has no time zone set — shown in ${TIMEZONE_LABELS[DEFAULT_TZ]}, the default. Set the lead's time zone to date it correctly.`;
+    return `This lead has no time zone set — shown in ${timezoneLabel(DEFAULT_TZ)}, the default. Set the lead's time zone to date it correctly.`;
   }
-  return `Shown in the lead's time zone: ${TIMEZONE_LABELS[tz]} (${zoneLabel(tz)}).`;
+  return `Shown in the lead's time zone: ${timezoneLabel(tz)} (${zoneLabel(tz)}).`;
 }
 
 /**
@@ -254,7 +313,7 @@ export function describeWallClock(wallClock: string, tz?: string | null): string
     hour: '2-digit',
     minute: '2-digit',
   }).format(shown);
-  return `${text} ${(tz as LeadTimezone) ?? DEFAULT_TZ}`;
+  return `${text} ${tz ?? DEFAULT_TZ}`;
 }
 
 /** Short zone label for the current date, e.g. `EDT` in summer — for form hints. */
@@ -302,7 +361,7 @@ export function leadWallClockToInstant(wallClock: string, tz?: string | null): D
   const m = WALL_CLOCK.exec(wallClock ?? '');
   if (!m || !hasLeadZone(tz)) return null;
   const [, y, mo, d, hh, mi] = m;
-  const zone = IANA[tz];
+  const zone = zoneOf(tz);
   const asIfUtc = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(hh), Number(mi));
   // Two passes: the offset has to be sampled at the resulting instant, not the
   // guess, or a time within a few hours of a DST boundary lands an hour out.

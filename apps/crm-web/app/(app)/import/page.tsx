@@ -10,7 +10,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageHead } from '@/components/page-head';
 import { downloadCsv } from '@/lib/export';
 import { formatDate } from '@/lib/display-settings';
-import { TIMEZONE_CODES } from '@/lib/timezone';
+import { timezoneCodes } from '@/lib/timezone';
 
 /**
  * Which fields the duplicate check compares on — mirrors the API's `checkFields`.
@@ -110,7 +110,6 @@ const STATUS_MAP: Record<string, string> = {
  * updated. Anything unrecognised still normalises to undefined, leaving the lead
  * honestly zone-less instead of guessing Eastern for it.
  */
-const TIMEZONES: readonly string[] = TIMEZONE_CODES;
 
 function splitCsvLine(line: string): string[] {
   const out: string[] = [];
@@ -133,7 +132,7 @@ function splitCsvLine(line: string): string[] {
 function normalize(key: keyof LeadRow, raw: string): string | undefined {
   const v = raw.trim();
   if (!v) return undefined;
-  if (key === 'timezone') { const u = v.toUpperCase(); return TIMEZONES.includes(u) ? u : undefined; }
+  if (key === 'timezone') { const u = v.toUpperCase(); return timezoneCodes().includes(u) ? u : undefined; }
   if (key === 'status') return STATUS_MAP[v.toLowerCase()] ?? undefined;
   return v;
 }
@@ -277,12 +276,14 @@ const TEMPLATE_EXAMPLE: string[][] = [
 ];
 
 /** What the API does with each column, for the template's guide sheet. */
-const TEMPLATE_NOTES: string[][] = [
+// A function, not a const: the zone list is live admin data, and a const would
+// freeze whatever codes existed when this module was first parsed.
+const templateNotes = (): string[][] => [
   ['Company Name', 'Acme Tax LLC', 'Strongly recommended — a lead imported without one has nothing to show in the lists. Compared by the duplicate check on the trading name, so "Acme Tax LLC" and "The Acme Tax Co." count as the same company.'],
   ['Phone', '+1 305 555 1234', 'Any format — matched on the last 10 digits. A row whose number is already in the CRM UPDATES that lead rather than creating a second one.'],
   ['Alt Phone', '+1 305 555 5678', 'Also read by the duplicate check, against both phone columns on both sides.'],
   ['Email', 'john@acme.com', 'The duplicate check ignores +tags, and dots on Gmail addresses only.'],
-  ['Time Zone', TIMEZONE_CODES.join(' / '), 'Must be one of these codes. Anything else is left BLANK rather than guessed — a lead with no zone is asked for one before a callback can be booked, which is safer than booking on the wrong clock.'],
+  ['Time Zone', timezoneCodes().join(' / '), 'Must be one of these codes. Anything else is left BLANK rather than guessed — a lead with no zone is asked for one before a callback can be booked, which is safer than booking on the wrong clock.'],
   ['Assigned To', 'Lisa   ·   lisa@crm.local   ·   Lisa - MAS21072', "The employee's name or login email; a trailing \" - CODE\" is ignored. A name that matches nobody is reported row by row and the lead imports unassigned. An import never takes a lead off the employee already holding it."],
   ['Dates', '2026-07-15', 'First Contact, Last Contact, Next Follow-up, Meeting Date. Use YYYY-MM-DD; a date that cannot be read is left blank rather than failing the row.'],
   ['Created Date & Time', '2026-07-01 09:30', "The lead's ORIGINAL creation date, for a back catalogue being brought in — leave it blank and the lead is stamped with the moment it was imported. YYYY-MM-DD, or add HH:MM to keep the hour. Read on the LEAD's own time zone, so 09:30 against an EST lead means half past nine in New York. Applied only when the row CREATES a lead: a row matching a lead already in the CRM updates its fields and never rewrites what it says here."],
@@ -325,7 +326,7 @@ function downloadTemplateXlsx() {
     ['Every column is optional and the column ORDER does not matter — columns are matched by their heading, and anything unrecognised is reported before the import runs.'],
     [],
     ['Column', 'Example', 'How it is used'],
-    ...TEMPLATE_NOTES,
+    ...templateNotes(),
     [],
     ['Worked example — the same headings as the Leads tab, filled in.'],
     TEMPLATE_HEADERS,

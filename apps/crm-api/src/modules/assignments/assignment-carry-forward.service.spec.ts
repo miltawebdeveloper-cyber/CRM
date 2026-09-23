@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { AssignmentType, Timezone } from '@crm/database';
+import { AssignmentType } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AssignmentCarryForwardService } from './assignment-carry-forward.service.js';
 
@@ -14,7 +14,7 @@ describe('AssignmentCarryForwardService', () => {
   type LeadRow = {
     id: string;
     assignedToId: string;
-    timezone: Timezone | null;
+    timezone: string | null;
     callStatus: string | null;
     callbackAt: Date | null;
     callbackCompletedAt: Date | null;
@@ -35,7 +35,7 @@ describe('AssignmentCarryForwardService', () => {
   }
 
   /** An open lead nobody has reached, stamped for the day it was assigned. */
-  const lead = (id: string, tz: Timezone | null, assignedAt: string, over: Partial<LeadRow> = {}): LeadRow => ({
+  const lead = (id: string, tz: string | null, assignedAt: string, over: Partial<LeadRow> = {}): LeadRow => ({
     id,
     assignedToId: `rep-${id}`,
     timezone: tz,
@@ -55,7 +55,7 @@ describe('AssignmentCarryForwardService', () => {
     // scenario only holds for the few hours the machine happens to agree with
     // it, and a rule about which calendar day a lead falls on is the last thing
     // that should be decided by when the suite is run.
-    const { service, createMany } = harness([lead('a', Timezone.EST, '2026-08-13T19:00:00Z')]);
+    const { service, createMany } = harness([lead('a', 'EST', '2026-08-13T19:00:00Z')]);
     jest.useFakeTimers().setSystemTime(new Date('2026-08-13T19:30:00Z'));
     try {
       const res = await service.run();
@@ -71,7 +71,7 @@ describe('AssignmentCarryForwardService', () => {
 
   it('carries the lead once ITS zone reaches the next day', async () => {
     // Same assignment, but now read at 01:00 EDT on the 14th.
-    const { service, createMany } = harness([lead('a', Timezone.EST, '2026-08-13T19:00:00Z')]);
+    const { service, createMany } = harness([lead('a', 'EST', '2026-08-13T19:00:00Z')]);
     jest.useFakeTimers().setSystemTime(new Date('2026-08-14T05:00:00Z'));
     try {
       const res = await service.run();
@@ -85,8 +85,8 @@ describe('AssignmentCarryForwardService', () => {
   it('turns each zone over at its own moment', async () => {
     // 01:00 EDT on the 14th is still 22:00 PDT on the 13th.
     const { service, createMany } = harness([
-      lead('east', Timezone.EST, '2026-08-13T19:00:00Z'),
-      lead('west', Timezone.PST, '2026-08-13T19:00:00Z'),
+      lead('east', 'EST', '2026-08-13T19:00:00Z'),
+      lead('west', 'PST', '2026-08-13T19:00:00Z'),
     ]);
     jest.useFakeTimers().setSystemTime(new Date('2026-08-14T05:00:00Z'));
     try {
@@ -101,7 +101,7 @@ describe('AssignmentCarryForwardService', () => {
   });
 
   it('keeps the lead with the same rep — it is a re-stamp, not a handover', async () => {
-    const { service, createMany } = harness([lead('a', Timezone.EST, '2026-08-01T12:00:00Z')]);
+    const { service, createMany } = harness([lead('a', 'EST', '2026-08-01T12:00:00Z')]);
     await service.run();
     const row = createMany.mock.calls[0][0].data[0];
     expect(row.callerId).toBe('rep-a');
@@ -112,7 +112,7 @@ describe('AssignmentCarryForwardService', () => {
   });
 
   it('marks the rows carry_forward so the same-day lock ignores them', async () => {
-    const { service, createMany } = harness([lead('a', Timezone.EST, '2026-08-01T12:00:00Z')]);
+    const { service, createMany } = harness([lead('a', 'EST', '2026-08-01T12:00:00Z')]);
     await service.run();
     expect(createMany.mock.calls[0][0].data[0].type).toBe(AssignmentType.carry_forward);
   });
@@ -122,8 +122,8 @@ describe('AssignmentCarryForwardService', () => {
     // lead, and the write names the SAME lead id — a carried lead is the same
     // record on a new day, so its calls, notes and created date stay put.
     const { service, createMany, updateMany } = harness([
-      lead('a', Timezone.EST, '2026-08-01T12:00:00Z'),
-      lead('b', Timezone.EST, '2026-08-01T12:00:00Z'),
+      lead('a', 'EST', '2026-08-01T12:00:00Z'),
+      lead('b', 'EST', '2026-08-01T12:00:00Z'),
     ]);
     const res = await service.run();
 
@@ -176,7 +176,7 @@ describe('AssignmentCarryForwardService', () => {
     // Under the old "never worked" rule this lead was dropped from every
     // following day's queue; it is exactly the pending work tomorrow is for.
     const { service, createMany } = harness([
-      lead('a', Timezone.EST, '2026-08-01T12:00:00Z', { callStatus: 'no_answer' }),
+      lead('a', 'EST', '2026-08-01T12:00:00Z', { callStatus: 'no_answer' }),
     ]);
 
     const res = await service.run();
@@ -191,7 +191,7 @@ describe('AssignmentCarryForwardService', () => {
     // into today would have every "assigned today" view claim a call nobody
     // intends to make yet.
     const { service, createMany } = harness([
-      lead('a', Timezone.EST, '2026-08-01T12:00:00Z', { callbackAt: new Date('2026-08-20T14:00:00Z') }),
+      lead('a', 'EST', '2026-08-01T12:00:00Z', { callbackAt: new Date('2026-08-20T14:00:00Z') }),
     ]);
     jest.useFakeTimers().setSystemTime(new Date('2026-08-14T15:00:00Z'));
     try {
@@ -209,7 +209,7 @@ describe('AssignmentCarryForwardService', () => {
     // and today's. (The callback rollover moves the appointment itself; the two
     // agree, because once it is in the future the test above parks the lead.)
     const { service, createMany } = harness([
-      lead('a', Timezone.EST, '2026-08-01T12:00:00Z', { callbackAt: new Date('2026-08-10T14:00:00Z') }),
+      lead('a', 'EST', '2026-08-01T12:00:00Z', { callbackAt: new Date('2026-08-10T14:00:00Z') }),
     ]);
     jest.useFakeTimers().setSystemTime(new Date('2026-08-14T15:00:00Z'));
     try {
@@ -225,7 +225,7 @@ describe('AssignmentCarryForwardService', () => {
     // A completed appointment is history, not a commitment — `callbackAt` alone
     // would park this lead forever on the strength of a call that happened.
     const { service, createMany } = harness([
-      lead('a', Timezone.EST, '2026-08-01T12:00:00Z', {
+      lead('a', 'EST', '2026-08-01T12:00:00Z', {
         callbackAt: new Date('2026-08-20T14:00:00Z'),
         callbackCompletedAt: new Date('2026-08-12T14:00:00Z'),
       }),
@@ -241,7 +241,7 @@ describe('AssignmentCarryForwardService', () => {
 
   it('leaves a lead alone while a Zoom meeting is booked ahead of it', async () => {
     const { service } = harness([
-      lead('a', Timezone.EST, '2026-08-01T12:00:00Z', { zoomMeetings: [{ scheduledAt: new Date('2026-08-21T15:00:00Z') }] }),
+      lead('a', 'EST', '2026-08-01T12:00:00Z', { zoomMeetings: [{ scheduledAt: new Date('2026-08-21T15:00:00Z') }] }),
     ]);
     jest.useFakeTimers().setSystemTime(new Date('2026-08-14T15:00:00Z'));
     try {
