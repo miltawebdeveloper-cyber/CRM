@@ -1,4 +1,4 @@
-import { IsDateString, IsEnum, IsInt, IsOptional, IsString, IsUUID, Min, MinLength } from 'class-validator';
+import { IsDateString, IsEnum, IsInt, IsOptional, IsString, IsUrl, IsUUID, MaxLength, Min, MinLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class StartCallDto {
@@ -19,9 +19,14 @@ export class EndCallDto {
   @Min(0)
   durationSecs?: number;
 
-  @ApiPropertyOptional()
+  // A real HTTPS URL only. This was any string, stored and later rendered to
+  // managers as a "▶ Recording" link — so a rep could plant a link to anywhere
+  // (a phishing page dressed as the recording) on their own call. Recordings
+  // normally arrive by webhook; no CRM screen sends this field.
+  @ApiPropertyOptional({ description: 'HTTPS URL of the call recording' })
   @IsOptional()
-  @IsString()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @MaxLength(2048)
   recordingUrl?: string;
 
   @ApiPropertyOptional({ description: 'Callback or interested follow-up time in ISO format' })

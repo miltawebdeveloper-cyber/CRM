@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, HttpCode } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, HttpCode } from '@nestjs/common';
+import { BackgroundJobsService } from '../jobs/background-jobs.service.js';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
 import { LeadsService } from './leads.service.js';
@@ -14,6 +15,7 @@ export class LeadsController {
   constructor(
     private readonly leads: LeadsService,
     private readonly quo: QuoService,
+    private readonly jobs: BackgroundJobsService,
   ) {}
 
   // Create a single lead — master-data entry, Lead Library only. Admin + Team
@@ -24,12 +26,30 @@ export class LeadsController {
     return this.leads.create(dto, user.id, user.role);
   }
 
-  // IMP-001 — bulk import parsed rows
+  // IMP-001 — bulk import parsed rows.
+  //
+  // Starts the import as a background job and answers at once with the job,
+  // instead of holding the request open while every row is written (which a
+  // proxy timeout cut off part way on large files). Poll the route below for
+  // progress; the finished job's `result` is the import summary this used to
+  // return directly, `createdIds` included. A failed job keeps the ids it had
+  // already created in `result`, so the batch can still be rolled back.
   @Roles(Role.admin, Role.team_leader)
   @Post('import')
-  @HttpCode(200)
-  bulkImport(@Body() dto: ImportLeadsDto, @CurrentUser() user: AuthUser) {
-    return this.leads.bulkImport(dto, user.id);
+  @HttpCode(202)
+  async bulkImport(@Body() dto: ImportLeadsDto, @CurrentUser() user: AuthUser) {
+    const createdIds: string[] = [];
+    return this.jobs.start('lead_import', user.id, dto.rows.length, async (ctx) => {
+      ctx.onFailure(() => ({ createdIds, interrupted: true }));
+      return this.leads.bulkImport(dto, user.id, { createdIds, onProgress: (n) => ctx.progress(n) });
+    });
+  }
+
+  /** Progress / result of an import started above. */
+  @Roles(Role.admin, Role.team_leader)
+  @Get('import/jobs/:jobId')
+  importJob(@Param('jobId', ParseUUIDPipe) jobId: string, @CurrentUser() user: AuthUser) {
+    return this.jobs.get(jobId, 'lead_import', { id: user.id, isManager: user.role === Role.admin });
   }
 
   /** Pre-import duplicate scan — no writes. Returns which rows match an existing
@@ -91,9 +111,12 @@ export class LeadsController {
    * email is filled in, so a duplicate is visible BEFORE the save is attempted
    * rather than only as the 409 that `POST /leads` returns.
    *
-   * Open to any authenticated user because creating a lead is, and a check that
-   * managers alone could run would leave everyone else's form unable to warn.
+   * Admin + Team Leader, the same as `POST /leads` itself. It was open to every
+   * signed-in user on the premise that anyone could create a lead — but nobody
+   * else can, and the open version let an employee search the WHOLE book by
+   * phone, email or company domain and read back other reps' leads.
    */
+  @Roles(Role.admin, Role.team_leader)
   @Post('check-duplicate')
   @HttpCode(200)
   checkDuplicate(@Body() dto: CheckDuplicateDto) {
@@ -108,14 +131,18 @@ export class LeadsController {
 
   /** Complete ownership history for a lead — every assignment and reassignment,
    *  newest first, with who it came from, who it went to and who did it. */
+  // Both scoped like the lead page itself: an employee reads only leads they
+  // hold or closed (404 otherwise), managers any.
   @Get(':id/assignments')
-  assignmentHistory(@Param('id') id: string) {
+  async assignmentHistory(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.leads.assertAccess(id, user);
     return this.leads.assignmentHistory(id);
   }
 
   /** Full comment trail for a lead — manual edits and call notes, newest first. */
   @Get(':id/comments')
-  commentHistory(@Param('id') id: string) {
+  async commentHistory(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.leads.assertAccess(id, user);
     return this.leads.commentHistory(id);
   }
 
@@ -176,11 +203,27 @@ export class LeadsController {
   // ── Quo integration ──
   // Bulk: sync every not-yet-synced lead to Quo in one action. Declared before
   // the ':id/quo-sync' param route so the static path always matches first.
+  //
+  // A background job, like the import: syncing the whole book one lead at a
+  // time outlived any proxy timeout. Only one runs at a time — a second click
+  // while one is running gets the running job back rather than starting a
+  // duplicate that spends the provider's rate limit twice.
   @Roles(Role.admin, Role.team_leader)
   @Post('quo-sync-all')
-  @HttpCode(200)
-  syncAllToQuo() {
-    return this.quo.syncAllLeads();
+  @HttpCode(202)
+  async syncAllToQuo(@CurrentUser() user: AuthUser) {
+    const active = await this.jobs.activeOf('quo_sync_all');
+    if (active) return active;
+    return this.jobs.start('quo_sync_all', user.id, 0, (ctx) =>
+      this.quo.syncAllLeads((done, total) => ctx.progress(done, total)),
+    );
+  }
+
+  @Roles(Role.admin, Role.team_leader)
+  @Get('quo-sync-all/jobs/:jobId')
+  syncAllToQuoJob(@Param('jobId', ParseUUIDPipe) jobId: string) {
+    // Either manager may watch a sync either started; it is one shared operation.
+    return this.jobs.get(jobId, 'quo_sync_all', { id: '', isManager: true });
   }
 
   // Trigger: send this lead to Quo, store the response, return the result.
@@ -192,7 +235,8 @@ export class LeadsController {
   }
 
   @Get(':id/quo-logs')
-  quoLogs(@Param('id') id: string) {
+  async quoLogs(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.leads.assertAccess(id, user);
     return this.quo.getLogs(id);
   }
 }

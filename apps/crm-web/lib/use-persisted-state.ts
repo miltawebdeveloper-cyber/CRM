@@ -52,6 +52,10 @@ export function usePersistedState<T>(key: string, initial: T): [T, (v: T) => voi
     if (restoredKey.current === key) return;
     restoredKey.current = key;
     const stored = readStored<T>(key);
+    // Syncing from an external system (localStorage) is what effects are for:
+    // storage may only be read in the browser AFTER hydration, or the first
+    // client render wouldn't match the server's. Hence the opt-out.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (stored !== MISSING) setValue(stored);
   }, [key]);
 

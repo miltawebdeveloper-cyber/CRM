@@ -3,6 +3,7 @@ import * as bcrypt from 'bcrypt';
 import { Prisma, Role } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { TrustedDeviceService } from '../auth/trusted-device.service.js';
+import { SessionService } from '../auth/session.service.js';
 import { CreateUserDto, UpdateUserDto, ListUsersQueryDto } from './dto/user.dto.js';
 import { zonesOfCountry } from '../../common/timezone.js';
 
@@ -27,6 +28,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly devices: TrustedDeviceService,
+    private readonly sessions: SessionService,
   ) {}
 
   /**
@@ -91,11 +93,42 @@ export class UsersService {
     });
   }
 
+  /**
+   * Refuse a change that would leave nobody able to administer the system, or
+   * lock the acting admin out of their own account. `remove` always had the
+   * last-admin rule; editing and deactivating did not, so one click on the
+   * Users page could demote or switch off the only admin — recoverable only by
+   * editing the database by hand.
+   */
+  private async assertKeepsAnAdmin(
+    target: { id: string; role: Role; isActive: boolean },
+    next: { role: Role; isActive: boolean },
+    actor?: { id: string },
+  ) {
+    const losesAdmin = target.role === Role.admin && target.isActive && (next.role !== Role.admin || !next.isActive);
+    if (!losesAdmin) return;
+    if (actor && actor.id === target.id) {
+      throw new ConflictException('You cannot remove your own admin access or deactivate your own account. Ask another admin.');
+    }
+    const otherAdmins = await this.prisma.user.count({
+      where: { role: Role.admin, isActive: true, id: { not: target.id } },
+    });
+    if (otherAdmins === 0) {
+      throw new ConflictException('This is the only active admin. Promote another user to admin first, or nobody can administer the system.');
+    }
+  }
+
   // LGN-010 — edit user (name/email/role/password)
-  async update(id: string, dto: UpdateUserDto) {
+  async update(id: string, dto: UpdateUserDto, actor?: { id: string }) {
     const current = await this.findOne(id);
     if (dto.shiftTimezone !== undefined && (dto.role ?? current.role) !== Role.employee) {
       throw new BadRequestException('Only employees have a shift time zone');
+    }
+    await this.assertKeepsAnAdmin(current, { role: dto.role ?? current.role, isActive: dto.isActive ?? current.isActive }, actor);
+    // Same clear 409 as create, instead of the unique constraint surfacing as a 500.
+    if (dto.email !== undefined && dto.email !== current.email) {
+      const taken = await this.prisma.user.findUnique({ where: { email: dto.email }, select: { id: true } });
+      if (taken && taken.id !== id) throw new ConflictException('Email already in use');
     }
     // A non-empty number must be free (not held by another user) before assigning.
     if (dto.openphoneNumber !== undefined && dto.openphoneNumber.trim()) {
@@ -114,17 +147,27 @@ export class UsersService {
     };
     if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 12);
     const user = await this.prisma.user.update({ where: { id }, data, select: SAFE_SELECT });
+    // A demotion takes effect on the next request, not after the session cache.
+    if (dto.role !== undefined && dto.role !== current.role) this.sessions.forgetUser(id);
     // A new password must not leave devices behind that can still skip the OTP —
-    // otherwise the reset doesn't actually lock out whoever had the old one.
-    if (dto.password) await this.devices.revokeOnSecurityChange(id, 'password change');
+    // otherwise the reset doesn't actually lock out whoever had the old one —
+    // nor signed-in sessions that keep working on tokens issued before it.
+    if (dto.password) {
+      await this.devices.revokeOnSecurityChange(id, 'password change');
+      await this.sessions.revokeAllForUser(id, 'password change');
+    }
     // Same for an account switched off from this form: see `deactivate`.
-    if (dto.isActive === false) await this.devices.revokeOnSecurityChange(id, 'account deactivation');
+    if (dto.isActive === false) {
+      await this.devices.revokeOnSecurityChange(id, 'account deactivation');
+      await this.sessions.revokeAllForUser(id, 'account deactivation');
+    }
     return user;
   }
 
   // LGN-011 — deactivate (soft); deactivated users cannot login
-  async deactivate(id: string) {
-    await this.findOne(id);
+  async deactivate(id: string, actor?: { id: string }) {
+    const current = await this.findOne(id);
+    await this.assertKeepsAnAdmin(current, { role: current.role, isActive: false }, actor);
     const user = await this.prisma.user.update({
       where: { id },
       data: { isActive: false },
@@ -134,7 +177,10 @@ export class UsersService {
     // blocks the login while it is false — reactivating the account later would
     // otherwise hand every previously trusted browser a straight walk back in,
     // no code asked, which is precisely what deactivating was meant to stop.
+    // Sessions likewise: reactivation must mean a fresh sign-in, not old tokens
+    // coming back to life.
     await this.devices.revokeOnSecurityChange(id, 'account deactivation');
+    await this.sessions.revokeAllForUser(id, 'account deactivation');
     return user;
   }
 

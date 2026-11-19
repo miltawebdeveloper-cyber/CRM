@@ -73,7 +73,8 @@ describe('ZoomService — Lead Management meeting date', () => {
     let h: ReturnType<typeof harness>;
     beforeEach(async () => {
       h = harness({ scheduledAt: at('2026-08-21T18:30:00Z') });
-      await h.service.create({ leadId: LEAD, scheduledAt: '2026-08-21T14:30' } as CreateZoomMeetingDto, 'user-1');
+      // Booked as a manager: these tests are about dates, not who may book.
+      await h.service.create({ leadId: LEAD, scheduledAt: '2026-08-21T14:30' } as CreateZoomMeetingDto, 'user-1', 'admin');
     });
 
     it('stores the meeting time on the lead', () => {

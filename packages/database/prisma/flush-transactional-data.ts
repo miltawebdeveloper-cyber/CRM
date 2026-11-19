@@ -49,9 +49,14 @@ const KEEP = [
   'employees',
   'user_preferences',
   'trusted_devices',
+  // Signed-in sessions. Account state, like trusted devices — emptying it would
+  // sign every user out for a reason that has nothing to do with their data.
+  'auth_sessions',
   'app_settings',
   'outcomes',
   'targets',
+  // Cron leases. Infrastructure, not data; at worst a stale row skips one tick.
+  'scheduler_locks',
 ] as const;
 
 /**
@@ -99,6 +104,12 @@ const FLUSH = [
   // fresh database on behalf of records that no longer exist, and after a flush
   // nothing is a duplicate anyway: every row is new.
   'import_duplicate_decisions',
+  // Lead import / Quo sync-all job records. Their results name leads (the
+  // created ids an import can be rolled back by), which a flush removes.
+  'background_jobs',
+  // Webhook event ids already handled (dedupe window, a week). Pure delivery
+  // history; the provider never re-sends events this old.
+  'webhook_events',
 ] as const;
 
 /** Prisma's own migration ledger. Touching it would strand the database. */

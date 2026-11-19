@@ -187,11 +187,14 @@ describe('LeadsService.findAll — which date the range filters on', () => {
     await service.findAll({ closed: false, createdFrom: '2026-08-01', createdTo: '2026-08-14' } as never);
 
     const where = whereOf(findMany);
+    // Whole BUSINESS days (BUSINESS_TIMEZONE, Eastern by default — EDT in
+    // August, so a day runs 04:00Z to 03:59:59.999Z the next morning), not UTC
+    // days and not the server's.
     expect(where.createdAt).toEqual({
-      gte: new Date('2026-08-01'),
+      gte: new Date('2026-08-01T04:00:00.000Z'),
       // The end of the closing day, not its midnight — a single-day filter has
       // to span the day, or "14 August" matches only leads created at 00:00:00.
-      lte: new Date('2026-08-14T23:59:59.999Z'),
+      lte: new Date('2026-08-15T03:59:59.999Z'),
     });
     expect(where).not.toHaveProperty('assignments');
   });
@@ -212,7 +215,7 @@ describe('LeadsService.findAll — which date the range filters on', () => {
     expect(where.assignments).toEqual({
       some: {
         isActive: true,
-        assignedAt: { gte: new Date('2026-08-14'), lte: new Date('2026-08-14T23:59:59.999Z') },
+        assignedAt: { gte: new Date('2026-08-14T04:00:00.000Z'), lte: new Date('2026-08-15T03:59:59.999Z') },
       },
     });
     expect(where).not.toHaveProperty('createdAt');
@@ -221,12 +224,12 @@ describe('LeadsService.findAll — which date the range filters on', () => {
   it('accepts an open-ended range on either date', async () => {
     const { service, findMany } = harness();
     await service.findAll({ closed: false, createdFrom: '2026-08-01' } as never);
-    expect(whereOf(findMany).createdAt).toEqual({ gte: new Date('2026-08-01') });
+    expect(whereOf(findMany).createdAt).toEqual({ gte: new Date('2026-08-01T04:00:00.000Z') });
 
     const scheduled = harness();
     await scheduled.service.findAll({ closed: false, createdTo: '2026-08-14', dateField: 'scheduled' } as never);
     expect(whereOf(scheduled.findMany).assignments).toEqual({
-      some: { isActive: true, assignedAt: { lte: new Date('2026-08-14T23:59:59.999Z') } },
+      some: { isActive: true, assignedAt: { lte: new Date('2026-08-15T03:59:59.999Z') } },
     });
   });
 });

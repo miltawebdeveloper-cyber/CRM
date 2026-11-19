@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Mail, Plus, Trash2, Check } from 'lucide-react';
 import { notificationsApi, type CallbackEmailType, type EmailSettings } from '@/lib/crm';
@@ -48,13 +48,16 @@ export function EmailNotificationSettings() {
   const [newEmail, setNewEmail] = useState('');
   const [error, setError] = useState('');
 
-  // Hydrate local form from the server once loaded.
-  useEffect(() => {
-    if (data) {
-      setRecipients(data.recipients);
-      setTypes(data.types);
-    }
-  }, [data]);
+  // Hydrate the local form whenever the SERVER's settings change (first load, or
+  // after a save) — during render, keyed on the data object, rather than in an
+  // effect. React Query keeps the same object across refetches that return
+  // identical settings, so an unchanged refetch never wipes unsaved edits.
+  const [hydratedFrom, setHydratedFrom] = useState<typeof data>(undefined);
+  if (data && data !== hydratedFrom) {
+    setHydratedFrom(data);
+    setRecipients(data.recipients);
+    setTypes(data.types);
+  }
 
   const save = useMutation({
     mutationFn: (s: EmailSettings) => notificationsApi.updateEmailSettings(s),

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Shuffle, Users } from 'lucide-react';
 import { assignmentsApi, type AssignmentSummary } from '@/lib/crm';
@@ -32,12 +32,12 @@ export default function AssignmentsPage() {
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const totalAssigned = data?.callers.reduce((a, c) => a + c.leadCount, 0) ?? 0;
 
-  // Ref keeps the checkbox cell reading the latest selection without churning
-  // the column defs (which would otherwise reset prefs on every toggle).
-  const selectedRef = useRef(selected);
-  selectedRef.current = selected;
+  // The checkbox cell reads the selection from context, so ticking re-renders
+  // the checkbox without churning the column defs (which would otherwise reset
+  // prefs on every toggle). It used to read a ref assigned during render, which
+  // only showed the right state when something else happened to re-render the cell.
   const columns = useMemo<ColumnDef<Caller>[]>(() => [
-    { key: 'check', header: '', required: true, headerClassName: 'w-10', render: (c) => <input type="checkbox" checked={selectedRef.current.has(c.id)} readOnly className="pointer-events-none accent-[var(--brand)]" /> },
+    { key: 'check', header: '', required: true, headerClassName: 'w-10', render: (c) => <CallerCheckbox id={c.id} /> },
     { key: 'caller', header: 'Caller', required: true, render: (c) => <div className="flex items-center gap-[10px]"><Avatar name={c.name} /><span className="font-semibold">{c.name}</span></div> },
     { key: 'email', header: 'Email', cellClassName: 'text-muted-foreground', render: (c) => c.email },
     { key: 'leads', header: 'Assigned Leads', headerClassName: 'text-right', cellClassName: 'text-right font-mono tabular-nums', render: (c) => c.leadCount },
@@ -71,16 +71,26 @@ export default function AssignmentsPage() {
         </div>
       )}
 
-      <DataTable
-        tableKey="assignments-callers"
-        columns={columns}
-        rows={data?.callers ?? []}
-        getRowKey={(c) => c.id}
-        title="Callers"
-        subtitle="Select callers, then distribute"
-        emptyText="No callers."
-        onRowClick={(c) => toggle(c.id)}
-      />
+      <SelectedCallers.Provider value={selected}>
+        <DataTable
+          tableKey="assignments-callers"
+          columns={columns}
+          rows={data?.callers ?? []}
+          getRowKey={(c) => c.id}
+          title="Callers"
+          subtitle="Select callers, then distribute"
+          emptyText="No callers."
+          onRowClick={(c) => toggle(c.id)}
+        />
+      </SelectedCallers.Provider>
     </div>
   );
+}
+
+/** The current caller selection, for the checkbox cells (see `columns`). */
+const SelectedCallers = createContext<Set<string>>(new Set());
+
+function CallerCheckbox({ id }: { id: string }) {
+  const selected = useContext(SelectedCallers);
+  return <input type="checkbox" checked={selected.has(id)} readOnly className="pointer-events-none accent-[var(--brand)]" />;
 }

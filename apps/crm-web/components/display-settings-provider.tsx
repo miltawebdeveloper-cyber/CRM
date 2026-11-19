@@ -129,7 +129,9 @@ export function DisplaySettingsProvider({ children }: { children: ReactNode }) {
       setDensity,
     }),
     // `version` is the dependency that matters: the getters read module state,
-    // so the memo has to be rebuilt when that state moves.
+    // so the memo has to be rebuilt when that state moves. The rule can't see
+    // that a dependency the factory never reads is the point, hence the opt-out.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [version, palette, density, loading, setTimezone, setLanguage, setPalette, setDensity],
   );
 

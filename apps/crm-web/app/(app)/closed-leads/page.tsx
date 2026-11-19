@@ -17,8 +17,7 @@ import { downloadCsv, downloadXlsx } from '@/lib/export';
 import { EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { usePersistedState } from '@/lib/use-persisted-state';
 import { pushToast } from '@/lib/toast';
-import { formatDate } from '@/lib/display-settings';
-import { useTimezoneFilterOptions, countryOfZone, zoneMatchesCountry, UNSET_TIMEZONE_LABEL } from '@/lib/timezone';
+import { leadDate, zoneNote, useTimezoneFilterOptions, countryOfZone, zoneMatchesCountry, UNSET_TIMEZONE_LABEL } from '@/lib/timezone';
 import { useOutcomeLabels } from '@/lib/use-outcome-label';
 
 /** Ceiling for an export — the API's `limit` cap. Beyond it the user is told
@@ -140,7 +139,7 @@ export default function ClosedLeadsPage() {
   ];
   const exportRows = (rows: Lead[]) => rows.map((l: Lead) => [
     l.leadId,
-    l.closedAt ? formatDate(l.closedAt) : '',
+    l.closedAt ? leadDate(l.closedAt, l.timezone) : '',
     l.closedBy?.name ?? '',
     l.businessName,
     l.contactName ?? '',
@@ -153,11 +152,11 @@ export default function ClosedLeadsPage() {
     l.industry ?? '',
     l.assignedTo?.name ?? '',
     l.callStatus ?? '',
-    l.firstContact ? formatDate(l.firstContact) : '',
-    l.lastContact ? formatDate(l.lastContact) : '',
-    l.meetingDate ? formatDate(l.meetingDate) : '',
+    l.firstContact ? leadDate(l.firstContact, l.timezone) : '',
+    l.lastContact ? leadDate(l.lastContact, l.timezone) : '',
+    l.meetingDate ? leadDate(l.meetingDate, l.timezone) : '',
     l.lostReason ?? '',
-    l.createdAt ? formatDate(l.createdAt) : '',
+    l.createdAt ? leadDate(l.createdAt, l.timezone) : '',
   ]);
 
   // States cascade from the selected timezone; cities from timezone + state —
@@ -180,7 +179,7 @@ export default function ClosedLeadsPage() {
         </div>
       ),
     },
-    { key: 'closedAt', header: 'Closed Date', cellClassName: 'text-muted-foreground', render: (l) => l.closedAt ? formatDate(l.closedAt) : '—', trackable: true },
+    { key: 'closedAt', header: 'Closed Date', cellClassName: 'text-muted-foreground', render: (l) => l.closedAt ? <span title={zoneNote(l.timezone)}>{leadDate(l.closedAt, l.timezone)}</span> : '—', trackable: true },
     { key: 'closedBy', header: 'Closed By', render: (l) => l.closedBy?.name ?? '—', searchable: true, trackable: true, searchValue: (l) => l.closedBy?.name },
     { key: 'businessName', header: 'Company Name', render: (l) => l.businessName, searchable: true, searchValue: (l) => l.businessName },
     { key: 'contactName', header: 'Contact Person', render: (l) => l.contactName ?? '—', searchable: true, searchValue: (l) => l.contactName },
@@ -193,11 +192,11 @@ export default function ClosedLeadsPage() {
     { key: 'industry', header: 'Industry', cellClassName: 'text-muted-foreground', render: (l) => l.industry ?? '—', searchable: true, searchValue: (l) => l.industry },
     { key: 'caller', header: 'Assigned To', render: (l) => l.assignedTo?.name ?? '—', searchable: true, searchValue: (l) => l.assignedTo?.name },
     { key: 'callStatus', header: 'Call Status', cellClassName: 'text-muted-foreground', render: (l) => l.callStatus ?? '—', searchable: true, searchValue: (l) => l.callStatus },
-    { key: 'firstContact', header: 'First Contact', cellClassName: 'text-muted-foreground', render: (l) => l.firstContact ? formatDate(l.firstContact) : '—' },
-    { key: 'lastContact', header: 'Last Contact', cellClassName: 'text-muted-foreground', render: (l) => l.lastContact ? formatDate(l.lastContact) : '—' },
-    { key: 'meetingDate', header: 'Meeting Date', cellClassName: 'text-muted-foreground', render: (l) => l.meetingDate ? formatDate(l.meetingDate) : '—' },
+    { key: 'firstContact', header: 'First Contact', cellClassName: 'text-muted-foreground', render: (l) => l.firstContact ? <span title={zoneNote(l.timezone)}>{leadDate(l.firstContact, l.timezone)}</span> : '—' },
+    { key: 'lastContact', header: 'Last Contact', cellClassName: 'text-muted-foreground', render: (l) => l.lastContact ? <span title={zoneNote(l.timezone)}>{leadDate(l.lastContact, l.timezone)}</span> : '—' },
+    { key: 'meetingDate', header: 'Meeting Date', cellClassName: 'text-muted-foreground', render: (l) => l.meetingDate ? <span title={zoneNote(l.timezone)}>{leadDate(l.meetingDate, l.timezone)}</span> : '—' },
     { key: 'lostReason', header: 'Lost Reason', cellClassName: 'text-muted-foreground', render: (l) => l.lostReason ?? '—', searchable: true, searchValue: (l) => l.lostReason },
-    { key: 'createdDate', header: 'Created Date', cellClassName: 'text-muted-foreground', render: (l) => l.createdAt ? formatDate(l.createdAt) : '—' },
+    { key: 'createdDate', header: 'Created Date', cellClassName: 'text-muted-foreground', render: (l) => l.createdAt ? <span title={zoneNote(l.timezone)}>{leadDate(l.createdAt, l.timezone)}</span> : '—' },
     {
       key: 'actions', header: '', required: true,
       render: (l) => (

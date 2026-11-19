@@ -35,7 +35,13 @@ export class LlmService {
 
   private get anthropic(): Anthropic {
     if (!this.client) {
-      this.client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+      // Explicit bounds: the SDK default is a 10-minute timeout with retries,
+      // long enough for one stuck summary to stall the one-at-a-time queue.
+      this.client = new Anthropic({
+        apiKey: process.env.ANTHROPIC_API_KEY,
+        timeout: Number(process.env.ANTHROPIC_TIMEOUT_MS) || 90_000,
+        maxRetries: 2,
+      });
     }
     return this.client;
   }

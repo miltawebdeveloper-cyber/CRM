@@ -11,7 +11,7 @@ import { OutcomePill } from '@/components/outcome-pill';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
-import { formatInLeadZone } from '@/lib/timezone';
+import { formatInLeadZone, leadOrViewer, zoneNote } from '@/lib/timezone';
 import { invalidateCallActivity } from '@/lib/sync';
 import { formatDateTime } from '@/lib/display-settings';
 
@@ -157,7 +157,7 @@ export default function OutcomesPage() {
   const canEdit = (r: OutcomeRecord) => isManager || (!!me?.id && r.caller?.id === me.id);
 
   const columns = useMemo<ColumnDef<OutcomeRecord>[]>(() => [
-    { key: 'when', header: 'When', required: true, render: (r) => formatDateTime(r.createdAt) },
+    { key: 'when', header: 'When', required: true, render: (r) => <span title={r.lead ? zoneNote(r.lead.timezone) : undefined}>{leadOrViewer(r.createdAt, r.lead)}</span> },
     { key: 'lead', header: 'Lead', required: true, render: (r) => r.lead?.businessName ?? '—' },
     { key: 'caller', header: 'Caller', render: (r) => r.caller?.name ?? '—' },
     { key: 'phone', header: 'Phone', render: (r) => r.lead?.phone ?? '—' },

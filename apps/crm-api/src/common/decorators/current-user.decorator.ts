@@ -5,6 +5,8 @@ export interface AuthUser {
   id: string;
   email: string;
   role: Role;
+  /** Server-side session the request's token belongs to (see SessionService). */
+  sessionId?: string;
 }
 
 /** Injects the authenticated user (set by JwtStrategy) into a handler param. */

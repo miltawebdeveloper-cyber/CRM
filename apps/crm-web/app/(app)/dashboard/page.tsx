@@ -15,9 +15,10 @@ import { LiveIndicator } from '@/components/live-indicator';
 import { StatusPill } from '@/components/status-pill';
 import { CallbackStatusPill } from '@/components/callback-status-pill';
 import { callbackStatus, callbacksApi, type DueCallback } from '@/lib/callbacks';
-import { formatScheduleInLeadZone } from '@/lib/timezone';
+import { formatScheduleInLeadZone, leadDateTime } from '@/lib/timezone';
 import { DateFilter } from '@/components/filter-controls';
 import { EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
+import { businessDate } from '@/lib/business-day';
 import { downloadCsv } from '@/lib/export';
 import { formatDateLong, formatDateTime } from '@/lib/display-settings';
 
@@ -69,7 +70,7 @@ const closedColumns: Column<Lead>[] = [
   { key: 'status', header: 'Status', cell: (r) => <StatusPill status={r.status} /> },
 ];
 const missedColumns: Column<MissedCall>[] = [
-  { key: 'at', header: 'When', cell: (r) => formatDateTime(r.at) },
+  { key: 'at', header: 'When', cell: (r) => leadDateTime(r.at, r.timezone) },
   { key: 'businessName', header: 'Customer', cell: (r) => <Link href={`/leads/${r.leadId}`} className="font-medium hover:underline">{r.businessName}</Link> },
   { key: 'phone', header: 'Phone' },
   { key: 'assignedTo', header: 'Assigned To', cell: (r) => r.assignedTo ?? '—' },
@@ -96,7 +97,9 @@ export default function DashboardPage() {
   // that is a megabyte or so of JSON every tick to render two lists of ten. The
   // filters belong in the query, and the queries are capped at what the widgets
   // can show.
-  const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  // The BUSINESS date, which is what the API reads `createdFrom/To` against.
+  // `toISOString()` gave the UTC date, a day off for most of the Indian evening.
+  const todayIso = useMemo(() => businessDate(), []);
   const { data: todaysLeads = [] } = useQuery({
     queryKey: ['leads', 'today', todayIso],
     queryFn: () => leadsApi.list({ createdFrom: todayIso, createdTo: todayIso, pageSize: WIDGET_ROWS, sortBy: 'createdAt', sortDir: 'desc' }),
@@ -165,7 +168,7 @@ export default function DashboardPage() {
               ? 'Cards show the selected date range. The lists below stay live.'
               : `Live snapshot — ${dateLabel}. Targets refresh nightly.`}
           </div>
-          <div className="mt-2"><LiveIndicator updatedAt={summaryQ.dataUpdatedAt || Date.now()} fetching={summaryQ.isFetching} /></div>
+          <div className="mt-2"><LiveIndicator updatedAt={summaryQ.dataUpdatedAt} fetching={summaryQ.isFetching} /></div>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
           <DateFilter value={dateFilter} onChange={setDateFilter} iconOnly />

@@ -76,12 +76,18 @@ export class MailService implements OnModuleDestroy {
     });
   }
 
-  async send(msg: MailMessage): Promise<void> {
+  /**
+   * Send a message. Never throws — email is best-effort for most callers — but
+   * reports whether it went: true when SMTP accepted it, false when it failed
+   * (or there was nothing to send, or SMTP isn't configured). Callers that must
+   * tell a person their mail didn't arrive (the login code) act on the result.
+   */
+  async send(msg: MailMessage): Promise<boolean> {
     const recipients = Array.isArray(msg.to) ? msg.to.filter(Boolean) : msg.to;
-    if (!recipients || (Array.isArray(recipients) && recipients.length === 0)) return;
+    if (!recipients || (Array.isArray(recipients) && recipients.length === 0)) return false;
     if (!this.transporter) {
       this.logger.log(`[mail:stub] to=${recipients} subject="${msg.subject}"`);
-      return;
+      return false;
     }
     try {
       await this.transporter.sendMail({
@@ -91,9 +97,11 @@ export class MailService implements OnModuleDestroy {
         html: msg.html,
         text: msg.text,
       });
+      return true;
     } catch (err) {
       // Email is best-effort — never fail the calling request because of it.
       this.logger.error(`Failed to send email "${msg.subject}": ${(err as Error).message}`);
+      return false;
     }
   }
 }

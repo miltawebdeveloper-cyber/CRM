@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ListChecks, Plus, Trash2, Check, PhoneForwarded, Video } from 'lucide-react';
 import { outcomesApi, OUTCOME_CATEGORIES, type Outcome } from '@/lib/crm';
@@ -22,11 +22,8 @@ function OutcomeRow({ o }: { o: Outcome }) {
   const [active, setActive] = useState(o.isActive);
   const [category, setCategory] = useState<string>(o.category ?? '');
 
-  // Re-sync local state after a save (server is the source of truth).
-  useEffect(() => {
-    setName(o.name); setColor(o.color); setSched(o.schedulesCallback); setZoom(o.schedulesZoom); setActive(o.isActive);
-    setCategory(o.category ?? '');
-  }, [o.name, o.color, o.schedulesCallback, o.schedulesZoom, o.isActive, o.category]);
+  // No re-sync effect: the parent keys this row by its saved values, so a save
+  // that changes them remounts it with fresh state (server is the source of truth).
 
   const save = useMutation({
     mutationFn: () => outcomesApi.update(o.id, {
@@ -107,7 +104,14 @@ export function OutcomeManagement() {
 
       <div className="px-[18px] py-2">
         {isLoading && <p className="py-4 text-sm text-muted-foreground">Loading…</p>}
-        {list.map((o) => <OutcomeRow key={o.id} o={o} />)}
+        {/* Keyed by the saved values too: a save that changes them remounts the row
+            with fresh local state, instead of an effect copying props into state. */}
+        {list.map((o) => (
+          <OutcomeRow
+            key={`${o.id}|${o.name}|${o.color}|${o.schedulesCallback}|${o.schedulesZoom}|${o.isActive}|${o.category ?? ''}`}
+            o={o}
+          />
+        ))}
       </div>
 
       <div className="flex items-center gap-2 border-t px-[18px] py-3">

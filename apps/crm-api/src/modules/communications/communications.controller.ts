@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { Role } from '@crm/database';
 import { CommunicationsService } from './communications.service.js';
 import { CallHistoryService } from './call-history.service.js';
@@ -25,25 +26,34 @@ export class CommunicationsController {
     private readonly insights: CallInsightsService,
   ) {}
 
+  // Every lead-scoped route here follows the lead page's rule: an employee
+  // reaches only leads they hold or closed (404 otherwise); managers any.
   @Get('lead/:id')
-  timeline(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+  async timeline(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.comms.assertLeadAccess(id, user);
     return this.comms.getTimeline(id, canViewRecordings(user.role));
   }
 
+  /**
+   * `from` is an admin-only override, and only to a line assigned in this workspace.
+   * Rate-limited per user (20 a minute): a script or a stuck button must not be
+   * able to blast customers, which is also what carriers suspend a number for.
+   */
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post('lead/:id/sms')
   sendSms(@Param('id') id: string, @Body() dto: SendSmsDto, @CurrentUser() user: AuthUser) {
-    return this.comms.sendSms(id, dto.body, user.id, dto.from);
+    return this.comms.sendSms(id, dto.body, { id: user.id, role: user.role }, dto.from);
   }
 
   @Post('lead/:id/call')
   startCall(@Param('id') id: string, @CurrentUser() user: AuthUser) {
-    return this.comms.startCall(id, user.id);
+    return this.comms.startCall(id, user.id, user.role);
   }
 
-  /** Dial-pad call to a typed number (resolves/creates the lead, then dials). */
+  /** Dial-pad call to a typed number (links it to the caller's own lead, if any, then dials). */
   @Post('call')
   callByPhone(@Body() dto: CallByPhoneDto, @CurrentUser() user: AuthUser) {
-    return this.comms.startCallByPhone(dto.phone, user.id);
+    return this.comms.startCallByPhone(dto.phone, user.id, user.role);
   }
 
   /**
@@ -64,7 +74,13 @@ export class CommunicationsController {
     return this.comms.saveCallingMode(dto, user.id);
   }
 
+  // The two 1-second polls. Counted per user (CrmThrottlerGuard), at 10/s —
+  // room for several open tabs, where the 100/min default ran out with ONE tab
+  // and a dashboard and turned the incoming-call popup into a stream of 429s.
+  // Still bounded, so a runaway client can't hammer the database unchecked.
+
   /** Live state of an in-progress call — polled ~1s by the in-CRM call widget. */
+  @Throttle({ default: { limit: 600, ttl: 60_000 } })
   @Get('call/:id/state')
   callState(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.comms.getCallState(id, user.id, user.role);
@@ -72,6 +88,7 @@ export class CommunicationsController {
 
   /** Polled by the incoming-call popup. Scoped to the caller — a user only ever
    *  sees the call ringing on their own Quo line, whatever their role. */
+  @Throttle({ default: { limit: 600, ttl: 60_000 } })
   @Get('incoming/latest')
   latestIncoming(@CurrentUser() user: AuthUser) {
     return this.comms.latestIncoming(user.id);
@@ -199,7 +216,10 @@ export class CommunicationsController {
 
   /** Pull one lead's calls, recordings and SMS from Quo on demand. */
   @Post('sync/lead/:id')
-  syncLead(@Param('id', ParseUUIDPipe) id: string) {
+  async syncLead(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser) {
+    // Scoped like the rest: a sync spends the provider's rate limit and returns
+    // the lead's history, so an employee may only sync a lead they hold.
+    await this.comms.assertLeadAccess(id, user);
     return this.sync.syncLead(id);
   }
 

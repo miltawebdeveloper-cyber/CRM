@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Phone, PhoneOff, X, Loader2, Check, ExternalLink } from 'lucide-react';
 import { communicationsApi, callsApi, outcomesApi, type CallPhase, type Outcome } from '@/lib/crm';
@@ -102,7 +102,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
    * already launched the Quo app inside the click (see `useCanCall().dial`) —
    * this is the CRM-side half of that handoff.
    */
-  const placeCall = (lead: CallLead) => { if (!active) place.mutate(lead); };
+  // Stable callbacks with their real dependencies, so the context value below
+  // can list them instead of relying on `active` happening to cover them.
+  // (TanStack's `mutate` is itself stable across renders.)
+  const placeMutate = place.mutate;
+  const placeCall = useCallback((lead: CallLead) => { if (!active) placeMutate(lead); }, [active, placeMutate]);
 
   const placeByNumber = useMutation({
     mutationFn: (phone: string) => communicationsApi.startCallByPhone(phone),
@@ -120,7 +124,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
       // drop an app handoff fired from this async callback.
     },
   });
-  const placeCallNumber = (phone: string) => { if (!active) placeByNumber.mutate(phone); };
+  const placeByNumberMutate = placeByNumber.mutate;
+  const placeCallNumber = useCallback(
+    (phone: string) => { if (!active) placeByNumberMutate(phone); },
+    [active, placeByNumberMutate],
+  );
 
   // Poll live state ~1s while the call is active and not yet in disposition.
   const { data: state } = useQuery({
@@ -165,7 +173,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
   // the wrap-up screen and the timeline time log.
   const beginEnd = () => { setFinalDuration(state?.durationSecs ?? finalDuration); setEnding(true); };
 
-  const value = useMemo<CallContextValue>(() => ({ placeCall, placeCallNumber, active: !!active }), [active]);
+  const value = useMemo<CallContextValue>(
+    () => ({ placeCall, placeCallNumber, active: !!active }),
+    [placeCall, placeCallNumber, active],
+  );
 
   return (
     <CallContext.Provider value={value}>

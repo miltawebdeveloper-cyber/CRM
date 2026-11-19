@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { api, tokenStore } from '@/lib/api';
 import { canAccessPath, type Role } from '@/lib/nav';
+import { setBusinessTimezone } from '@/lib/business-day';
 import { Sidebar } from '@/components/sidebar';
 import { Topbar } from '@/components/topbar';
 import { IncomingCallPopup } from '@/components/incoming-call';
@@ -43,7 +44,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     refetch: refetchMe,
   } = useQuery({
     queryKey: ['me'],
-    queryFn: async () => (await api.get('/auth/me')).data,
+    queryFn: async () => {
+      const data = (await api.get('/auth/me')).data;
+      // Before anything below renders a date preset: which zone "today" is on.
+      setBusinessTimezone(data?.businessTimezone);
+      return data;
+    },
     retry: false,
   });
 

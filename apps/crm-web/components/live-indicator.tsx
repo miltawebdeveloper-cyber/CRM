@@ -12,8 +12,12 @@ function ago(ts: number): string {
   return `${Math.floor(m / 60)}h ago`;
 }
 
-/** Pulsing "Live" pill + relative "updated Xs ago" that ticks every second. */
-export function LiveIndicator({ updatedAt, fetching }: { updatedAt: number; fetching?: boolean }) {
+/**
+ * Pulsing "Live" pill + relative "updated Xs ago" that ticks every second.
+ * `updatedAt` 0/undefined means nothing has loaded yet, said as such rather than
+ * claiming the data is fresh ("just now") when there is no data.
+ */
+export function LiveIndicator({ updatedAt, fetching }: { updatedAt?: number; fetching?: boolean }) {
   const [, force] = useState(0);
   useEffect(() => {
     const t = setInterval(() => force((n) => n + 1), 1000);
@@ -33,7 +37,7 @@ export function LiveIndicator({ updatedAt, fetching }: { updatedAt: number; fetc
       </span>
       <span className="font-medium text-green-600">Live</span>
       <span className="text-muted-foreground/60">·</span>
-      <span>updated {ago(updatedAt)}</span>
+      <span>{updatedAt ? `updated ${ago(updatedAt)}` : 'waiting for data…'}</span>
     </div>
   );
 }

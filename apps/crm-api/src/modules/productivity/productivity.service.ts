@@ -2,12 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { OutcomeCategory } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { COMPLETION_ACTIONS, completedOpenLeadCounts, productiveSeconds } from '../calls/work-time.js';
+import { startOfBusinessDay } from '../../common/timezone.js';
 
-function startOfToday() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
+/** Start of today on the business clock (BUSINESS_TIMEZONE), not the server's. */
+const startOfToday = () => startOfBusinessDay();
 
 /**
  * How long a call with no end time can still be treated as live. Nothing closes

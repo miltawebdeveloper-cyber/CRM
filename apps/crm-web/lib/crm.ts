@@ -1,6 +1,7 @@
 import { api } from './api';
 import type { Lead } from './leads';
 import type { CallbackStatus } from './callbacks';
+import { waitForJob, type BackgroundJob } from './jobs';
 
 // ─────────────────────────── Metrics ───────────────────────────
 /**
@@ -672,7 +673,10 @@ export type ActivityType = 'call' | 'callback' | 'zoom';
 
 export interface CalendarEvent {
   id: string;
+  /** Day of month on the lead's calendar. */
   day: number;
+  /** yyyy-mm-dd on the lead's calendar. */
+  ymd: string;
   /** Scheduled date & time. */
   date: string;
   type: ActivityType;
@@ -832,6 +836,8 @@ export interface MissedCall {
   /** External lead reference (L-YYYY-N), for tracing back to the record. */
   leadRef: string;
   businessName: string;
+  /** The lead's zone code. */
+  timezone?: string | null;
   /** Who rang, where the lead names a contact. */
   contactName: string | null;
   phone: string;
@@ -970,6 +976,8 @@ export interface RecordedCall {
   leadId: string | null;
   customerName: string;
   businessName: string | null;
+  /** The lead's zone code; null for an unknown caller. */
+  timezone?: string | null;
   phone: string;
   at: string;
   direction: 'inbound' | 'outbound' | null;
@@ -1031,6 +1039,8 @@ export interface SmsMessage {
   id: string;
   leadId: string | null;
   businessName: string | null;
+  /** The lead's zone code, so times read on the customer's clock. Null for an unknown number. */
+  timezone?: string | null;
   customerName: string | null;
   direction: 'inbound' | 'outbound';
   body: string;
@@ -1254,9 +1264,42 @@ export interface ImportMatchOptions {
   matchLocation?: boolean;
 }
 export const importApi = {
-  /** Import. `skipDuplicates` leaves out rows matching an existing lead (or an earlier file row). */
-  bulk: async (rows: LeadRow[], skipDuplicates = false, skipRowIndexes?: number[], match: ImportMatchOptions = {}): Promise<ImportResult> =>
-    (await api.post('/leads/import', { rows, skipDuplicates, skipRowIndexes, ...match })).data,
+  /**
+   * Import. `skipDuplicates` leaves out rows matching an existing lead (or an
+   * earlier file row).
+   *
+   * The server runs the import as a background job (so a large file can't be
+   * cut off by a proxy timeout); this starts it and waits for it, reporting
+   * progress, and resolves with the same summary the import always returned.
+   * If the job fails after creating some leads, it resolves with those leads'
+   * ids and the reason, so "Undo import" can still remove the partial batch.
+   */
+  bulk: async (
+    rows: LeadRow[],
+    skipDuplicates = false,
+    skipRowIndexes?: number[],
+    match: ImportMatchOptions = {},
+    onProgress?: (processed: number, total: number) => void,
+  ): Promise<ImportResult> => {
+    const started = (await api.post('/leads/import', { rows, skipDuplicates, skipRowIndexes, ...match })).data as BackgroundJob;
+    const job = await waitForJob<ImportResult & { interrupted?: boolean }>(`/leads/import/jobs/${started.id}`, onProgress);
+    if (job.status === 'completed' && job.result) return job.result;
+    const createdIds = job.result?.createdIds ?? [];
+    const reason = job.error ?? 'The import stopped before it finished.';
+    if (!createdIds.length) throw new Error(reason);
+    return {
+      imported: createdIds.length,
+      updated: 0,
+      skipped: 0,
+      totalRows: rows.length,
+      errors: [{ row: 0, reason: `Import stopped part way (${reason}). ${createdIds.length} lead(s) were created before it stopped — use Undo to remove them, then import the file again.` }],
+      createdIds,
+      assignedSuccessfully: 0,
+      assignmentFailed: 0,
+      newRecords: 0,
+      duplicateRecords: 0,
+    };
+  },
   /** Pre-import scan — no writes. Flags rows duplicating an existing lead by selected fields. */
   check: async (rows: LeadRow[], match: ImportMatchOptions = {}): Promise<ImportCheckResult> =>
     (await api.post('/leads/import/check', { rows, ...match })).data,

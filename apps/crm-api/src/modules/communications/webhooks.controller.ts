@@ -19,18 +19,56 @@ function recordWebhook(endpoint: string, type: string, signed: boolean, result: 
   const line = `endpoint=${endpoint} type=${type} signed=${signed} result=${result}`;
   if (result.startsWith('REJECTED')) deliveryLog.warn(line);
   else deliveryLog.log(line);
-  // Dump the raw payload of accepted call.* events. An ACCEPTED `call.ringing`
-  // that produces no Call row means handleCall dropped it (e.g. `ignored: no
-  // phone`) because the provider nests/names fields differently from what it
-  // reads (data.object.from / .to / .direction). The body is the only way to see
-  // the real shape and correct the parser rather than guess at it.
-  if (result === 'ACCEPTED' && type.startsWith('call.') && body !== undefined) {
+  // Dump the SHAPE of accepted call.* events. An ACCEPTED `call.ringing` that
+  // produces no Call row means handleCall dropped it (e.g. `ignored: no phone`)
+  // because the provider nests/names fields differently from what it reads
+  // (data.object.from / .to / .direction) — and the payload's shape is the only
+  // way to see that. It is REDACTED: this used to write customers' phone numbers,
+  // call transcripts and AI summaries verbatim into the platform logs, which are
+  // retained and readable far more widely than the database. Keys, ids, types,
+  // statuses and timestamps survive; numbers keep their last 4 digits; free text
+  // is replaced. WEBHOOK_LOG_PAYLOADS=full restores the raw dump for a debugging
+  // session (and says so loudly); =off disables the dump entirely.
+  const mode = (process.env.WEBHOOK_LOG_PAYLOADS ?? 'redacted').toLowerCase();
+  if (result === 'ACCEPTED' && type.startsWith('call.') && body !== undefined && mode !== 'off') {
     try {
-      deliveryLog.log(`PAYLOAD ${type}: ${JSON.stringify(body).slice(0, 4000)}`);
+      if (mode === 'full') {
+        deliveryLog.warn(`PAYLOAD(UNREDACTED — WEBHOOK_LOG_PAYLOADS=full) ${type}: ${JSON.stringify(body).slice(0, 4000)}`);
+      } else {
+        deliveryLog.log(`PAYLOAD ${type}: ${JSON.stringify(redactPayload(body)).slice(0, 4000)}`);
+      }
     } catch {
       /* diagnostics must never break delivery */
     }
   }
+}
+
+/** Fields whose values are free text or personal data — replaced outright. */
+const REDACT_KEYS = /transcript|summary|body|text|content|message|note|email|name|dialogue|recordingurl|^url$|media/i;
+/** Something that looks like a phone number. */
+const PHONE = /\+?\d[\d\s().-]{6,}\d/g;
+
+/** A copy of a webhook payload safe to log: structure kept, PII masked. */
+export function redactPayload(value: unknown, key = '', depth = 0): unknown {
+  if (depth > 8) return '[…]';
+  if (value === null || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    if (REDACT_KEYS.test(key)) return `[redacted ${value.length} chars]`;
+    return value.replace(PHONE, (m) => {
+      const digits = m.replace(/\D/g, '');
+      return `…${digits.slice(-4)}`;
+    });
+  }
+  if (Array.isArray(value)) {
+    if (REDACT_KEYS.test(key)) return `[redacted ${value.length} item(s)]`;
+    return value.slice(0, 20).map((v) => redactPayload(v, key, depth + 1));
+  }
+  if (typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = redactPayload(v, k, depth + 1);
+    return out;
+  }
+  return String(value);
 }
 
 /** Inbound Quo (OpenPhone) webhooks — public, but HMAC-verified. */
@@ -55,8 +93,10 @@ export class WebhooksController {
     // signature verification (distinguishes "not delivered" from "rejected").
     const type = (req.body as { type?: string })?.type ?? 'unknown';
     this.logger.log(`Webhook delivery received: type=${type}, signed=${sig ? 'yes' : 'no'}`);
-    const ok = this.comms.verifySignature(raw, sig);
-    recordWebhook('/api/webhooks/quo', type, !!sig, ok ? 'ACCEPTED' : 'REJECTED(signature-mismatch)', req.body);
+    // Fails closed in production when no signing secret is configured — this
+    // route has no other credential (see CommunicationsService.verifyWebhook).
+    const { ok, reason } = this.comms.verifyWebhook(raw, sig);
+    recordWebhook('/api/webhooks/quo', type, !!sig, ok ? 'ACCEPTED' : `REJECTED(${reason})`, req.body);
     if (!ok) {
       // Counted, so GET /communications/webhook/health can show accepted AND
       // rejected traffic side by side — the fingerprint of a duplicate Quo
@@ -64,7 +104,7 @@ export class WebhooksController {
       this.comms.noteRejectedWebhook(type);
       throw new ForbiddenException('Invalid webhook signature');
     }
-    return this.comms.handleEvent((req.body as Record<string, unknown>) ?? {});
+    return this.comms.handleWebhook((req.body as Record<string, unknown>) ?? {});
   }
 }
 
@@ -119,14 +159,17 @@ export class QuoHookController {
       headers['openphone-signature'] ||
       headers['x-openphone-signature'] ||
       headers['x-webhook-signature'];
-    const ok = this.comms.verifySignature(raw, sig);
-    recordWebhook('/hook/:token', type, !!sig, ok ? 'ACCEPTED' : 'REJECTED(signature-mismatch)', req.body);
+    // The URL token has already been checked, so an unsigned delivery is allowed
+    // here when no secret is configured; a configured secret is always enforced,
+    // freshness included.
+    const { ok, reason } = this.comms.verifyWebhook(raw, sig, { allowUnsigned: true });
+    recordWebhook('/hook/:token', type, !!sig, ok ? 'ACCEPTED' : `REJECTED(${reason})`, req.body);
     if (!ok) {
       this.comms.noteRejectedWebhook(type);
       throw new ForbiddenException('Invalid webhook signature');
     }
 
-    return this.comms.handleEvent((req.body as Record<string, unknown>) ?? {});
+    return this.comms.handleWebhook((req.body as Record<string, unknown>) ?? {});
   }
 }
 

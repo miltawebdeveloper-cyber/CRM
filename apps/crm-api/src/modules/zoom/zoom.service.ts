@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { assertLeadAccess, canReachLead, isManagerRole, type Actor } from '../../common/lead-access.js';
 import { NotificationType, Prisma, Role, TaskPriority, TaskStatus, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { CompleteZoomMeetingDto, CreateZoomMeetingDto, UpdateZoomMeetingDto, ZoomQueryDto } from './dto/zoom.dto.js';
-import { formatInZone, parseInZone } from '../../common/timezone.js';
+import { endOfBusinessDay, formatInZone, parseInZone, startOfBusinessDay } from '../../common/timezone.js';
 
 /**
  * Meeting times are always stated in the CLIENT's zone, with the zone named.
@@ -12,16 +13,9 @@ import { formatInZone, parseInZone } from '../../common/timezone.js';
  */
 const fmtWhen = (d: Date, tz?: string | null) => formatInZone(d, tz);
 
-function startOfToday() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-function endOfToday() {
-  const d = new Date();
-  d.setHours(23, 59, 59, 999);
-  return d;
-}
+// "Due today" spans the business day (BUSINESS_TIMEZONE), not the server's.
+const startOfToday = () => startOfBusinessDay();
+const endOfToday = () => endOfBusinessDay();
 
 // Client (lead) fields surfaced on the dashboard / call panel.
 const leadSelect = {
@@ -88,6 +82,32 @@ export class ZoomService {
     });
   }
 
+  /**
+   * 404 unless `actor` may reach this meeting. Managers reach any. An employee
+   * reaches a meeting they organise, or one on a lead they hold or closed — the
+   * lead page's rule (common/lead-access.ts). `organizerOnly` narrows the
+   * employee case to meetings they organise (deleting one).
+   *
+   * Every meeting route used to take the id on trust, so any employee could
+   * read, reschedule, cancel or DELETE any colleague's meeting (and the task
+   * linked to it).
+   */
+  async assertAccess(id: string, actor: Actor, opts: { organizerOnly?: boolean } = {}) {
+    const m = await this.prisma.zoomMeeting.findUnique({
+      where: { id },
+      select: { organizerId: true, lead: { select: { assignedToId: true, closedById: true } } },
+    });
+    if (!m) throw new NotFoundException('Zoom meeting not found');
+    if (isManagerRole(actor.role) || m.organizerId === actor.id) return;
+    if (!opts.organizerOnly && m.lead && canReachLead(actor, m.lead)) return;
+    throw new NotFoundException('Zoom meeting not found');
+  }
+
+  /** 404 unless `actor` may reach the lead. */
+  assertLeadAccess(leadId: string, actor: Actor) {
+    return assertLeadAccess(this.prisma, actor, leadId);
+  }
+
   // Full chronological history for one client (timeline).
   byLead(leadId: string) {
     return this.prisma.zoomMeeting.findMany({
@@ -112,9 +132,15 @@ export class ZoomService {
     });
   }
 
-  async create(dto: CreateZoomMeetingDto, userId: string) {
+  async create(dto: CreateZoomMeetingDto, userId: string, role: Role | string) {
     const lead = await this.prisma.lead.findFirst({ where: { id: dto.leadId, deletedAt: null } });
-    if (!lead) throw new NotFoundException('Lead not found');
+    const actor = { id: userId, role };
+    // An employee books meetings on their own leads, as themselves; only a
+    // manager may book on anyone's lead or name another organiser.
+    if (!lead || !canReachLead(actor, lead)) throw new NotFoundException('Lead not found');
+    if (dto.organizerId && dto.organizerId !== userId && !isManagerRole(role)) {
+      throw new ForbiddenException('Only a manager can book a meeting for someone else');
+    }
     const organizerId = dto.organizerId ?? userId;
     // The picker sends the wall-clock time agreed with the client, so it is read
     // in the CLIENT's zone — not the browser's and not the server's, which is

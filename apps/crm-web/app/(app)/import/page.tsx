@@ -437,9 +437,15 @@ export default function ImportPage() {
     return copy;
   }, [rows, mergeKeep]);
 
+  // Rows written so far. The import runs as a background job on the server, so
+  // a large file reports its progress instead of an indefinite spinner.
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
   const importMut = useMutation({
     mutationFn: (params: { skipDuplicates?: boolean; skipRowIndexes?: number[] }) =>
-      importApi.bulk(rowsToSend, params.skipDuplicates, params.skipRowIndexes, matchOptions),
+      importApi.bulk(rowsToSend, params.skipDuplicates, params.skipRowIndexes, matchOptions, (done, total) =>
+        setImportProgress({ done, total }),
+      ),
+    onSettled: () => setImportProgress(null),
     // An import's "Assigned To" column hands leads straight to employees, so it
     // moves the same things a manual assignment does. Nothing was refreshed here
     // at all, which left every lead list and the Calling Panel showing the book as
@@ -843,7 +849,13 @@ export default function ImportPage() {
             <div><h3 className="font-display text-[14px] font-semibold">Preview</h3><div className="text-xs text-muted-foreground">{rows.length} rows · first 10 shown</div></div>
             <button onClick={startImport} disabled={importing} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground disabled:opacity-60">
               {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImportIcon className="h-4 w-4" />}
-              {check.isPending ? 'Checking Duplicates…' : importMut.isPending ? 'Importing…' : `Import ${rows.length} Leads`}
+              {check.isPending
+                ? 'Checking Duplicates…'
+                : importMut.isPending
+                  ? importProgress && importProgress.total > 0
+                    ? `Importing… ${importProgress.done.toLocaleString()} / ${importProgress.total.toLocaleString()}`
+                    : 'Importing…'
+                  : `Import ${rows.length} Leads`}
             </button>
           </div>
           <div className="overflow-x-auto">
@@ -1120,7 +1132,9 @@ export default function ImportPage() {
                 className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-[12.5px] font-semibold text-primary-foreground shadow-sm hover:opacity-90 disabled:opacity-60"
               >
                 {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImportIcon className="h-4 w-4" />}
-                Complete Import Based on Review Choices
+                {importMut.isPending && importProgress && importProgress.total > 0
+                  ? `Importing… ${importProgress.done.toLocaleString()} / ${importProgress.total.toLocaleString()}`
+                  : 'Complete Import Based on Review Choices'}
               </button>
             </div>
           </div>
@@ -1142,7 +1156,7 @@ export default function ImportPage() {
               <> · <span className="font-semibold text-[var(--tone-red-fg-2)]">Assignment failed: {importMut.data.assignmentFailed}</span></>
             )}
           </div>
-          {importMut.data.errors.length > 0 && <ul className="mt-1 list-inside list-disc text-xs">{importMut.data.errors.slice(0, 5).map((e) => <li key={e.row}>Row {e.row}: {e.reason}</li>)}</ul>}
+          {importMut.data.errors.length > 0 && <ul className="mt-1 list-inside list-disc text-xs">{importMut.data.errors.slice(0, 5).map((e, i) => <li key={`${e.row}-${i}`}>{e.row > 0 ? `Row ${e.row}: ` : ''}{e.reason}</li>)}</ul>}
 
           {importMut.data.createdIds.length > 0 && !rollback.isSuccess && (
             <div className="mt-2 border-t border-[#bfe0c0] pt-2">

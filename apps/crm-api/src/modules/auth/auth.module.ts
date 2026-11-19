@@ -8,6 +8,7 @@ import { JwtStrategy } from './jwt.strategy.js';
 import { MfaService } from './mfa.service.js';
 import { LoginOtpService } from './login-otp.service.js';
 import { TrustedDeviceService } from './trusted-device.service.js';
+import { SessionService } from './session.service.js';
 import { MailModule } from '../mail/mail.module.js';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../../common/guards/roles.guard.js';
@@ -20,11 +21,12 @@ import { RolesGuard } from '../../common/guards/roles.guard.js';
     MfaService,
     LoginOtpService,
     TrustedDeviceService,
+    SessionService,
     JwtStrategy,
     // Global auth + RBAC. Order matters: authenticate, then check role.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
-  exports: [AuthService, TrustedDeviceService],
+  exports: [AuthService, TrustedDeviceService, SessionService],
 })
 export class AuthModule {}

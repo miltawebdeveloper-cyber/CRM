@@ -84,8 +84,12 @@ export function useReachedEnd(onReach: () => void, active: boolean) {
   const ref = useRef<HTMLDivElement | null>(null);
   // Held in a ref so re-creating the callback each render doesn't tear down and
   // rebuild the observer, which would drop an in-flight intersection.
+  // Updated after each commit (writing a ref during render is unsafe under
+  // concurrent rendering); the observer only reads it later, from a callback.
   const latest = useRef(onReach);
-  latest.current = onReach;
+  useEffect(() => {
+    latest.current = onReach;
+  });
 
   useEffect(() => {
     const el = ref.current;
@@ -112,12 +116,13 @@ export function useLeadScrollSentinel(q: {
   isPlaceholderData: boolean;
   fetchNextPage: () => void;
 }) {
+  const { hasNextPage, isFetchingNextPage, isPlaceholderData, fetchNextPage } = q;
   const fetchMore = useCallback(() => {
     // Never page off rows that belong to the PREVIOUS query. While a new filter
     // is loading the grid still shows the old list, and asking for "the next
     // chunk" then appends chunk 2 of the outgoing query to a list that is about
     // to be replaced — the one way this list could show two filters at once.
-    if (q.hasNextPage && !q.isFetchingNextPage && !q.isPlaceholderData) q.fetchNextPage();
-  }, [q.hasNextPage, q.isFetchingNextPage, q.isPlaceholderData, q.fetchNextPage]);
-  return useReachedEnd(fetchMore, q.hasNextPage && !q.isPlaceholderData);
+    if (hasNextPage && !isFetchingNextPage && !isPlaceholderData) fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, isPlaceholderData, fetchNextPage]);
+  return useReachedEnd(fetchMore, hasNextPage && !isPlaceholderData);
 }

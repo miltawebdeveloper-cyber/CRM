@@ -1,5 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 
+/**
+ * Upper bounds on each Groq request. Node's fetch has no overall timeout of its
+ * own (only ~5 min socket timers), and the insight queue processes one call at
+ * a time, so a single hung request held up every summary behind it. A timed-out
+ * request fails like any other: the call is marked and the queue moves on.
+ */
+const GROQ_TRANSCRIBE_TIMEOUT_MS = Number(process.env.GROQ_TRANSCRIBE_TIMEOUT_MS) || 120_000;
+const GROQ_CHAT_TIMEOUT_MS = Number(process.env.GROQ_CHAT_TIMEOUT_MS) || 60_000;
+
 export interface WhisperSegment {
   start: number; // seconds
   end: number;
@@ -75,6 +84,9 @@ export class GroqService {
         method: 'POST',
         headers: { Authorization: `Bearer ${this.key}` },
         body: form,
+        // Bounded: the insight queue runs one call at a time, so a hung request
+        // used to stall every summary behind it for minutes.
+        signal: AbortSignal.timeout(GROQ_TRANSCRIBE_TIMEOUT_MS),
       });
       if (!res.ok) {
         this.logger.warn(`Groq transcription failed (${res.status}): ${(await res.text().catch(() => '')).slice(0, 200)}`);
@@ -112,6 +124,7 @@ export class GroqService {
       const res = await fetch(`${this.base}/chat/completions`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${this.key}`, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(GROQ_CHAT_TIMEOUT_MS),
         body: JSON.stringify({
           model: this.chatModel,
           temperature: 0,
@@ -150,6 +163,7 @@ export class GroqService {
       const res = await fetch(`${this.base}/chat/completions`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${this.key}`, 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(GROQ_CHAT_TIMEOUT_MS),
         body: JSON.stringify({
           model: this.chatModel,
           temperature: 0.2,

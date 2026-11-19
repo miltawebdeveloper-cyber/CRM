@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { leadDate, leadDateTime, leadTime, zoneNote } from './timezone';
+import { leadDate, leadDateShort, leadDateTime, leadOrViewer, leadTime, wallClockInLeadZone, zoneNote } from './timezone';
 import { formatDate, formatDateTime } from './display-settings';
 
 /**
@@ -98,5 +98,32 @@ describe('zoneNote', () => {
     expect(note).toContain('Eastern');
     // And it must not claim to be the lead's own zone.
     expect(note).not.toMatch(/lead's time zone: /);
+  });
+});
+
+describe('leadOrViewer — mixed feeds (calls/texts that may have no lead)', () => {
+  const EVENING_IN_NY = '2026-08-14T22:30:00Z';
+
+  it("reads a lead row on the lead's clock", () => {
+    expect(leadOrViewer(EVENING_IN_NY, { timezone: 'IND' }, 'date')).toBe(leadDate(EVENING_IN_NY, 'IND'));
+    expect(leadOrViewer(EVENING_IN_NY, { timezone: 'EST' })).toBe(leadDateTime(EVENING_IN_NY, 'EST'));
+    expect(leadOrViewer(EVENING_IN_NY, { timezone: 'PST' }, 'time')).toBe(leadTime(EVENING_IN_NY, 'PST'));
+  });
+
+  it("falls back to the viewer's clock only when there is no lead at all", () => {
+    expect(leadOrViewer(EVENING_IN_NY, null, 'date')).toBe(formatDate(EVENING_IN_NY));
+    expect(leadOrViewer(EVENING_IN_NY, undefined)).toBe(formatDateTime(EVENING_IN_NY));
+  });
+});
+
+describe('wallClockInLeadZone / leadDateShort', () => {
+  it("pre-fills a stored instant as the lead's own wall clock", () => {
+    expect(wallClockInLeadZone('2026-08-14T22:30:00Z', 'EST')).toBe('2026-08-14T18:30');
+    expect(wallClockInLeadZone('2026-08-14T22:30:00Z', 'IND')).toBe('2026-08-15T04:00');
+  });
+
+  it("gives the short date on the lead's calendar", () => {
+    expect(leadDateShort('2026-08-14T22:30:00Z', 'EST')).toBe('Aug 14');
+    expect(leadDateShort('2026-08-14T22:30:00Z', 'IND')).toBe('Aug 15');
   });
 });

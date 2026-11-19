@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Globe, Plus, Check } from 'lucide-react';
 import { countriesApi, timezonesApi, type Country, type TimezoneOption } from '@/lib/crm';
@@ -19,8 +19,8 @@ function CountryRow({ c, zones }: { c: Country; zones: TimezoneOption[] }) {
   const [active, setActive] = useState(c.isActive);
   const [defaultTz, setDefaultTz] = useState(c.defaultTimezone ?? '');
 
-  // Re-sync local state after a save (server is the source of truth).
-  useEffect(() => { setName(c.name); setActive(c.isActive); setDefaultTz(c.defaultTimezone ?? ''); }, [c.name, c.isActive, c.defaultTimezone]);
+  // No re-sync effect: the parent keys this row by its saved values, so a save
+  // that changes them remounts it with fresh state (server is the source of truth).
 
   const save = useMutation({
     mutationFn: () => countriesApi.update(c.id, { name, isActive: active, defaultTimezone: defaultTz || null }),
@@ -93,7 +93,9 @@ export function CountryManagement() {
 
       <div className="px-[18px] py-2">
         {isLoading && <p className="py-4 text-sm text-muted-foreground">Loading…</p>}
-        {list.map((c) => <CountryRow key={c.id} c={c} zones={zones} />)}
+        {/* Keyed by the saved values too: a save that changes them remounts the row
+            with fresh local state, instead of an effect copying props into state. */}
+        {list.map((c) => <CountryRow key={`${c.id}|${c.name}|${c.isActive}|${c.defaultTimezone ?? ''}`} c={c} zones={zones} />)}
         {!isLoading && list.length === 0 && <p className="py-4 text-sm text-muted-foreground">No countries yet.</p>}
       </div>
 

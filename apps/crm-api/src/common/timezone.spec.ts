@@ -1,5 +1,19 @@
 import { describe, expect, it } from '@jest/globals';
-import { dayInZone, sameDayInZone, startOfDayInZone, zoneMatchesCountry, zonesOfCountry } from './timezone.js';
+import {
+  businessDay,
+  businessDayEnd,
+  businessDayStart,
+  businessIana,
+  businessTimezone,
+  businessWeekdayHour,
+  dayInZone,
+  endOfBusinessDay,
+  sameDayInZone,
+  startOfBusinessDay,
+  startOfDayInZone,
+  zoneMatchesCountry,
+  zonesOfCountry,
+} from './timezone.js';
 
 /**
  * The server runs on IST and the leads are American. Every date decision about a
@@ -85,4 +99,62 @@ describe('country / zone matching (built-in zones)', () => {
   it("lists a country's zones in configured order", () => {
     expect(zonesOfCountry('USA')).toEqual(['EST', 'CST', 'MST', 'PST', 'AKST', 'HST']);
   });
+});
+
+/**
+ * The business day decides "today" for the CRM's own figures. It must not move
+ * with the server's clock, must follow BUSINESS_TIMEZONE, and must survive the
+ * two days a year that are not 24 hours long.
+ */
+describe('business day (BUSINESS_TIMEZONE)', () => {
+  const withZone = async (zone: string | undefined, fn: () => void | Promise<void>) => {
+    const prev = process.env.BUSINESS_TIMEZONE;
+    if (zone === undefined) delete process.env.BUSINESS_TIMEZONE;
+    else process.env.BUSINESS_TIMEZONE = zone;
+    try {
+      await fn();
+    } finally {
+      if (prev === undefined) delete process.env.BUSINESS_TIMEZONE;
+      else process.env.BUSINESS_TIMEZONE = prev;
+    }
+  };
+
+  // 2026-08-14 00:30 IST — India is on the 14th, Eastern still on the 13th.
+  const indianMidnightPassed = new Date('2026-08-13T19:00:00Z');
+
+  it('defaults to Eastern, so an Indian evening shift stays on the US date', () =>
+    withZone(undefined, () => {
+      expect(businessTimezone()).toBe('EST');
+      expect(businessDay(indianMidnightPassed)).toBe('2026-08-13');
+      expect(startOfBusinessDay(indianMidnightPassed).toISOString()).toBe('2026-08-13T04:00:00.000Z');
+      expect(endOfBusinessDay(indianMidnightPassed).toISOString()).toBe('2026-08-14T03:59:59.999Z');
+    }));
+
+  it('follows BUSINESS_TIMEZONE when it names a known zone', () =>
+    withZone('IND', () => {
+      expect(businessDay(indianMidnightPassed)).toBe('2026-08-14');
+      expect(startOfBusinessDay(indianMidnightPassed).toISOString()).toBe('2026-08-13T18:30:00.000Z');
+      expect(businessIana()).toBe('Asia/Kolkata');
+    }));
+
+  it('falls back to Eastern for an unknown code rather than to the server clock', () =>
+    withZone('NOT-A-ZONE', () => {
+      expect(businessTimezone()).toBe('EST');
+    }));
+
+  it('spans a 25-hour day at the end of daylight time', () =>
+    withZone('EST', () => {
+      // 2026-11-01: US clocks fall back, so the day is 25 hours long.
+      const start = businessDayStart('2026-11-01');
+      const end = businessDayEnd('2026-11-01');
+      expect(start.toISOString()).toBe('2026-11-01T04:00:00.000Z');
+      expect(end.toISOString()).toBe('2026-11-02T04:59:59.999Z');
+      expect(end.getTime() + 1 - start.getTime()).toBe(25 * 3_600_000);
+    }));
+
+  it('reads weekday and hour on the business clock', () =>
+    withZone('EST', () => {
+      // Friday 2026-08-14 00:30 IST is Thursday 15:00 in New York.
+      expect(businessWeekdayHour(indianMidnightPassed)).toEqual({ weekday: 4, hour: 15 });
+    }));
 });

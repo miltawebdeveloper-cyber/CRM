@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Interval } from '@nestjs/schedule';
 import { Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 
@@ -36,6 +37,40 @@ export class IntegrationConfigService implements OnModuleInit {
     } catch (e) {
       this.logger.warn(`Could not load integration settings: ${(e as Error).message}`);
     }
+  }
+
+  /**
+   * Keep every instance's runtime config in step with the database.
+   *
+   * `set`/`clear` apply a change to `process.env` on the instance that served
+   * the admin's request — and only there. With more than one API instance the
+   * others kept using the old key until they restarted. Re-reading the rows on a
+   * short interval converges all of them within ~30 s. Cheap: one indexed read
+   * of a handful of rows, and env is only touched when a value differs.
+   */
+  @Interval(30_000)
+  async syncFromDb() {
+    let rows: { key: string; value: unknown }[];
+    try {
+      rows = await this.prisma.appSetting.findMany({ where: { key: { startsWith: 'integration:' } } });
+    } catch {
+      return; // database blip — keep what we have, try again next tick
+    }
+    let changed = 0;
+    for (const provider of Object.keys(ENV_KEYS) as IntegrationProvider[]) {
+      const row = rows.find((r) => r.key === this.key(provider));
+      const stored = (row?.value ?? null) as Record<string, string> | null;
+      for (const k of ENV_KEYS[provider]) {
+        // Same semantics as set() (stored row: its value or blank) and clear()
+        // (no row: the value the process booted with).
+        const want = stored ? (stored[k] ?? '') : (this.original[k] ?? '');
+        if ((process.env[k] ?? '') !== want) {
+          process.env[k] = want;
+          changed++;
+        }
+      }
+    }
+    if (changed) this.logger.log(`Integration settings changed elsewhere — applied ${changed} value(s) from the database`);
   }
 
   private key(p: IntegrationProvider) {

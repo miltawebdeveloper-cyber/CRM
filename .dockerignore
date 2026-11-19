@@ -17,3 +17,14 @@ webhook-deliveries.log
 .gitignore
 .claude
 .vscode
+.cursor
+.agents
+.github
+
+# Documents and local scratch files — nothing the API builds or runs, and no
+# business documents belong in a production image.
+*.xlsx
+*.session.sql
+SOLUTION_DESIGN.md
+README.md
+infrastructure

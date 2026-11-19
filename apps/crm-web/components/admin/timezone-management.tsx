@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Clock, Plus, Check } from 'lucide-react';
 import { countriesApi, timezonesApi, type Country, type TimezoneOption } from '@/lib/crm';
@@ -47,7 +47,8 @@ function TimezoneRow({ z, countries }: { z: TimezoneOption; countries: Country[]
   const [active, setActive] = useState(z.isActive);
   const [country, setCountry] = useState(z.countryCode ?? '');
 
-  useEffect(() => { setLabel(z.label); setActive(z.isActive); setCountry(z.countryCode ?? ''); }, [z.label, z.isActive, z.countryCode]);
+  // No re-sync effect: the parent keys this row by its saved values, so a save
+  // that changes them remounts it with fresh state (server is the source of truth).
 
   const save = useMutation({
     mutationFn: () => timezonesApi.update(z.id, { label, isActive: active, countryCode: country || null }),
@@ -118,7 +119,8 @@ export function TimezoneManagement() {
 
       <div className="px-[18px] py-2">
         {isLoading && <p className="py-4 text-sm text-muted-foreground">Loading…</p>}
-        {list.map((z) => <TimezoneRow key={z.id} z={z} countries={countries} />)}
+        {/* Keyed by the saved values too — see CountryRow. */}
+        {list.map((z) => <TimezoneRow key={`${z.id}|${z.label}|${z.isActive}|${z.countryCode ?? ''}`} z={z} countries={countries} />)}
         {!isLoading && list.length === 0 && <p className="py-4 text-sm text-muted-foreground">No time zones yet.</p>}
       </div>
 

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { NotificationType, Role } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { MailService } from '../mail/mail.service.js';
+import { textToHtml } from '../../common/html.js';
 
 const EMAIL_SETTINGS_KEY = 'callbacks:email_settings';
 
@@ -182,7 +183,8 @@ export class NotificationsService {
       await this.mail.send({
         to: Array.from(recipients),
         subject: title,
-        html: `<p>${body.replace(/\n/g, '<br>')}</p>`,
+        // Escaped: the body carries lead names and notes from imports/webhooks.
+        html: textToHtml(body),
         text: body,
       });
     }

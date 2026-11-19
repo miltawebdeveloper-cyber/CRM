@@ -61,19 +61,42 @@ const isAuthRequest = (url?: string) => !!url && AUTH_PATHS.some((p) => url.incl
  *  the session, so nothing of the previous user survives into the login screen. */
 function bounceToLogin() {
   tokenStore.clear();
+  // A full navigation, not a router push: it drops the query cache with the session.
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
   window.location.href = '/login';
 }
 
 /**
- * One refresh at a time.
+ * One refresh at a time — in this tab AND across tabs.
  *
  * A reload fires every page query at once, so an expired token used to mean a
  * dozen simultaneous refreshes racing to write the same two keys. They share
  * this promise now and all resume on one new token.
+ *
+ * Refresh tokens now rotate (each one can be spent once), and every open tab
+ * polls, so tabs whose access tokens expire together would otherwise all spend
+ * the same refresh token at the same moment. The Web Locks API queues them:
+ * the first tab refreshes, the rest wake up to find a renewed token already in
+ * the shared storage and simply use it. (The server also honours a
+ * just-replaced token for a few seconds, so a browser without Web Locks, or a
+ * lost response, still converges rather than signing the user out.)
  */
 let refreshing: Promise<string | null> | null = null;
 
-async function doRefresh(): Promise<string | null> {
+function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  if (!locks?.request) return fn();
+  return locks.request('crm.auth.refresh', fn) as Promise<T>;
+}
+
+/** `staleAccess` is the token the failed request was sent with. */
+async function doRefresh(staleAccess: string | null): Promise<string | null> {
+  // Another tab may have refreshed while this one waited for the lock. If the
+  // stored token is no longer the one that just failed, it has been renewed —
+  // use it instead of spending the refresh token a second time.
+  const stored = tokenStore.access;
+  if (stored && staleAccess && stored !== staleAccess) return stored;
+
   const refresh = tokenStore.refresh;
   if (!refresh) {
     bounceToLogin();
@@ -94,15 +117,43 @@ async function doRefresh(): Promise<string | null> {
     }
     tokenStore.set(data.accessToken, data.refreshToken);
     return data.accessToken as string;
-  } catch {
-    bounceToLogin();
+  } catch (err) {
+    // Only the server saying "this session is over" ends it. A network blip, a
+    // 5xx or a 429 says nothing about the session — signing the user out for
+    // one would throw away a perfectly good session mid-call. Keep the tokens;
+    // this request fails and the next one tries the refresh again.
+    const status = (err as { response?: { status?: number } })?.response?.status;
+    if (status === 400 || status === 401 || status === 403) bounceToLogin();
     return null;
   }
 }
 
-function refreshOnce(): Promise<string | null> {
-  refreshing ??= doRefresh().finally(() => { refreshing = null; });
+function refreshOnce(staleAccess: string | null): Promise<string | null> {
+  refreshing ??= withRefreshLock(() => doRefresh(staleAccess)).finally(() => { refreshing = null; });
   return refreshing;
+}
+
+/**
+ * End this browser's session on the server (logout). The refresh token names
+ * the session; the server revokes it, so both tokens stop working everywhere
+ * at once. `keepalive` lets the request finish even though the caller
+ * navigates away immediately — an ordinary request can be cancelled by that
+ * navigation, which would leave the session alive. Best-effort: never throws.
+ */
+export function revokeSession(): void {
+  const refreshToken = tokenStore.refresh;
+  if (!refreshToken || typeof fetch === 'undefined') return;
+  try {
+    void fetch(`${API_URL}/api/auth/logout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+      keepalive: true,
+      credentials: 'include',
+    }).catch(() => {});
+  } catch {
+    /* signing out locally must never depend on the network */
+  }
 }
 
 // Bounded so a hung request (not a fast failure — an actual stalled connection)
@@ -132,7 +183,8 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
     original._retry = true;
-    const token = await refreshOnce();
+    const sent = (original.headers?.Authorization as string | undefined)?.replace(/^Bearer\s+/i, '') ?? null;
+    const token = await refreshOnce(sent);
     if (!token) return Promise.reject(error);
     original.headers = { ...original.headers, Authorization: `Bearer ${token}` };
     return api(original);

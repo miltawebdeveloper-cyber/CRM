@@ -91,11 +91,13 @@ export class QuoService {
    * Bulk-sync every lead that isn't already synced (covers not_synced + failed).
    * Processed in small concurrent chunks to stay within OpenPhone's rate limits.
    */
-  async syncAllLeads() {
+  /** `onProgress(done, total)` is called after each chunk (background-job progress). */
+  async syncAllLeads(onProgress?: (done: number, total: number) => Promise<void> | void) {
     const leads = await this.prisma.lead.findMany({
       where: { deletedAt: null, quoStatus: { not: QuoSyncStatus.synced } },
       select: { id: true },
     });
+    await onProgress?.(0, leads.length);
     let synced = 0;
     let failed = 0;
     const chunkSize = 5;
@@ -112,6 +114,7 @@ export class QuoService {
         }),
       );
       for (const ok of results) { if (ok) synced++; else failed++; }
+      await onProgress?.(synced + failed, leads.length);
     }
     return { total: leads.length, synced, failed, sandbox: this.openphone.isSandbox };
   }

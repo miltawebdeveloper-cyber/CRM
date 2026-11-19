@@ -9,7 +9,7 @@ import { useDebounced } from '@/lib/use-debounced';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { MeetingDetail } from '@/components/zoom/meeting-detail';
-import { describeWallClock, formatInLeadZone, zoneLabel } from '@/lib/timezone';
+import { dayInLeadZone, describeWallClock, formatInLeadZone, nowInLeadZone, zoneLabel } from '@/lib/timezone';
 
 /** Matches offered by the client picker. Enough to choose from; few enough that
  *  the modal opens instantly however large the book is. */
@@ -36,10 +36,14 @@ function StatusPill({ status }: { status: ZoomMeetingStatus }) {
 
 // Meeting times read on the CLIENT's clock, with the zone named.
 const fmtDateTime = (iso: string | null, tz?: string | null) => (iso ? formatInLeadZone(iso, tz) : '—');
-// datetime-local needs `yyyy-MM-ddTHH:mm` in local time.
-const toLocalInput = (d: Date) => {
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+// The top of the next hour on the LEAD's clock, as a datetime-local value.
+// The API reads the typed wall clock in the lead's zone, so seeding it from the
+// viewer's clock would propose a time several hours off for a remote rep.
+const nextHourInLeadZone = (tz?: string | null) => {
+  const [date, time] = nowInLeadZone(tz).split('T');
+  const [y, mo, d] = date.split('-').map(Number);
+  // Wall-clock arithmetic only (rolls the day/month over), not a zone conversion.
+  return new Date(Date.UTC(y, mo - 1, d, Number(time.slice(0, 2)) + 1, 0)).toISOString().slice(0, 16);
 };
 
 export default function ZoomPage() {
@@ -56,9 +60,10 @@ export default function ZoomPage() {
   });
 
   const kpis = useMemo(() => {
-    const today = new Date().toDateString();
+    // Today on each meeting's own client calendar, not the viewer's.
+    const now = new Date();
     return {
-      today: meetings.filter((m) => new Date(m.scheduledAt).toDateString() === today && m.status !== 'cancelled').length,
+      today: meetings.filter((m) => dayInLeadZone(m.scheduledAt, m.lead?.timezone) === dayInLeadZone(now, m.lead?.timezone) && m.status !== 'cancelled').length,
       scheduled: meetings.filter((m) => m.status === 'scheduled' || m.status === 'rescheduled').length,
       inProgress: meetings.filter((m) => m.status === 'in_progress').length,
       completed: meetings.filter((m) => m.status === 'completed').length,
@@ -206,12 +211,7 @@ function ScheduleModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   // from the result list: it must survive the next search, which no longer
   // necessarily contains it.
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const [when, setWhen] = useState(() => {
-    const d = new Date();
-    d.setMinutes(0, 0, 0);
-    d.setHours(d.getHours() + 1);
-    return toLocalInput(d);
-  });
+  const [when, setWhen] = useState(() => nextHourInLeadZone());
   const [duration, setDuration] = useState(30);
   const [title, setTitle] = useState('');
   const [joinUrl, setJoinUrl] = useState('');
@@ -279,7 +279,7 @@ function ScheduleModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
                   <button
                     key={l.id}
                     type="button"
-                    onClick={() => { setSelectedLead(l); setLeadId(l.id); }}
+                    onClick={() => { setSelectedLead(l); setLeadId(l.id); setWhen(nextHourInLeadZone(l.timezone)); }}
                     className="block w-full truncate border-b px-3 py-2 text-left text-[12.5px] last:border-0 hover:bg-muted"
                   >
                     {l.businessName} <span className="text-muted-foreground">— {l.city}, {l.state}</span>

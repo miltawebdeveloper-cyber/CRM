@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { AssignmentType, Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { UNSET_TIMEZONE_LABEL, sameDayInZone } from '../../common/timezone.js';
+import { UNSET_TIMEZONE_LABEL, sameDayInZone, startOfBusinessDay } from '../../common/timezone.js';
 import { ManualAssignDto, AutoAssignDto, AssignStrategy, BatchAssignDto } from './dto/assignment.dto.js';
 import { sameDayConfirmError } from '../leads/leads.service.js';
 
@@ -20,9 +20,8 @@ function widestDayStart(): Date {
 
 /** Midnight today — the boundary the same-day reassignment lock is measured from. */
 function startOfToday(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
+  // The business day (BUSINESS_TIMEZONE), not midnight on the server's clock.
+  return startOfBusinessDay();
 }
 
 @Injectable()

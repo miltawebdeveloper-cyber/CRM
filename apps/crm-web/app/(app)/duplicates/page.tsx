@@ -6,7 +6,7 @@ import { AlertTriangle, Copy, Filter, Loader2, RefreshCw, Search, Trash2, Undo2 
 import { leadsApi, type DuplicateGroup, type DuplicateScanOptions } from '@/lib/leads';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageHead } from '@/components/page-head';
-import { formatDate } from '@/lib/display-settings';
+import { leadDate, zoneNote } from '@/lib/timezone';
 
 /** Server message if there is one, else the transport error. */
 function errorText(err: unknown): string {
@@ -362,7 +362,7 @@ export default function DuplicatesPage() {
                             <td className="px-3 py-2.5 text-muted-foreground">
                               {l.assignedTo ?? 'Unassigned'} · {l.status}
                             </td>
-                            <td className="px-3 py-2.5 text-muted-foreground">{formatDate(l.createdAt)}</td>
+                            <td className="px-3 py-2.5 text-muted-foreground" title={zoneNote(l.timezone)}>{leadDate(l.createdAt, l.timezone)}</td>
                             <td className="px-3 py-2.5 tabular-nums text-muted-foreground">{l.filled} / 10</td>
                           </tr>
                         );

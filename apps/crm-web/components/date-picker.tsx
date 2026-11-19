@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarRange, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import type { DateRange, DateFilterValue, DateMode } from '@/lib/date-filters';
+import { businessTodayLocal } from '@/lib/business-day';
 
 // ── date helpers (local-time, no UTC drift) ──
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -13,11 +14,10 @@ const parseISO = (s: string) => {
 };
 const fmt = (s: string) => parseISO(s).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 const fmtShort = (s: string) => parseISO(s).toLocaleDateString([], { month: 'short', day: 'numeric' });
-const startOfToday = () => {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
+// "Today" is the BUSINESS day (see lib/business-day.ts), so the Today /
+// Yesterday / This month presets ask for the same day the API counts as today,
+// whatever clock this browser is on.
+const startOfToday = () => businessTodayLocal();
 const addDays = (d: Date, n: number) => {
   const x = new Date(d);
   x.setDate(x.getDate() + n);
@@ -244,7 +244,7 @@ export function DateRangePicker({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useDismiss(open, () => setOpen(false));
-  const [view, setView] = useState(() => (value.from ? parseISO(value.from) : new Date()));
+  const [view, setView] = useState(() => (value.from ? parseISO(value.from) : startOfToday()));
 
   const label = value.from && value.to
     ? value.from === value.to ? fmt(value.from) : `${fmtShort(value.from)} – ${fmtShort(value.to)}`
@@ -356,7 +356,7 @@ export function DateFilter({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useDismiss(open, () => setOpen(false));
-  const [view, setView] = useState(() => (value.from ? parseISO(value.from) : new Date()));
+  const [view, setView] = useState(() => (value.from ? parseISO(value.from) : startOfToday()));
   const [hover, setHover] = useState<{ from: Date; to: Date } | null>(null);
   const [alignLeft, setAlignLeft] = useState(false);
   const today = startOfToday();
@@ -501,7 +501,7 @@ export function DatePicker({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useDismiss(open, () => setOpen(false));
-  const [view, setView] = useState(() => (value ? parseISO(value) : new Date()));
+  const [view, setView] = useState(() => (value ? parseISO(value) : startOfToday()));
   const today = startOfToday();
 
   return (

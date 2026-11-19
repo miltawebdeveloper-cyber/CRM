@@ -1,13 +1,25 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ConflictException } from '@nestjs/common';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { Availability } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { MfaService } from './mfa.service.js';
 import { LoginOtpService } from './login-otp.service.js';
 import { TrustedDeviceService } from './trusted-device.service.js';
+import { SessionService } from './session.service.js';
 import { LoginDto } from './dto/auth.dto.js';
+import { jwtAccessSecret, jwtRefreshSecret } from '../../common/env.js';
+import { businessIana } from '../../common/timezone.js';
+
+/** Claims a refresh token carries. `gen` is the session generation it belongs to. */
+interface RefreshClaims {
+  sub: string;
+  sid?: string;
+  gen?: number;
+  typ?: string;
+}
 
 /** `jane.doe@example.com` → `ja••••@example.com`, so the UI can say where the code went. */
 function maskEmail(email: string): string {
@@ -17,6 +29,13 @@ function maskEmail(email: string): string {
   return `${head}${'•'.repeat(Math.max(2, local.length - 2))}@${domain}`;
 }
 
+/**
+ * A bcrypt hash of a random value nobody knows, at the same cost as real
+ * passwords (12, see UsersService), compared against when the email is unknown
+ * so both outcomes take the same time. Computed once, at module load.
+ */
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(randomBytes(24).toString('hex'), 12);
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -25,13 +44,17 @@ export class AuthService {
     private readonly mfa: MfaService,
     private readonly otp: LoginOtpService,
     private readonly devices: TrustedDeviceService,
+    private readonly sessions: SessionService,
   ) {}
 
   async login(dto: LoginDto, req: Request, res: Response) {
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
 
-    // SEC-005 — bcrypt compare; generic error to avoid user enumeration
-    const ok = user && (await bcrypt.compare(dto.password, user.passwordHash));
+    // SEC-005 — bcrypt compare; generic error to avoid user enumeration. An
+    // unknown email still pays for a full compare (against a throwaway hash):
+    // skipping it made "no such account" answer ~100ms faster than "wrong
+    // password", which told anyone timing the endpoint which emails exist.
+    const ok = await bcrypt.compare(dto.password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
     if (!ok || !user) throw new UnauthorizedException('Invalid credentials');
     if (!user.isActive) throw new UnauthorizedException('Account deactivated'); // LGN-011
 
@@ -42,6 +65,12 @@ export class AuthService {
       }
       if (!user.mfaSecret || !this.mfa.verify(dto.mfaToken, user.mfaSecret)) {
         throw new UnauthorizedException('Invalid MFA code');
+      }
+      // A secret stored before encryption was switched on is sealed now, on its
+      // first successful use — no migration step, no re-enrolment.
+      if (this.mfa.needsSealing(user.mfaSecret)) {
+        const sealed = this.mfa.seal(this.mfa.open(user.mfaSecret));
+        void this.prisma.user.update({ where: { id: user.id }, data: { mfaSecret: sealed } }).catch(() => undefined);
       }
     }
 
@@ -56,7 +85,7 @@ export class AuthService {
       if (otp.trustDeviceEnabled && (await this.devices.isTrusted(req, user.id))) {
         // Written behind the response: the audit trail is nobody's answer.
         void this.audit(user.id, 'trusted_device_login', 'Signed in from a trusted device — OTP skipped');
-        return this.completeLogin(user.id, user.email, user.role);
+        return this.completeLogin(user.id, user.email, user.role, req);
       }
       // A cookie is present but this user isn't trusted by it — expired, revoked,
       // or it only carries other accounts. Drop THIS user's entry and leave the
@@ -77,7 +106,7 @@ export class AuthService {
       };
     }
 
-    return this.completeLogin(user.id, user.email, user.role);
+    return this.completeLogin(user.id, user.email, user.role, req);
   }
 
   /**
@@ -98,7 +127,7 @@ export class AuthService {
     // the login share nothing, so they run together instead of one after the other.
     const [trustedUntil, tokens] = await Promise.all([
       s.trustDeviceEnabled ? this.devices.remember(req, res, user.id, s.trustDeviceDays) : Promise.resolve(null),
-      this.completeLogin(user.id, user.email, user.role),
+      this.completeLogin(user.id, user.email, user.role, req),
     ]);
     if (trustedUntil) {
       void this.audit(user.id, 'trusted_device_added', `Device trusted until ${trustedUntil.toISOString().slice(0, 10)} — OTP will be skipped here`);
@@ -108,15 +137,19 @@ export class AuthService {
   }
 
   /** Shared tail of a successful login, whichever gate it came through. */
-  private async completeLogin(id: string, email: string, role: string) {
+  private async completeLogin(id: string, email: string, role: string, req?: Request) {
     // Login flips the user back to Online and stamps the login time (drives the
-    // no-login auto-reassignment cron).
-    await this.prisma.user.update({
-      where: { id },
-      data: { availability: Availability.online, availabilityReason: null, lastLoginAt: new Date() },
-    });
+    // no-login auto-reassignment cron). The session row is what every token
+    // issued from here on is checked against; the two writes are independent.
+    const [, session] = await Promise.all([
+      this.prisma.user.update({
+        where: { id },
+        data: { availability: Availability.online, availabilityReason: null, lastLoginAt: new Date() },
+      }),
+      this.sessions.create(id, req),
+    ]);
 
-    return this.issueTokens(id, email, role);
+    return this.issueTokens(id, email, role, session.sid, session.generation);
   }
 
   /**
@@ -152,28 +185,69 @@ export class AuthService {
       select: { id: true, name: true, email: true, role: true, openphoneNumber: true },
     });
     if (!user) throw new UnauthorizedException('Account not found');
-    return user;
+    // The zone that defines "today" for date presets, so the browser's "Today"
+    // asks for the same day the server's dashboards count (BUSINESS_TIMEZONE).
+    return { ...user, businessTimezone: businessIana() };
   }
 
+  /**
+   * Exchange a refresh token for a new pair. Tokens rotate: the presented token
+   * names a session generation, and `SessionService.rotate` decides whether it
+   * is the current one, a just-replaced one from a racing tab, or a replay —
+   * the last of which ends the session.
+   */
   async refresh(refreshToken: string) {
+    let claims: RefreshClaims;
     try {
-      const payload = await this.jwt.verifyAsync(refreshToken, {
-        secret: process.env.JWT_REFRESH_SECRET ?? 'change-me-refresh-secret',
-      });
-      const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
-      if (!user || !user.isActive) throw new UnauthorizedException();
-      return this.issueTokens(user.id, user.email, user.role);
+      claims = await this.jwt.verifyAsync<RefreshClaims>(refreshToken, { secret: jwtRefreshSecret() });
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
     }
+    // A token from before server-side sessions has no `sid` and cannot be
+    // rotated; that browser signs in again once.
+    if (claims.typ !== 'refresh' || !claims.sid || typeof claims.gen !== 'number') {
+      throw new UnauthorizedException('Your session has ended. Please sign in again.');
+    }
+    const { user, sid, generation } = await this.sessions.rotate(claims.sid, claims.gen, claims.sub);
+    return this.issueTokens(user.id, user.email, user.role, sid, generation);
+  }
+
+  /**
+   * End the session a refresh token belongs to. The token is the proof of
+   * ownership, so this works without a live access token (one that expired just
+   * before the click must still be able to sign out). Expiry is ignored for the
+   * same reason; the signature is not. Anything unreadable is a no-op: logout
+   * always "succeeds" from the client's point of view.
+   */
+  async logout(refreshToken?: string) {
+    if (refreshToken) {
+      try {
+        const claims = await this.jwt.verifyAsync<RefreshClaims>(refreshToken, {
+          secret: jwtRefreshSecret(),
+          ignoreExpiration: true,
+        });
+        if (claims.typ === 'refresh' && claims.sid) await this.sessions.revoke(claims.sid, 'logout');
+      } catch {
+        /* a bad or foreign token signs nobody out */
+      }
+    }
+    return { success: true };
   }
 
   // ── MFA enrolment ────────────────────────────────────────
   async beginMfaSetup(userId: string) {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    // Refused while MFA is on. Setup used to overwrite the ACTIVE secret with a
+    // new one and leave MFA enabled, so a hijacked session (an access token, no
+    // second factor) could re-bind the account's MFA to the attacker's phone —
+    // and the real owner was locked out. Changing device is now: disable with a
+    // current code (proof of the factor), then set up again.
+    if (user.mfaEnabled) {
+      throw new ConflictException('MFA is already enabled. Disable it with a current code before setting it up again.');
+    }
     const secret = this.mfa.generateSecret();
-    // store secret but keep disabled until first verify
-    await this.prisma.user.update({ where: { id: userId }, data: { mfaSecret: secret } });
+    // Stored (encrypted when a key is configured) but inactive until confirmed.
+    await this.prisma.user.update({ where: { id: userId }, data: { mfaSecret: this.mfa.seal(secret) } });
     return { qrCode: await this.mfa.buildQrCode(user.email, secret) };
   }
 
@@ -221,15 +295,17 @@ export class AuthService {
     }
   }
 
-  private async issueTokens(sub: string, email: string, role: string) {
-    const payload = { sub, email, role };
+  private async issueTokens(sub: string, email: string, role: string, sid: string, generation: number) {
+    // `typ` keeps the two token kinds from standing in for each other even if a
+    // deployment ever configured the same secret for both; `sid` ties both to
+    // the session row that can revoke them.
     const [accessToken, refreshToken] = await Promise.all([
-      this.jwt.signAsync(payload, {
-        secret: process.env.JWT_ACCESS_SECRET ?? 'change-me-access-secret',
+      this.jwt.signAsync({ sub, email, role, sid, typ: 'access' }, {
+        secret: jwtAccessSecret(),
         expiresIn: (process.env.JWT_ACCESS_TTL ?? '15m') as JwtSignOptions['expiresIn'],
       }),
-      this.jwt.signAsync(payload, {
-        secret: process.env.JWT_REFRESH_SECRET ?? 'change-me-refresh-secret',
+      this.jwt.signAsync({ sub, sid, gen: generation, typ: 'refresh' }, {
+        secret: jwtRefreshSecret(),
         expiresIn: (process.env.JWT_REFRESH_TTL ?? '7d') as JwtSignOptions['expiresIn'],
       }),
     ]);

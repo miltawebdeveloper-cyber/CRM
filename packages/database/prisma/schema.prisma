@@ -162,6 +162,7 @@ model User {
   activities         Activity[]
   loginOtps          LoginOtp[]
   trustedDevices     TrustedDevice[]
+  sessions           AuthSession[]
   activityAssignedTo Activity[]                @relation("ActivityAssignedTo")
   assignmentsMade    Assignment[]              @relation("AssignmentAssignedBy")
   assignmentsTaken   Assignment[]              @relation("AssignmentCaller")
@@ -248,6 +249,94 @@ model TrustedDevice {
   @@index([userId])
   @@index([expiresAt])
   @@map("trusted_devices")
+}
+
+/// One signed-in browser session: the server-side half of a refresh token.
+///
+/// Tokens used to be entirely stateless, so logout did nothing, a password reset
+/// left every issued token working, and because each refresh minted a fresh
+/// 7-day token a session never actually ended. Every token now names the row it
+/// belongs to (`sid`); the access-token guard checks that row on each request,
+/// so revoking it ends the session for both tokens at once.
+///
+/// Refresh tokens rotate. A refresh token carries the session's `generation`
+/// and each refresh moves it forward by one. The token from just before the
+/// latest rotation is still honoured for a few seconds (two tabs refreshing at
+/// the same moment, a lost response) and is answered with the CURRENT
+/// generation, so racing tabs converge on one token. Any older token is treated
+/// as stolen and revokes the session.
+model AuthSession {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Generation of the only refresh token currently valid for this session.
+  generation    Int       @default(0)
+  rotatedAt     DateTime? @map("rotated_at")
+  userAgent     String?   @map("user_agent")
+  ipAddress     String?   @map("ip_address")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  lastUsedAt    DateTime  @default(now()) @map("last_used_at")
+  /// Absolute end of the session, however often it refreshes.
+  expiresAt     DateTime  @map("expires_at")
+  revokedAt     DateTime? @map("revoked_at")
+  revokedReason String?   @map("revoked_reason")
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("auth_sessions")
+}
+
+/// Provider webhook events already handled, keyed by the provider's event id.
+/// A Quo workspace can deliver the same event twice (duplicate subscriptions)
+/// and a signed delivery can be replayed; the first delivery claims the id and
+/// any repeat is acknowledged without being processed again. Pruned after a
+/// week (WebhookEventsService).
+model WebhookEvent {
+  id         String   @id
+  type       String
+  receivedAt DateTime @default(now()) @map("received_at")
+
+  @@index([receivedAt])
+  @@map("webhook_events")
+}
+
+/// Lease that keeps a scheduled job to one runner at a time across every API
+/// instance (and stops a slow run overlapping the next tick on one instance).
+/// See apps/crm-api/src/common/scheduler-lock.ts.
+model SchedulerLock {
+  name        String   @id
+  lockedUntil DateTime @map("locked_until")
+  lockedBy    String   @map("locked_by")
+  lockedAt    DateTime @default(now()) @map("locked_at")
+
+  @@map("scheduler_locks")
+}
+
+/// A long-running operation started from the UI (lead import, Quo sync-all).
+/// It runs behind the request that started it; the client polls this row for
+/// progress and the final result, so no HTTP request has to outlive a proxy
+/// timeout. `createdById` is a plain column, not a relation, so a job never
+/// stands in the way of deleting a user.
+model BackgroundJob {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// 'lead_import' | 'quo_sync_all'
+  kind        String
+  /// 'running' | 'completed' | 'failed'
+  status      String    @default("running")
+  createdById String?   @map("created_by_id") @db.Uuid
+  total       Int       @default(0)
+  processed   Int       @default(0)
+  result      Json?
+  error       String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  finishedAt  DateTime? @map("finished_at")
+  /// Bumped while the job runs. A 'running' row whose heartbeat has gone stale
+  /// belonged to a process that died, and is marked failed on the next boot.
+  heartbeatAt DateTime  @default(now()) @map("heartbeat_at")
+
+  @@index([kind, createdAt])
+  @@index([status])
+  @@map("background_jobs")
 }
 
 model AppSetting {
@@ -450,6 +539,9 @@ model Lead {
   // ── Quo (OpenPhone) telephony ──
   quoContactId        String?   @map("quo_contact_id") // provider contact id
   lastCommunicationAt DateTime? @map("last_communication_at")
+  /// When the contact replied STOP (or similar) by SMS. While set, the CRM
+  /// refuses to text them; a START reply clears it. Null = may be texted.
+  smsOptOutAt         DateTime? @map("sms_opt_out_at")
 
   // ── Quo integration (see modules/quo) ──
   quoStatus     QuoSyncStatus @default(not_synced) @map("quo_status")
@@ -806,6 +898,9 @@ model Call {
   @@index([leadId])
   @@index([callerId])
   @@index([startTime])
+  // The incoming-call popup's query — once a second for every signed-in user:
+  // this caller's inbound calls, newest learned first.
+  @@index([callerId, direction, createdAt])
   // No separate @@index([quoCallId]) — the @unique above already indexes it.
   @@map("calls")
 }

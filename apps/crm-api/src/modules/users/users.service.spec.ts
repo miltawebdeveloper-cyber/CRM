@@ -3,6 +3,7 @@ import { ConflictException } from '@nestjs/common';
 import { Role } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { TrustedDeviceService } from '../auth/trusted-device.service.js';
+import { SessionService } from '../auth/session.service.js';
 import { UsersService } from './users.service.js';
 
 /**
@@ -86,7 +87,11 @@ describe('UsersService — permanent delete', () => {
       ),
     } as unknown as PrismaService;
 
-    const service = new UsersService(prisma, { revokeOnSecurityChange: revoke } as unknown as TrustedDeviceService);
+    const service = new UsersService(
+      prisma,
+      { revokeOnSecurityChange: revoke } as unknown as TrustedDeviceService,
+      { revokeAllForUser: jest.fn(async () => 0) } as unknown as SessionService,
+    );
     return { service, userDelete, activityCreate, revoke, notificationDeleteMany, aiDeleteMany };
   }
 

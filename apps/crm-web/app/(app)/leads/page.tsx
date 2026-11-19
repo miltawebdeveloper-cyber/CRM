@@ -195,7 +195,11 @@ export default function LeadsPage() {
   // Bulk-push every not-yet-synced lead to Quo/OpenPhone as a contact.
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const syncAll = useMutation({
-    mutationFn: leadsApi.syncAllToQuo,
+    // Runs as a background job on the server; the banner counts it up live.
+    mutationFn: () =>
+      leadsApi.syncAllToQuo((done, total) => {
+        if (total > 0) setSyncMsg(`Syncing… ${done.toLocaleString()} of ${total.toLocaleString()}`);
+      }),
     meta: { suppressErrorToast: true }, // shows its own inline result banner
     onSuccess: (r) => {
       setSyncMsg(

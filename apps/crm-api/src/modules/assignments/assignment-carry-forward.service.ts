@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { runExclusive } from '../../common/scheduler-lock.js';
 import { AssignmentType, LeadStatus, Prisma, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { dayInZone } from '../../common/timezone.js';
@@ -110,8 +111,9 @@ export class AssignmentCarryForwardService {
   @Cron(CronExpression.EVERY_HOUR)
   async scheduledRun() {
     if (process.env.ASSIGNMENT_CARRY_FORWARD_CRON === 'off') return;
-    const r = await this.run();
-    if (r.carried > 0) {
+    // One runner across instances — a second one would carry the same leads twice.
+    const r = await runExclusive(this.prisma, 'assignment-carry-forward', 2 * 3_600_000, () => this.run());
+    if (r && r.carried > 0) {
       this.logger.log(`Carried ${r.carried} unfinished lead(s) into their new local day across ${r.callers} rep(s)`);
     }
   }

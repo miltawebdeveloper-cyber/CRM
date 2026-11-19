@@ -23,6 +23,14 @@ export class RefreshDto {
   refreshToken: string;
 }
 
+/** Logout names the session to end by its refresh token. Optional: no token, nothing to revoke. */
+export class LogoutDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  refreshToken?: string;
+}
+
 export class VerifyMfaDto {
   @ApiProperty({ description: '6-digit TOTP code from the authenticator app' })
   @Matches(/^\d{6}$/)

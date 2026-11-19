@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { runExclusive } from '../../common/scheduler-lock.js';
 import { CommDirection } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { OpenPhoneService } from '../openphone/openphone.service.js';
@@ -566,8 +567,14 @@ export class QuoSyncService {
    * catches anything they missed.
    */
   @Cron(CronExpression.EVERY_10_MINUTES)
-  async syncRecentlyActive() {
+  async scheduledSyncRecentlyActive() {
     if (process.env.QUO_SYNC_CRON === 'off') return;
+    // One runner across instances: each extra one spends the provider's rate
+    // limit again on exactly the same leads.
+    await runExclusive(this.prisma, 'quo-sync-recent', 30 * 60_000, () => this.syncRecentlyActive());
+  }
+
+  async syncRecentlyActive() {
     const since = new Date(Date.now() - 7 * 86_400_000);
     const leads = await this.prisma.lead.findMany({
       where: { deletedAt: null, phone: { not: '' }, lastCommunicationAt: { gte: since } },

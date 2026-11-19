@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { runExclusive } from '../../common/scheduler-lock.js';
 import { LeadStatus, NotificationType } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
@@ -60,8 +61,9 @@ export class CallbackRolloverService {
   @Cron(CronExpression.EVERY_HOUR)
   async scheduledRun() {
     if (process.env.CALLBACK_ROLLOVER_CRON === 'off') return;
-    const { moved } = await this.rollOverPending();
-    if (moved > 0) this.logger.log(`Rolled ${moved} pending call(s) to the next working day`);
+    // One runner across instances, so a pending call is never moved twice.
+    const r = await runExclusive(this.prisma, 'callback-rollover', 2 * 3_600_000, () => this.rollOverPending());
+    if (r && r.moved > 0) this.logger.log(`Rolled ${r.moved} pending call(s) to the next working day`);
   }
 
   /**

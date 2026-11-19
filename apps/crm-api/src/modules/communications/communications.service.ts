@@ -1,10 +1,14 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import * as crypto from 'crypto';
-import { CommDirection, Prisma } from '@crm/database';
+import { CommDirection, Prisma, Role } from '@crm/database';
+import { assertLeadAccess, canReachLead, type Actor } from '../../common/lead-access.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { MISSED_INBOUND_STATUSES, isMissedInbound } from '../calls/call-status.js';
 import { OpenPhoneService } from '../openphone/openphone.service.js';
 import { CallInsightsService } from './call-insights.service.js';
+import { startOfBusinessDay } from '../../common/timezone.js';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { runExclusive } from '../../common/scheduler-lock.js';
 
 type Json = Record<string, unknown>;
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
@@ -214,15 +218,48 @@ export class CommunicationsService {
    * `${timestamp}.${rawBody}`. Falls back to a plain hex/base64 HMAC of the raw
    * body (secret as a UTF-8 key) for simpler/other providers.
    */
-  verifySignature(raw: Buffer | string, signature?: string): boolean {
+  verifySignature(raw: Buffer | string, signature?: string, opts: { allowUnsigned?: boolean } = {}): boolean {
+    return this.verifyWebhook(raw, signature, opts).ok;
+  }
+
+  /**
+   * The same check, with the reason a delivery was refused — so the delivery
+   * log can tell a missing secret, a wrong secret and a stale replay apart.
+   *
+   * FAILS CLOSED IN PRODUCTION. With no signing secret configured this used to
+   * accept every request unverified, which on the public `/api/webhooks/quo`
+   * meant anyone could post forged call and SMS events — creating leads, calls,
+   * tasks and recording links. Outside production it still accepts (with a
+   * warning) so local development works without secrets. `allowUnsigned` is for
+   * the `/hook/<token>` route only, whose URL token is already a credential and
+   * which fails closed on its own when that token is unset.
+   *
+   * REPLAYS: the signed timestamp must be recent. A captured delivery could
+   * otherwise be re-sent at will. The window is generous by default, because
+   * Quo is known to deliver some events minutes late; WEBHOOK_MAX_AGE_SECONDS
+   * tightens it (0 disables the check). Rejections log the age, so the window
+   * can be tuned from real traffic.
+   */
+  verifyWebhook(
+    raw: Buffer | string,
+    signature?: string,
+    opts: { allowUnsigned?: boolean } = {},
+  ): { ok: boolean; reason?: 'no-secret-configured' | 'no-signature' | 'signature-mismatch' | 'stale-signature' } {
     const secrets = this.webhookSecrets;
     if (secrets.length === 0) {
-      this.logger.warn('No QUO_WEBHOOK_SECRET set — accepting webhook unverified (dev only)');
-      return true;
+      if (process.env.NODE_ENV === 'production' && !opts.allowUnsigned) {
+        this.logger.error(
+          'Webhook rejected: no signing secret is configured, and production never accepts unverified webhooks. ' +
+            'Set QUO_WEBHOOK_SECRET (comma-separated for several subscriptions).',
+        );
+        return { ok: false, reason: 'no-secret-configured' };
+      }
+      this.logger.warn('No QUO_WEBHOOK_SECRET set — accepting webhook unverified (non-production only)');
+      return { ok: true };
     }
     if (!signature) {
       this.logger.warn('Webhook rejected: no signature header present');
-      return false;
+      return { ok: false, reason: 'no-signature' };
     }
     const body = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
     const eq = (a: string, b: string) => a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -236,18 +273,46 @@ export class CommunicationsService {
       const ok = secrets.some((secret) =>
         eq(digest, crypto.createHmac('sha256', Buffer.from(secret, 'base64')).update(signed).digest('base64')),
       );
-      if (!ok) this.warnSignatureMismatch(secrets.length);
-      return ok;
+      if (!ok) {
+        this.warnSignatureMismatch(secrets.length);
+        return { ok: false, reason: 'signature-mismatch' };
+      }
+      // Only an AUTHENTIC signature's timestamp is worth judging.
+      const stale = this.staleSignatureAge(timestamp);
+      if (stale !== null) {
+        this.logger.warn(`Webhook rejected: signature timestamp is ${stale}s outside the accepted window (possible replay)`);
+        return { ok: false, reason: 'stale-signature' };
+      }
+      return { ok: true };
     }
 
-    // Fallback: plain HMAC of the raw body, secret used as a UTF-8 key.
+    // Fallback: plain HMAC of the raw body, secret used as a UTF-8 key. This
+    // scheme carries no timestamp, so it cannot be checked for freshness.
     const provided = signature.replace(/^sha256=/, '');
     const ok = secrets.some((secret) => {
       const hex = crypto.createHmac('sha256', secret).update(body).digest('hex');
       return eq(provided, hex) || eq(provided, Buffer.from(hex, 'hex').toString('base64'));
     });
     if (!ok) this.warnSignatureMismatch(secrets.length);
-    return ok;
+    return ok ? { ok: true } : { ok: false, reason: 'signature-mismatch' };
+  }
+
+  /**
+   * How far outside the accepted window a signature timestamp is, in seconds,
+   * or null when it is fresh. Milliseconds (Quo's format) and seconds are both
+   * understood. Small clock skew into the future is tolerated.
+   */
+  private staleSignatureAge(timestamp: string): number | null {
+    const maxAge = Number(process.env.WEBHOOK_MAX_AGE_SECONDS ?? 3600);
+    if (!Number.isFinite(maxAge) || maxAge <= 0) return null; // check disabled
+    const n = Number(timestamp);
+    if (!Number.isFinite(n) || n <= 0) return Number.POSITIVE_INFINITY; // signed, but not a time
+    const sentMs = n > 1e12 ? n : n * 1000;
+    const ageSecs = Math.round((Date.now() - sentMs) / 1000);
+    const FUTURE_SKEW_SECS = 300;
+    if (ageSecs > maxAge) return ageSecs - maxAge;
+    if (ageSecs < -FUTURE_SKEW_SECS) return -ageSecs - FUTURE_SKEW_SECS;
+    return null;
   }
 
   /** One rejection message that names the likely cause instead of just "mismatch". */
@@ -260,6 +325,52 @@ export class CommunicationsService {
   }
 
   // ── Event dispatch ──
+
+  /**
+   * Entry point for a VERIFIED webhook delivery: handle each provider event once.
+   *
+   * The live workspace delivers every event twice (two subscriptions), the two
+   * copies racing each other through the same handlers, and any signed delivery
+   * can be re-sent. The first delivery claims the event id in `webhook_events`;
+   * a repeat is acknowledged (200, so the provider stops) and not processed.
+   * If processing fails the claim is released, so the provider's retry of that
+   * delivery is processed normally rather than swallowed as a "duplicate".
+   */
+  async handleWebhook(payload: Json) {
+    const eventId = str(payload.id)?.slice(0, 200);
+    const type = str(payload.type) ?? 'unknown';
+    if (!eventId) return this.handleEvent(payload);
+    try {
+      await this.prisma.webhookEvent.create({ data: { id: eventId, type } });
+    } catch (err) {
+      if ((err as { code?: string }).code === 'P2002') {
+        this.logger.log(`Webhook event ${eventId} (${type}) already handled — duplicate delivery acknowledged`);
+        return { duplicate: true, eventId };
+      }
+      // The dedupe table is unavailable (migration not yet applied, DB blip):
+      // process anyway. A duplicate is better than a dropped call event.
+      this.logger.warn(`Webhook dedupe unavailable, processing ${eventId} unguarded: ${(err as Error).message.split('\n')[0]}`);
+      return this.handleEvent(payload);
+    }
+    try {
+      return await this.handleEvent(payload);
+    } catch (err) {
+      await this.prisma.webhookEvent.delete({ where: { id: eventId } }).catch(() => undefined);
+      throw err;
+    }
+  }
+
+  /** Forget handled event ids after a week — far longer than any provider retries. */
+  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  async pruneWebhookEvents() {
+    await runExclusive(this.prisma, 'prune-webhook-events', 60 * 60_000, async () => {
+      const { count } = await this.prisma.webhookEvent.deleteMany({
+        where: { receivedAt: { lt: new Date(Date.now() - 7 * 86_400_000) } },
+      });
+      if (count) this.logger.log(`Pruned ${count} handled webhook event id(s) older than 7 days`);
+    });
+  }
+
   async handleEvent(payload: Json) {
     const type = str(payload.type) ?? '';
     const data = (payload.data as Json) ?? {};
@@ -492,7 +603,32 @@ export class CommunicationsService {
       });
     }
     if (lead) await this.touchLead(lead.id);
+    if (direction === CommDirection.inbound && body) await this.applySmsConsent(external, body);
     return { ok: true, leadId: lead?.id ?? null };
+  }
+
+  /**
+   * Honour SMS opt-out keywords from a contact's reply.
+   *
+   * Texting someone who has replied STOP is what TCPA complaints and carrier
+   * (10DLC) penalties are made of, and nothing here listened. A reply that IS an
+   * opt-out keyword (not merely contains one — "please don't stop" is not an
+   * opt-out) marks every lead on that number as opted out, and sendSms refuses
+   * them until a START reply clears it. Consent belongs to the phone number, not
+   * to whichever duplicate lead row the reply matched.
+   */
+  private async applySmsConsent(phone: string, body: string) {
+    const word = body.trim().toUpperCase().replace(/[^A-Z]/g, '');
+    const optOut = ['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT'].includes(word);
+    const optIn = ['START', 'UNSTOP'].includes(word);
+    if (!optOut && !optIn) return;
+    const last10 = digits(phone).slice(-10);
+    if (!last10) return;
+    const { count } = await this.prisma.lead.updateMany({
+      where: { deletedAt: null, phone: { contains: last10 }, smsOptOutAt: optOut ? null : { not: null } },
+      data: { smsOptOutAt: optOut ? new Date() : null },
+    });
+    if (count) this.logger.log(`SMS ${optOut ? 'opt-out' : 'opt-in'} (${word}) applied to ${count} lead(s) on …${last10.slice(-4)}`);
   }
 
   // ── Calls ──
@@ -781,20 +917,44 @@ export class CommunicationsService {
     return { ok: true, leadId: lead.id };
   }
 
+  /** 404 unless `actor` may reach the lead (common/lead-access.ts). */
+  assertLeadAccess(leadId: string, actor: Actor) {
+    return assertLeadAccess(this.prisma, actor, leadId);
+  }
+
   // ── Outbound: SMS ──
   /** Send an SMS to a lead and record it on the timeline. */
-  async sendSms(leadId: string, body: string, callerId?: string, from?: string) {
+  async sendSms(leadId: string, body: string, caller: Actor, from?: string) {
     const lead = await this.prisma.lead.findFirst({ where: { id: leadId, deletedAt: null } });
-    if (!lead) throw new NotFoundException('Lead not found');
+    // Another rep's lead answers exactly like a missing one (see lead-access.ts).
+    if (!lead || !canReachLead(caller, lead)) throw new NotFoundException('Lead not found');
     if (!body?.trim()) throw new BadRequestException('Message body is required');
+    // A contact who replied STOP is not texted again until they reply START.
+    if (lead.smsOptOutAt) {
+      throw new BadRequestException('This contact has opted out of text messages (replied STOP). They must reply START before you can text them again.');
+    }
 
-    // Resolve the "from" number: an explicit override wins (manual/admin sends);
-    // otherwise the caller's own assigned line. No silent fallback to a shared
-    // workspace number — the recipient must always see the sender's own identity,
-    // the same rule outbound calls follow.
-    let fromNumber = from;
-    if (!fromNumber && callerId) {
-      fromNumber = (await this.resolveCallerIdentity(callerId)).fromNumber;
+    // Resolve the "from" number: the caller's own assigned line. No silent
+    // fallback to a shared workspace number — the recipient must always see the
+    // sender's own identity, the same rule outbound calls follow.
+    //
+    // An explicit `from` is an ADMIN-only override, and only to a line that is
+    // actually assigned to someone in this workspace. It used to be honoured for
+    // anyone, with any value, which let any employee text a customer as a
+    // colleague (or as the main line) — the exact impersonation the caller-ID
+    // rules exist to prevent.
+    let fromNumber: string | undefined;
+    const override = from?.trim();
+    const own = override ? null : await this.resolveCallerIdentity(caller.id);
+    if (override) {
+      if (caller.role !== Role.admin) {
+        throw new ForbiddenException('Only an administrator can send from a line other than their own');
+      }
+      const holder = await this.prisma.user.findFirst({ where: { openphoneNumber: override }, select: { id: true } });
+      if (!holder) throw new BadRequestException(`${override} is not a line assigned to anyone in this workspace`);
+      fromNumber = override;
+    } else {
+      fromNumber = own?.fromNumber;
     }
     if (!fromNumber) throw new BadRequestException('No OpenPhone number available to send from');
 
@@ -812,7 +972,7 @@ export class CommunicationsService {
         quoMessageId: data?.id,
         // Attribute the send to the CRM user, so history shows who sent it (and from
         // which line) — the SMS counterpart of a call's caller identity.
-        senderId: callerId ?? undefined,
+        senderId: caller.id,
       },
     });
     await this.touchLead(lead.id);
@@ -828,10 +988,12 @@ export class CommunicationsService {
    * recording, transcript and AI summary (see adoptPendingOutboundCall) rather
    * than creating a second one.
    */
-  async startCall(leadId: string, callerId: string) {
+  async startCall(leadId: string, callerId: string, role: Role | string) {
     await this.assertCallingEnabled();
     const lead = await this.prisma.lead.findFirst({ where: { id: leadId, deletedAt: null } });
-    if (!lead) throw new NotFoundException('Lead not found');
+    // An employee may only dial leads they hold; another rep's lead answers
+    // exactly like a missing one (see common/lead-access.ts).
+    if (!lead || !canReachLead({ id: callerId, role }, lead)) throw new NotFoundException('Lead not found');
 
     // Validate the caller before dialing: they must have their own assigned OpenPhone
     // line. This both blocks the shared-line fallback (no cross-employee caller ID)
@@ -909,7 +1071,7 @@ export class CommunicationsService {
    * an unknown caller back must not create the very lead the inbound call
    * deliberately refused to create.
    */
-  async startCallByPhone(phone: string, callerId: string) {
+  async startCallByPhone(phone: string, callerId: string, role: Role | string) {
     await this.assertCallingEnabled();
     const trimmed = phone?.trim();
     if (!trimmed || digits(trimmed).length < 3) throw new BadRequestException('A valid phone number is required');
@@ -917,9 +1079,14 @@ export class CommunicationsService {
     // call (no assigned caller ID) leaves no half-logged call behind.
     const { name, fromNumber } = await this.resolveCallerIdentity(callerId);
 
-    const lead = await this.findLeadByPhone(trimmed);
+    // A typed number that belongs to ANOTHER rep's lead is still dialled — the
+    // pad is a phone, and refusing a number would be worse — but it is logged as
+    // a call with no lead: the employee is not shown whose lead it is, and the
+    // wrap-up can't disposition a lead they don't hold.
+    const found = await this.findLeadByPhone(trimmed);
+    const lead = found && canReachLead({ id: callerId, role }, found) ? found : null;
     if (lead) {
-      const result = await this.startCall(lead.id, callerId);
+      const result = await this.startCall(lead.id, callerId, role);
       return {
         ...result,
         // `timezone` so the widget's wrap-up callback picker can book on the
@@ -1201,7 +1368,7 @@ export class CommunicationsService {
       include: {
         // `contactName` is the person who rang — the Missed Calls tab leads with
         // it and falls back to the company when the contact isn't known.
-        lead: { select: { id: true, leadId: true, businessName: true, contactName: true, phone: true, city: true, state: true } },
+        lead: { select: { id: true, leadId: true, businessName: true, contactName: true, phone: true, city: true, state: true, timezone: true } },
         caller: { select: { id: true, name: true } },
       },
       orderBy: { startTime: 'desc' },
@@ -1221,6 +1388,7 @@ export class CommunicationsService {
       phone: c.lead.phone,
       city: c.lead.city,
       state: c.lead.state,
+      timezone: c.lead.timezone,
       // Always one of MISSED_INBOUND_STATUSES — the query admits nothing else.
       // The fallback only guards the nullable column type.
       status: c.status ?? 'missed',
@@ -1232,7 +1400,8 @@ export class CommunicationsService {
   // ── Communication analytics ──
   private periodStart(period: string): Date {
     const now = new Date();
-    if (period === 'today') return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    // The business day (BUSINESS_TIMEZONE), not midnight on the server's clock.
+    if (period === 'today') return startOfBusinessDay(now);
     if (period === 'month') return new Date(now.getTime() - 30 * 86400000);
     if (period === 'all') return new Date(0);
     return new Date(now.getTime() - 7 * 86400000); // default: week

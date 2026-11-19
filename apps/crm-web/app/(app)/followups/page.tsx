@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Calendar, Plus, Clock, RefreshCw, CheckCircle2, AlertTriangle, Bell, Phone, Filter, Pencil, CircleCheckBig, Users } from 'lucide-react';
@@ -12,7 +12,7 @@ import { KpiCard } from '@/components/dashboard/kpi-card';
 import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
-import { dayInLeadZone, formatScheduleInLeadZone } from '@/lib/timezone';
+import { dayInLeadZone, formatScheduleInLeadZone, wallClockInLeadZone } from '@/lib/timezone';
 import { callbackStatus, CALLBACK_STATUS_STYLE } from '@/lib/callbacks';
 import { CallbackStatusPill } from '@/components/callback-status-pill';
 import { pushToast } from '@/lib/toast';
@@ -133,7 +133,7 @@ export default function FollowupsPage() {
       const zone = current.lead?.timezone;
       const next = window.prompt(
         `New follow-up date/time in the lead's time zone${zone ? ` (${zone})` : ''} — e.g. 2026-08-05T10:00`,
-        current.nextFollowupDate,
+        current.nextFollowupDate ? wallClockInLeadZone(current.nextFollowupDate, zone) : '',
       );
       if (next === null) return;
       const noteText = window.prompt('Follow-up note', current.noteText) ?? current.noteText;
@@ -149,6 +149,16 @@ export default function FollowupsPage() {
       pushToast('error', (Array.isArray(msg) ? msg[0] : msg) ?? 'Could not update that follow-up.');
     }
   }
+
+  // The row buttons call the CURRENT mutateFollowup through this ref. The
+  // columns are memoised and used to capture the function from whichever render
+  // built them — and with it that render's follow-up list — so Edit on a
+  // follow-up that arrived after that render looked itself up in the old list,
+  // found nothing and silently did nothing.
+  const mutateRef = useRef(mutateFollowup);
+  useEffect(() => {
+    mutateRef.current = mutateFollowup;
+  });
 
   const columns = useMemo<ColumnDef<Followup>[]>(() => [
     {
@@ -186,10 +196,10 @@ export default function FollowupsPage() {
               <Phone className="h-[15px] w-[15px]" />
             </button>
           )}
-          <button onClick={() => void mutateFollowup(f.kind, f.id, 'edit')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-60 transition-opacity hover:bg-muted hover:opacity-100" title="Edit follow-up">
+          <button onClick={() => void mutateRef.current(f.kind, f.id, 'edit')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-60 transition-opacity hover:bg-muted hover:opacity-100" title="Edit follow-up">
             <Pencil className="h-[15px] w-[15px]" />
           </button>
-          <button onClick={() => void mutateFollowup(f.kind, f.id, 'complete')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-60 transition-opacity hover:bg-primary hover:text-primary-foreground hover:opacity-100" title="Complete follow-up">
+          <button onClick={() => void mutateRef.current(f.kind, f.id, 'complete')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border opacity-60 transition-opacity hover:bg-primary hover:text-primary-foreground hover:opacity-100" title="Complete follow-up">
             <CircleCheckBig className="h-[15px] w-[15px]" />
           </button>
         </div>

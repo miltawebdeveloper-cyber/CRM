@@ -86,8 +86,8 @@ export default function CalendarPage() {
   // Only events that fall in the month being drawn get a cell.
   const byDay = new Map<number, CalendarEvent[]>();
   for (const e of events) {
-    const d = new Date(e.date);
-    if (d.getFullYear() !== year || d.getMonth() + 1 !== month) continue;
+    // Month/day come from the lead's calendar (API `ymd`), not the viewer's.
+    if (Number(e.ymd.slice(0, 4)) !== year || Number(e.ymd.slice(5, 7)) !== month) continue;
     if (!byDay.has(e.day)) byDay.set(e.day, []);
     byDay.get(e.day)!.push(e);
   }

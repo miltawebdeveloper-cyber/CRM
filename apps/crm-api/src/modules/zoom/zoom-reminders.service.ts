@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { runExclusive } from '../../common/scheduler-lock.js';
 import { NotificationType, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
@@ -30,8 +31,9 @@ export class ZoomRemindersService {
 
   @Cron(CronExpression.EVERY_10_MINUTES)
   async scheduledRun() {
-    const { fired } = await this.runReminders();
-    if (fired > 0) this.logger.log(`Zoom reminders fired: ${fired}`);
+    // One runner across instances — otherwise each reminder fires once per instance.
+    const r = await runExclusive(this.prisma, 'zoom-reminders', 30 * 60_000, () => this.runReminders());
+    if (r && r.fired > 0) this.logger.log(`Zoom reminders fired: ${r.fired}`);
   }
 
   /** Scan and dispatch due reminders. Returns how many were fired. */

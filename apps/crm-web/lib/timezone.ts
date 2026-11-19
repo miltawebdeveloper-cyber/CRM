@@ -235,6 +235,31 @@ export const leadDateTime = (v: string | number | Date | null | undefined, tz?: 
 export const leadTime = (v: string | number | Date | null | undefined, tz?: string | null, fallback?: string) =>
   formatInZone(leadZone(tz), v, TIME_FORMAT, fallback);
 
+/** `Aug 5` on the lead's clock. Same format as `formatDateShort`. */
+export const leadDateShort = (v: string | number | Date | null | undefined, tz?: string | null, fallback?: string) =>
+  formatInZone(leadZone(tz), v, { month: 'short', day: 'numeric' }, fallback);
+
+type Stamp = string | number | Date | null | undefined;
+
+/**
+ * A row's time on its LEAD's clock when it has a lead, otherwise the viewer's.
+ *
+ * For feeds that mix lead rows with rows that have none (a call or text from
+ * an unknown number). A lead row goes through the lead formatters, including
+ * their Eastern default for a lead with no zone. A row with no lead has no
+ * customer clock to use, so the viewer's own clock is the honest answer.
+ */
+export function leadOrViewer(v: Stamp, lead: { timezone?: string | null } | null | undefined, kind: 'date' | 'datetime' | 'time' = 'datetime', fallback?: string): string {
+  if (lead) {
+    if (kind === 'date') return leadDate(v, lead.timezone, fallback);
+    if (kind === 'time') return leadTime(v, lead.timezone, fallback);
+    return leadDateTime(v, lead.timezone, fallback);
+  }
+  if (kind === 'date') return formatDate(v, fallback);
+  if (kind === 'time') return formatTime(v, fallback);
+  return formatDateTime(v, fallback);
+}
+
 /**
  * Which clock the value beside it is on, in words — for a `title` tooltip.
  *
@@ -435,6 +460,12 @@ export function isPastInLeadZone(wallClock: string, tz?: string | null, now: Dat
  * yesterday for the customer, so it opens on theirs.
  */
 export function nowInLeadZone(tz?: string | null): string {
+  return wallClockInLeadZone(new Date(), tz);
+}
+
+/** An instant as the lead's wall clock, `YYYY-MM-DDTHH:mm` — for pre-filling a
+ *  field the API will read back in that same zone. */
+export function wallClockInLeadZone(at: string | Date, tz?: string | null): string {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: zoneOf(tz),
     hour12: false,
@@ -443,7 +474,7 @@ export function nowInLeadZone(tz?: string | null): string {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-  }).formatToParts(new Date());
+  }).formatToParts(typeof at === 'string' ? new Date(at) : at);
   const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? '00';
   const hour = String(Number(get('hour')) % 24).padStart(2, '0');
   return `${get('year')}-${get('month')}-${get('day')}T${hour}:${get('minute')}`;

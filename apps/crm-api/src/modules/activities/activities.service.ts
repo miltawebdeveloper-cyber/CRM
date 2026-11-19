@@ -14,10 +14,11 @@ export class ActivitiesService {
     return this.prisma.activity.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      take: Math.min(limit, 200),
+      // NaN / negative (a bad ?limit=) falls back to the default instead of crashing the query.
+      take: Math.min(Math.max(Number.isFinite(limit) ? Math.floor(limit) : 100, 1), 200),
       include: {
         user: { select: { id: true, name: true, email: true } },
-        lead: { select: { id: true, businessName: true } },
+        lead: { select: { id: true, businessName: true, timezone: true } },
       },
     });
   }
@@ -28,7 +29,8 @@ export class ActivitiesService {
     return this.prisma.activity.findMany({
       where: { leadId },
       orderBy: { createdAt: 'desc' },
-      take: Math.min(limit, 200),
+      // NaN / negative (a bad ?limit=) falls back to the default instead of crashing the query.
+      take: Math.min(Math.max(Number.isFinite(limit) ? Math.floor(limit) : 100, 1), 200),
       include: {
         user: { select: { id: true, name: true, email: true } },
         // `timezone` so the log can stamp each entry on the LEAD's clock rather

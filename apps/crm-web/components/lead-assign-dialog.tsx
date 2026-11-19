@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X, Check, Users, SlidersHorizontal, AlertTriangle, MapPin, Building2, Clock, Globe, ArrowRight } from 'lucide-react';
 import { assignmentsApi, sameDayConflicts, type SameDayConflict } from '@/lib/crm';
@@ -139,7 +139,9 @@ export function LeadAssignDialog({
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery({ queryKey: ['assignments-summary'], queryFn: assignmentsApi.summary });
-  const callers = data?.callers ?? [];
+  // Memoised: `?? []` made a NEW empty array on every render while the summary
+  // loaded, which rebuilt everything downstream that depends on `callers`.
+  const callers = useMemo(() => data?.callers ?? [], [data]);
 
   // ── Assignment method ──
   // 'selected' distributes the leads ticked in the table across several employees.
@@ -209,9 +211,12 @@ export function LeadAssignDialog({
   const countryOpts = useMemo(() => distinct(leads.map((l) => l.country)), [leads]);
   const stateOpts = useMemo(() => distinct(leads.map((l) => l.state)), [leads]);
   // Cities present in leads belonging to the given states (all cities if none chosen).
-  const citiesForStates = (states: string[]) =>
-    distinct(leads.filter((l) => states.length === 0 || states.includes((l.state ?? '').trim())).map((l) => l.city));
-  const cityOpts = useMemo(() => citiesForStates(stateSel), [leads, stateSel]);
+  const citiesForStates = useCallback(
+    (states: string[]) =>
+      distinct(leads.filter((l) => states.length === 0 || states.includes((l.state ?? '').trim())).map((l) => l.city)),
+    [leads],
+  );
+  const cityOpts = useMemo(() => citiesForStates(stateSel), [citiesForStates, stateSel]);
 
   // Changing states cascades to cities: drop any selected city no longer offered.
   const setStates = (next: string[]) => {

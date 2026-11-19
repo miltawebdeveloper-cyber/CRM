@@ -1,5 +1,6 @@
 import { IsEmail, IsEnum, IsOptional, IsString, MinLength, IsBoolean } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import { Role } from '@crm/database';
 import { IsTimezoneCode } from '../../../common/validators/is-timezone-code.validator.js';
 
@@ -50,8 +51,12 @@ export class ListUsersQueryDto {
   @IsEnum(Role)
   role?: Role;
 
+  // A query string is always text, so `?isActive=true` arrived as the STRING
+  // "true" and failed @IsBoolean with a 400 — the filter could never be used.
+  // (A plain Boolean() cast would be worse: "false" is a truthy string.)
   @ApiPropertyOptional()
   @IsOptional()
+  @Transform(({ value }) => (value === 'true' || value === true ? true : value === 'false' || value === false ? false : value))
   @IsBoolean()
   isActive?: boolean;
 

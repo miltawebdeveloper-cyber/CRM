@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Search, RefreshCw, MessageSquare, Check, CheckCheck, Clock, AlertTriangle, Send, Loader2 } from 'lucide-react';
 import { communicationsApi, type SmsMessage } from '@/lib/crm';
-import { formatDateShort, formatDateTime } from '@/lib/display-settings';
+import { leadDateShort, leadOrViewer } from '@/lib/timezone';
+import { formatDateShort } from '@/lib/display-settings';
 
 const LIVE_MS = 15_000;
 
@@ -27,6 +28,8 @@ interface Thread {
   phone: string;
   messages: SmsMessage[];
   lastAt: string;
+  /** The lead's zone; null for an unknown number. */
+  timezone: string | null;
 }
 
 export function SmsHistory({ leadId }: { leadId?: string }) {
@@ -72,6 +75,7 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
           phone: m.direction === 'inbound' ? m.from : m.to,
           messages: [m],
           lastAt: m.at,
+          timezone: m.timezone ?? null,
         });
       }
     }
@@ -186,7 +190,7 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="truncate text-[12.5px] font-semibold">{t.name}</span>
                     <span className="shrink-0 text-[10px] text-muted-foreground">
-                      {formatDateShort(t.lastAt)}
+                      {t.leadId ? leadDateShort(t.lastAt, t.timezone) : formatDateShort(t.lastAt)}
                     </span>
                   </div>
                   <div className="truncate font-mono text-[10.5px] text-muted-foreground">{t.phone}</div>
@@ -245,7 +249,7 @@ export function SmsHistory({ leadId }: { leadId?: string }) {
                         <span className="font-mono">{m.to}</span>
                         {out && m.by && <><span>·</span><span>by {m.by}</span></>}
                         <span>·</span>
-                        <span>{formatDateTime(m.at)}</span>
+                        <span>{leadOrViewer(m.at, m.leadId ? { timezone: m.timezone } : null)}</span>
                         <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-px font-semibold ${st.cls}`}>
                           <st.Icon className="h-2.5 w-2.5" /> {st.label}
                         </span>

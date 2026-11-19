@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Users, Shield, UserCheck, Phone, Check, Pencil, Filter, X, Ban, RotateCcw, Wifi, WifiOff, Trash2, Globe, Clock } from 'lucide-react';
 import { usersApi, type User, type UserRole } from '@/lib/users';
@@ -132,15 +132,20 @@ export default function UsersPage() {
   const availRef = useRef<(u: User) => void>(() => {});
   const deleteRef = useRef<(u: User) => void>(() => {});
   // Read through a ref like the other row actions, so the column defs stay
-  // stable while still seeing the current admin flag.
-  editRef.current = (u) => setEditing(u);
-  toggleRef.current = (u) => toggleActive.mutate(u);
-  deleteRef.current = (u) => setDeleting(u);
-  availRef.current = (u) => {
-    const online = (u.availability ?? 'online') === 'online';
-    if (online && !confirm(`Mark ${u.name} offline? Their pending leads, callbacks and tasks will be reassigned to the next available caller.`)) return;
-    setAvail.mutate({ u, online: !online });
-  };
+  // stable while still seeing the current admin flag. Assigned in a layout
+  // effect, not during render (unsafe under concurrent rendering): it runs
+  // after every commit and before the browser paints, so no click can ever
+  // reach the initial no-op handlers.
+  useLayoutEffect(() => {
+    editRef.current = (u) => setEditing(u);
+    toggleRef.current = (u) => toggleActive.mutate(u);
+    deleteRef.current = (u) => setDeleting(u);
+    availRef.current = (u) => {
+      const online = (u.availability ?? 'online') === 'online';
+      if (online && !confirm(`Mark ${u.name} offline? Their pending leads, callbacks and tasks will be reassigned to the next available caller.`)) return;
+      setAvail.mutate({ u, online: !online });
+    };
+  });
 
   const columns = useMemo<ColumnDef<User>[]>(() => [
     {

@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
 import { AvailabilityService } from './availability.service.js';
+import { AdminSetAvailabilityDto, GoOfflineDto } from './dto/availability.dto.js';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 
@@ -19,8 +20,8 @@ export class AvailabilityController {
   // Mark offline (Leave / Holiday / Unavailable). Status only — the rep keeps
   // their leads; automatic reassignment was removed (see the service).
   @Post('offline')
-  offline(@CurrentUser() user: AuthUser, @Body('reason') reason?: string) {
-    return this.availability.setOffline(user.id, reason);
+  offline(@CurrentUser() user: AuthUser, @Body() dto: GoOfflineDto) {
+    return this.availability.setOffline(user.id, dto.reason);
   }
 
   @Post('online')
@@ -38,12 +39,8 @@ export class AvailabilityController {
   // A status flip either way; it does not move that user's leads.
   @Roles(Role.admin)
   @Post('user/:userId')
-  adminSet(
-    @Param('userId') userId: string,
-    @Body('online') online: boolean,
-    @Body('reason') reason?: string,
-  ) {
-    return this.availability.adminSetAvailability(userId, online, reason);
+  adminSet(@Param('userId') userId: string, @Body() dto: AdminSetAvailabilityDto) {
+    return this.availability.adminSetAvailability(userId, dto.online, dto.reason);
   }
 
   // Historical reassigned-work feed. Read-only: nothing writes to it now that

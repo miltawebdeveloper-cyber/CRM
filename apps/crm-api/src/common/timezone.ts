@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, Logger } from '@nestjs/common';
 
 /**
  * Lead time zones, and the one place a wall-clock time is turned into an instant.
@@ -365,4 +365,80 @@ export function nextWorkingDay(day: string, working = workingDays()): string {
     if (working.has(cursor.getUTCDay())) break;
   }
   return cursor.toISOString().slice(0, 10);
+}
+
+// ─── The business day ─────────────────────────────────────────────────────
+//
+// What "today" means for the CRM's OWN day-based figures: the caller
+// dashboard's KPIs, productivity, Zoom "due today", the same-day reassignment
+// lock, "today" analytics, and how a `yyyy-mm-dd` date filter from the browser
+// is read. All of these used to call `new Date().setHours(0, 0, 0, 0)`, which
+// is midnight on whatever clock the SERVER runs — IST on a developer laptop,
+// UTC in a cloud container — so the same deploy showed different numbers
+// depending on where it ran, and production days rolled over at 05:30 IST.
+//
+// One explicit zone now decides it. BUSINESS_TIMEZONE takes a zone code from
+// Admin → Timezones (EST, IND, UK, …) and defaults to Eastern: a team in India
+// working US hours then has its whole shift on one date, instead of split at
+// Indian midnight. Anything belonging to a LEAD (callbacks, its own "today")
+// keeps using the lead's zone — this is only for the CRM's own calendar.
+
+let warnedBusinessZone: string | null = null;
+
+/** Zone code that defines the business day (BUSINESS_TIMEZONE, default EST). */
+export function businessTimezone(): string {
+  const raw = (process.env.BUSINESS_TIMEZONE ?? '').trim().toUpperCase();
+  if (!raw) return DEFAULT_TIMEZONE;
+  if (allTimezoneCodes().includes(raw)) return raw;
+  if (warnedBusinessZone !== raw) {
+    warnedBusinessZone = raw;
+    new Logger('Timezone').warn(`BUSINESS_TIMEZONE="${raw}" is not a known time zone code — using ${DEFAULT_TIMEZONE}.`);
+  }
+  return DEFAULT_TIMEZONE;
+}
+
+/** IANA name of the business zone, e.g. `America/New_York` — what the web app is told. */
+export const businessIana = (): string => ianaFor(businessTimezone());
+
+/** The business calendar date an instant falls on (`yyyy-mm-dd`). */
+export const businessDay = (at: Date = new Date()): string => dayInZone(at, businessTimezone());
+
+/** Instant the business day containing `at` began. */
+export function startOfBusinessDay(at: Date = new Date()): Date {
+  return startOfDayInZone(businessTimezone(), at);
+}
+
+/**
+ * Last millisecond of the business day containing `at`. Measured to the next
+ * day's start rather than assumed to be 24h later: DST days are 23 or 25 hours.
+ */
+export function endOfBusinessDay(at: Date = new Date()): Date {
+  const start = startOfBusinessDay(at);
+  // +36h always lands inside the following day, whatever its length.
+  const next = startOfDayInZone(businessTimezone(), new Date(start.getTime() + 36 * 3_600_000));
+  return new Date(next.getTime() - 1);
+}
+
+/** First instant of a named business date (`yyyy-mm-dd`, or an ISO string's date part). */
+export function businessDayStart(day: string): Date {
+  const d = day.slice(0, 10);
+  return parseInZone(`${d}T00:00:00`, businessTimezone()) ?? new Date(`${d}T00:00:00Z`);
+}
+
+/** Last millisecond of a named business date. */
+export function businessDayEnd(day: string): Date {
+  return endOfBusinessDay(businessDayStart(day));
+}
+
+/** Weekday (0 = Sunday) and hour (0–23) of an instant on the business clock. */
+export function businessWeekdayHour(at: Date): { weekday: number; hour: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: businessIana(),
+    weekday: 'short',
+    hour: '2-digit',
+    hour12: false,
+  }).formatToParts(at);
+  const wd = parts.find((p) => p.type === 'weekday')?.value ?? 'Sun';
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0) % 24;
+  return { weekday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(wd), hour };
 }

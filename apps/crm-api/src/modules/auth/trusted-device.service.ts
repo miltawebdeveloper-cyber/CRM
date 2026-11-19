@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nest
 import * as crypto from 'crypto';
 import type { Request, Response, CookieOptions } from 'express';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { trustedDeviceSecret } from '../../common/env.js';
 
 /** Cookie carrying the device trust token. HTTP-only — JS never touches it. */
 export const TRUSTED_DEVICE_COOKIE = 'crm.device';
@@ -90,14 +91,11 @@ export class TrustedDeviceService {
    * Secret the cookie is signed with. Falls back to the access-token secret so a
    * deployment that hasn't set TRUSTED_DEVICE_SECRET still gets a real key rather
    * than a hard-coded one — but a rotation of either invalidates every device,
-   * which is the safe direction to fail.
+   * which is the safe direction to fail. A blank value counts as unset (see
+   * `trustedDeviceSecret`), so the example env's `""` can't become the key.
    */
   private get signingSecret(): string {
-    return (
-      process.env.TRUSTED_DEVICE_SECRET ??
-      process.env.JWT_ACCESS_SECRET ??
-      'change-me-access-secret'
-    );
+    return trustedDeviceSecret();
   }
 
   private cookieOptions(maxAgeMs?: number): CookieOptions {
@@ -319,31 +317,36 @@ export class TrustedDeviceService {
     res.cookie(TRUSTED_DEVICE_COOKIE, this.serialiseTokens(others), this.cookieOptions(MAX_COOKIE_AGE_MS));
   }
 
-  /** Id of the device the request is coming from, so the UI can say "this device". */
-  currentDeviceId(req: Request): string | null {
-    const raw = this.readCookie(req);
-    return raw ? (this.parseToken(raw)?.id ?? null) : null;
+  /**
+   * Ids of every trust entry the requesting browser carries — one per account
+   * trusted on it — so the UI can mark "this device". It used to parse the whole
+   * cookie as ONE token, which works only while the cookie holds a single
+   * account: with two, the `~`-joined value parsed as nothing and no row was
+   * ever marked as this device.
+   */
+  currentDeviceIds(req: Request): string[] {
+    return this.parseTokens(this.readCookie(req)).map((t) => t.id);
   }
 
   // ── Management ───────────────────────────────────────────
 
-  async list(userId: string, currentId: string | null) {
+  async list(userId: string, currentIds: string[]) {
     const rows = await this.prisma.trustedDevice.findMany({
       where: { userId },
       // Live devices first (revokedAt is null for those), then most recently used.
       orderBy: [{ revokedAt: { sort: 'asc', nulls: 'first' } }, { lastLoginAt: 'desc' }],
     });
-    return rows.map((d) => this.toView(d, currentId));
+    return rows.map((d) => this.toView(d, currentIds));
   }
 
   /** Every user's devices, for the admin Trusted Devices panel. */
-  async listAll(currentId: string | null) {
+  async listAll(currentIds: string[]) {
     const rows = await this.prisma.trustedDevice.findMany({
       // Live devices first (revokedAt is null for those), then most recently used.
       orderBy: [{ revokedAt: { sort: 'asc', nulls: 'first' } }, { lastLoginAt: 'desc' }],
       include: { user: { select: { id: true, name: true, email: true } } },
     });
-    return rows.map((d) => ({ ...this.toView(d, currentId), user: d.user }));
+    return rows.map((d) => ({ ...this.toView(d, currentIds), user: d.user }));
   }
 
   /**
@@ -401,7 +404,7 @@ export class TrustedDeviceService {
 
   private toView(
     d: { id: string; deviceName: string; browser: string; os: string; ipAddress: string | null; lastLoginAt: Date; expiresAt: Date; revokedAt: Date | null; createdAt: Date },
-    currentId: string | null,
+    currentIds: string[],
   ) {
     const active = !d.revokedAt && d.expiresAt > new Date();
     return {
@@ -415,7 +418,7 @@ export class TrustedDeviceService {
       createdAt: d.createdAt,
       revokedAt: d.revokedAt,
       status: d.revokedAt ? ('revoked' as const) : active ? ('active' as const) : ('expired' as const),
-      current: currentId === d.id,
+      current: currentIds.includes(d.id),
     };
   }
 

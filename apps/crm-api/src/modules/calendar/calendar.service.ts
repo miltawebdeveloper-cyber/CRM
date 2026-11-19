@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, Role } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { formatInZone } from '../../common/timezone.js';
+import { businessDay, businessDayEnd, businessDayStart, dayInZone, formatInZone } from '../../common/timezone.js';
 import { callbackStatus, type CallbackStatus } from '../callbacks/callback-status.js';
 
 /** The three kinds of scheduled activity the calendar consolidates. */
@@ -9,7 +9,9 @@ export type ActivityType = 'call' | 'callback' | 'zoom';
 
 export interface CalendarEvent {
   id: string;
-  day: number; // day-of-month, for the grid
+  day: number; // day-of-month on the LEAD's calendar, for the grid
+  /** `yyyy-mm-dd` on the lead's calendar — which month/day cell the event sits in. */
+  ymd: string;
   date: string; // ISO — the scheduled date & time
   type: ActivityType;
   /** Contact person at the company (the "lead name"). */
@@ -46,6 +48,14 @@ export interface CalendarResult {
   summary: { calls: number; callbacks: number; zooms: number; total: number };
 }
 
+// The grid cell an event belongs in is the day it falls on for the CUSTOMER.
+// `getDate()` read the server's own clock, which filed a US evening callback
+// under the next day whenever the server ran on IST.
+function leadDay(at: Date, tz?: string | null) {
+  const ymd = dayInZone(at, tz);
+  return { ymd, day: Number(ymd.slice(8, 10)) };
+}
+
 @Injectable()
 export class CalendarService {
   constructor(private readonly prisma: PrismaService) {}
@@ -67,11 +77,15 @@ export class CalendarService {
   ): Promise<CalendarResult> {
     // Default window: the current month, so an unfiltered calendar still opens on
     // something useful.
+    // Days are BUSINESS days (BUSINESS_TIMEZONE): `from`/`to` arrive as plain
+    // days and the whole of `to` is included, the same on any server clock.
     const now = new Date();
-    const start = range.from ? new Date(range.from) : new Date(now.getFullYear(), now.getMonth(), 1);
-    const end = range.to ? new Date(range.to) : new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    // `to` arrives as a plain day — include all of it.
-    end.setHours(23, 59, 59, 999);
+    const today = businessDay(now);
+    const [y, m] = today.split('-').map(Number);
+    const monthStart = `${today.slice(0, 7)}-01`;
+    const monthEnd = `${today.slice(0, 7)}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
+    const start = businessDayStart(range.from || monthStart);
+    const end = businessDayEnd(range.to || monthEnd);
 
     // Managers may scope to one employee; employees are always scoped to self.
     const isManager = user.role === Role.admin || user.role === Role.team_leader;
@@ -120,7 +134,7 @@ export class CalendarService {
       if (!l.nextFollowUpDate) continue;
       events.push({
         id: `call-${l.id}`,
-        day: l.nextFollowUpDate.getDate(),
+        ...leadDay(l.nextFollowUpDate, l.timezone),
         date: l.nextFollowUpDate.toISOString(),
         type: 'call',
         leadName: l.contactName,
@@ -139,7 +153,7 @@ export class CalendarService {
       if (!l.callbackAt) continue;
       events.push({
         id: `callback-${l.id}`,
-        day: l.callbackAt.getDate(),
+        ...leadDay(l.callbackAt, l.timezone),
         date: l.callbackAt.toISOString(),
         type: 'callback',
         leadName: l.contactName,
@@ -157,7 +171,7 @@ export class CalendarService {
     for (const z of zooms) {
       events.push({
         id: `zoom-${z.id}`,
-        day: z.scheduledAt.getDate(),
+        ...leadDay(z.scheduledAt, z.lead?.timezone),
         date: z.scheduledAt.toISOString(),
         type: 'zoom',
         leadName: z.lead?.contactName ?? null,

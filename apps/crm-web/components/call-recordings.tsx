@@ -12,7 +12,8 @@ import { api } from '@/lib/api';
 import { DateFilter } from '@/components/filter-controls';
 import { EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { toast } from '@/lib/toast';
-import { formatDate, formatDateTime, formatTime } from '@/lib/display-settings';
+import { formatDateTime } from '@/lib/display-settings';
+import { dayInLeadZone, leadOrViewer } from '@/lib/timezone';
 
 const LIVE_MS = 20_000;
 
@@ -318,8 +319,8 @@ function RecordingRow({
         </div>
 
         <div className="hidden text-right sm:block">
-          <div className="text-[12px] font-medium">{formatDate(when)}</div>
-          <div className="text-[11px] text-muted-foreground">{formatTime(when)}</div>
+          <div className="text-[12px] font-medium">{leadOrViewer(when, (call.leadId ? { timezone: call.timezone } : null), 'date')}</div>
+          <div className="text-[11px] text-muted-foreground">{leadOrViewer(when, (call.leadId ? { timezone: call.timezone } : null), 'time')}</div>
         </div>
 
         <div className="w-[64px] text-right font-mono text-[12px]">{formatDuration(call.durationSecs ?? 0)}</div>
@@ -395,7 +396,7 @@ function SegmentControls({
             </span>
 
             <button
-              onClick={() => onDownload(r.id, `${call.customerName}_${when.toISOString().slice(0, 10)}`, r.mimeType)}
+              onClick={() => onDownload(r.id, `${call.customerName}_${call.leadId ? dayInLeadZone(when, call.timezone) : when.toISOString().slice(0, 10)}`, r.mimeType)}
               aria-label="Download recording"
               title="Download"
               className="grid h-7 w-7 shrink-0 place-items-center rounded-md border hover:bg-background"
@@ -506,7 +507,7 @@ function InsightModal({
           <div className="min-w-0">
             <div className="truncate font-display text-[14px] font-semibold">{call.customerName}</div>
             <div className="truncate text-xs text-muted-foreground">
-              {formatDate(when)} · {formatTime(when)} · {formatDuration(call.durationSecs ?? 0)}
+              {leadOrViewer(when, (call.leadId ? { timezone: call.timezone } : null), 'date')} · {leadOrViewer(when, (call.leadId ? { timezone: call.timezone } : null), 'time')} · {formatDuration(call.durationSecs ?? 0)}
               {call.by ? ` · by ${call.by}` : ''}
             </div>
           </div>

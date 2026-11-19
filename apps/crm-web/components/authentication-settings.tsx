@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ShieldCheck, AlertTriangle, Loader2 } from 'lucide-react';
 import { authSettingsApi, type OtpSettings } from '@/lib/crm';
@@ -27,13 +27,13 @@ export function AuthenticationSettings() {
   const { data, isLoading } = useQuery({ queryKey: ['auth-otp-settings'], queryFn: authSettingsApi.get });
   const [form, setForm] = useState<Omit<OtpSettings, 'mailReady'> | null>(null);
 
-  // Seed the form once the saved policy arrives.
-  useEffect(() => {
-    if (data && !form) {
-      const { mailReady: _mailReady, ...rest } = data;
-      setForm(rest);
-    }
-  }, [data, form]);
+  // Seed the form once the saved policy arrives — during render, guarded so it
+  // happens once (React's "adjust state while rendering" pattern), rather than
+  // in an effect that paints an empty form first and renders twice.
+  if (data && !form) {
+    const { mailReady: _mailReady, ...rest } = data;
+    setForm(rest);
+  }
 
   const save = useMutation({
     mutationFn: () => authSettingsApi.save(form!),

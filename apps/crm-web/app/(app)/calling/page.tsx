@@ -195,7 +195,8 @@ export default function CallingPage() {
   // moment a lead is put in front of them and stops when they press Save. Kept in
   // a ref because it must not re-render anything — nothing counts up on screen,
   // the elapsed time is only read once, at the save.
-  const openedAt = useRef<number>(Date.now());
+  // Starts at 0; the effect below stamps it on mount and on every new lead.
+  const openedAt = useRef<number>(0);
   // A call placed from the dial pad runs in the global docked widget, not this
   // panel. Knowing about it is what stops the two flows starting a second call
   // over the top of the first.
@@ -537,6 +538,7 @@ export default function CallingPage() {
     setBusy(true);
     try {
       const res = await communicationsApi.startCall(current.id);
+      // eslint-disable-next-line react-hooks/purity -- runs in a click handler, not during render
       setActive({ callId: res.callId, lead: current, startedAt: Date.now(), from: res.from, callerName: res.callerName });
       setLive(true);
       setElapsed(0);
@@ -592,6 +594,7 @@ export default function CallingPage() {
         // `elapsed` is only stamped by the End Call button, so saving a still-live
         // call would have logged a 0s duration. Derive it from the start instead —
         // saving ends the call either way, so the elapsed time IS the duration.
+        // eslint-disable-next-line react-hooks/purity -- runs in a click handler, not during render
         const durationSecs = live ? Math.max(0, Math.round((Date.now() - active.startedAt) / 1000)) : elapsed;
         await callsApi.end(active.callId, outcome, durationSecs, callbackAt || undefined);
         if (note.trim()) await callsApi.addNote(active.callId, note.trim(), callbackAt || undefined, callbackAt || undefined);
@@ -600,6 +603,7 @@ export default function CallingPage() {
         // onto the lead. No Call row is written, so Total Calls Made stays honest
         // about a session in which nobody dialled; the record still appears in the
         // log, marked "No call", carrying the time spent working the lead.
+        // eslint-disable-next-line react-hooks/purity -- runs in a click handler, not during render
         const processingSecs = Math.max(0, Math.round((Date.now() - openedAt.current) / 1000));
         await callsApi.logLead(lead.id, outcome, callbackAt || undefined, processingSecs);
         if (note.trim()) await callsApi.addLeadNote(lead.id, note.trim(), callbackAt || undefined, callbackAt || undefined);
@@ -1652,12 +1656,9 @@ export default function CallingPage() {
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[12.5px] font-semibold">{m.lead?.businessName ?? 'Client'}</div>
                       <div className="truncate text-[11px] text-muted-foreground">
-                        {/* The rep's own clock, not the browser's. Ideally this
-                            would also name the customer's, as the Zoom form
-                            does — but the due feed doesn't carry the lead's
-                            zone, so that needs an API change rather than a
-                            guess here. */}
-                        {formatTime(m.scheduledAt)} · {m.durationMins} min
+                        {/* On the customer's clock, zone named — the time the
+                            meeting was agreed in. */}
+                        {m.lead ? formatScheduleInLeadZone(m.scheduledAt, m.lead.timezone) : formatTime(m.scheduledAt)} · {m.durationMins} min
                         {m.status === 'in_progress' ? ' · live' : ''}
                       </div>
                     </div>

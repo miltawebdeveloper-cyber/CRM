@@ -12,7 +12,7 @@ import { EmailNotificationSettings } from '@/components/admin/email-notification
 import { OutcomeManagement } from '@/components/admin/outcome-management';
 import { CountryManagement } from '@/components/admin/country-management';
 import { TimezoneManagement } from '@/components/admin/timezone-management';
-import { formatTime } from '@/lib/display-settings';
+import { leadOrViewer } from '@/lib/timezone';
 
 function Toggle({ on: initial }: { on: boolean }) {
   const [on, setOn] = useState(initial);
@@ -77,7 +77,7 @@ export default function AdminPage() {
             {activities.slice(0, 6).map((a) => (
               <div key={a.id} className="flex items-center gap-3 border-b py-[11px] last:border-0">
                 <div className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-[9px] bg-[var(--brand-surface)] text-[var(--brand-on-surface)]"><Activity className="h-4 w-4" /></div>
-                <div className="flex-1"><div className="text-[13px]"><b>{a.user?.name ?? 'System'}</b> {a.action.replace('_', ' ')} {a.lead?.businessName ?? ''} {a.newValue ? `→ ${a.newValue}` : ''}</div><div className="text-[11.5px] text-muted-foreground">{formatTime(a.createdAt)}</div></div>
+                <div className="flex-1"><div className="text-[13px]"><b>{a.user?.name ?? 'System'}</b> {a.action.replace('_', ' ')} {a.lead?.businessName ?? ''} {a.newValue ? `→ ${a.newValue}` : ''}</div><div className="text-[11.5px] text-muted-foreground">{leadOrViewer(a.createdAt, a.lead, 'time')}</div></div>
               </div>
             ))}
             {activities.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">No events yet.</p>}

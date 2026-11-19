@@ -514,7 +514,8 @@ export default function LeadDetailPage() {
                   {t.body && <p className="mt-1 whitespace-pre-wrap text-[12.5px] text-foreground">{t.body}</p>}
                   {t.aiSummary && <p className="mt-1 text-[12px] text-muted-foreground"><strong>AI summary:</strong> {t.aiSummary}</p>}
                   {t.transcript && <details className="mt-1 text-[12px] text-muted-foreground"><summary className="cursor-pointer">Transcript</summary><p className="mt-1 whitespace-pre-wrap">{t.transcript}</p></details>}
-                  {t.recordingUrl && <a href={t.recordingUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block text-[12px] font-medium text-primary hover:underline">▶ Recording</a>}
+                  {/* HTTPS only: the URL is stored data, and an arbitrary scheme in an href is a link to anywhere. */}
+                  {t.recordingUrl && /^https:\/\//i.test(t.recordingUrl) && <a href={t.recordingUrl} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-[12px] font-medium text-primary hover:underline">▶ Recording</a>}
                 </div>
               </div>
             );

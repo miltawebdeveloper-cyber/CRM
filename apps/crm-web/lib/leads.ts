@@ -1,4 +1,5 @@
 import { api } from './api';
+import { waitForJob, type BackgroundJob } from './jobs';
 
 export type QuoStatus = 'not_synced' | 'pending' | 'synced' | 'failed';
 
@@ -360,6 +361,7 @@ export interface DuplicateGroupLead {
   contactName: string | null;
   city: string | null;
   state: string | null;
+  timezone: string | null;
   status: string;
   assignedTo: string | null;
   createdAt: string;
@@ -477,7 +479,19 @@ export const leadsApi = {
     })).data,
   remove: async (id: string) => (await api.delete(`/leads/${id}`)).data,
   syncToQuo: async (id: string) => (await api.post(`/leads/${id}/quo-sync`)).data,
-  syncAllToQuo: async (): Promise<{ total: number; synced: number; failed: number; sandbox: boolean }> =>
-    (await api.post('/leads/quo-sync-all')).data,
+  /**
+   * Sync every not-yet-synced lead. Runs as a background job on the server
+   * (the whole book outlived any request timeout); this starts it — or joins
+   * the one already running — and waits for it to finish.
+   */
+  syncAllToQuo: async (
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<{ total: number; synced: number; failed: number; sandbox: boolean }> => {
+    type SyncAll = { total: number; synced: number; failed: number; sandbox: boolean };
+    const started = (await api.post('/leads/quo-sync-all')).data as BackgroundJob<SyncAll>;
+    const job = await waitForJob<SyncAll>(`/leads/quo-sync-all/jobs/${started.id}`, onProgress);
+    if (job.status === 'completed' && job.result) return job.result;
+    throw new Error(job.error ?? 'The Quo sync stopped before it finished.');
+  },
   quoLogs: async (id: string): Promise<QuoSyncLog[]> => (await api.get(`/leads/${id}/quo-logs`)).data,
 };

@@ -3,12 +3,13 @@ import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service.js';
-import { LoginDto, RefreshDto, VerifyMfaDto, VerifyOtpDto, ResendOtpDto, OtpSettingsDto } from './dto/auth.dto.js';
+import { LoginDto, LogoutDto, RefreshDto, VerifyMfaDto, VerifyOtpDto, ResendOtpDto, OtpSettingsDto } from './dto/auth.dto.js';
 import { LoginOtpService } from './login-otp.service.js';
 import { TrustedDeviceService } from './trusted-device.service.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { Role } from '@crm/database';
 import { Public } from '../../common/decorators/public.decorator.js';
+import { AuthAttempt } from '../../common/guards/crm-throttler.guard.js';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 
 @ApiTags('auth')
@@ -20,9 +21,12 @@ export class AuthController {
     private readonly devices: TrustedDeviceService,
   ) {}
 
-  // SEC-008 — login limited to 20 attempts / 15 min / IP
+  // SEC-008 — login: 10 attempts / 15 min per IP + ACCOUNT, under a per-IP
+  // ceiling across all accounts (authIp, see AppModule). Per IP alone, one office
+  // shared 20 logins per 15 minutes and the rest of the shift was locked out.
   @Public()
-  @Throttle({ default: { limit: 20, ttl: 15 * 60 * 1000 } })
+  @AuthAttempt()
+  @Throttle({ default: { limit: 10, ttl: 15 * 60 * 1000 } })
   @Post('login')
   @HttpCode(200)
   login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
@@ -52,7 +56,8 @@ export class AuthController {
    * which is the only thing a count on its own could otherwise be worth.
    */
   @Public()
-  @Throttle({ default: { limit: 60, ttl: 15 * 60 * 1000 } })
+  // Per IP — generous enough for an office of agents opening the sign-in page.
+  @Throttle({ default: { limit: 300, ttl: 15 * 60 * 1000 } })
   @Get('workspace-stats')
   workspaceStats() {
     return this.auth.workspaceStats();
@@ -64,26 +69,31 @@ export class AuthController {
     return this.auth.me(userId);
   }
 
-  // LGN-007 — logout is stateless (client discards tokens). Endpoint kept for
-  // audit logging / future refresh-token revocation list.
+  // LGN-007 — logout ends the server-side session the refresh token names, so
+  // both of its tokens stop working immediately (not just in this browser).
+  // Public on purpose: the refresh token is the proof of ownership, and an
+  // access token that expired a moment before the click must not stop anyone
+  // signing out.
   //
   // It deliberately does NOT touch the trusted-device cookie: device trust
   // outlives the session, so signing out and back in on the same browser must
   // not cost the user another OTP. Dropping trust is an explicit revoke.
-  @ApiBearerAuth()
+  @Public()
   @Post('logout')
   @HttpCode(200)
-  logout() {
-    return { success: true };
+  logout(@Body() dto: LogoutDto) {
+    return this.auth.logout(dto.refreshToken);
   }
 
   /**
    * Exchange a login OTP for tokens. Public — the caller has passed the password
    * check but has no token yet, which is the whole point of the second factor.
-   * Rate-limited harder than login: this is the endpoint a 6-digit code is
-   * guessable against.
+   * Rate-limited per IP + challenge (on top of the challenge's own attempt cap)
+   * and under the per-IP sign-in ceiling: this is the endpoint a 6-digit code is
+   * guessable against, but one agent's OTP must not use up a colleague's.
    */
   @Public()
+  @AuthAttempt()
   @Throttle({ default: { limit: 10, ttl: 15 * 60 * 1000 } })
   @Post('otp/verify')
   @HttpCode(200)
@@ -93,6 +103,7 @@ export class AuthController {
   }
 
   @Public()
+  @AuthAttempt()
   @Throttle({ default: { limit: 10, ttl: 15 * 60 * 1000 } })
   @Post('otp/resend')
   @HttpCode(200)
@@ -122,7 +133,7 @@ export class AuthController {
   @ApiBearerAuth()
   @Get('devices')
   myDevices(@CurrentUser('id') userId: string, @Req() req: Request) {
-    return this.devices.list(userId, this.devices.currentDeviceId(req));
+    return this.devices.list(userId, this.devices.currentDeviceIds(req));
   }
 
   /** Admin Trusted Devices panel — every user's devices, newest activity first. */
@@ -130,7 +141,7 @@ export class AuthController {
   @Roles(Role.admin)
   @Get('devices/all')
   allDevices(@Req() req: Request) {
-    return this.devices.listAll(this.devices.currentDeviceId(req));
+    return this.devices.listAll(this.devices.currentDeviceIds(req));
   }
 
   /**

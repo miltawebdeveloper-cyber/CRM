@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
 import { CallsService } from './calls.service.js';
@@ -115,14 +115,20 @@ export class CallsController {
 
   // CAL-015 — call + note history for a lead. Recordings/transcripts/AI summaries
   // are redacted in the service for anyone below team leader.
+  //
+  // `leadId` is REQUIRED. Without it Prisma dropped the filter (`leadId:
+  // undefined` means "no condition") and this returned every call and note in
+  // the system, unpaginated, to any signed-in user. The lead itself is scoped
+  // too: an employee reads only leads they hold or closed.
   @Get()
-  history(@Query('leadId') leadId: string, @CurrentUser() user: AuthUser) {
-    return this.calls.history(leadId, { role: user.role });
+  history(@Query('leadId') leadId: string | undefined, @CurrentUser() user: AuthUser) {
+    if (!leadId?.trim()) throw new BadRequestException('leadId is required');
+    return this.calls.history(leadId.trim(), { id: user.id, role: user.role });
   }
 
   @Post('start')
   start(@Body() dto: StartCallDto, @CurrentUser() user: AuthUser) {
-    return this.calls.start(dto, user.id);
+    return this.calls.start(dto, { id: user.id, role: user.role });
   }
 
   @Post(':id/end')

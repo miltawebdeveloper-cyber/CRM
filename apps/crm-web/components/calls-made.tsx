@@ -11,11 +11,10 @@ import { Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { CAT, DirectionPill, useCallFilters } from '@/components/calls-shared';
 import { DateFilter, FilterSelect, optionsFrom } from '@/components/filter-controls';
-import { useTimezoneFilterOptions, countryOfZone, zoneMatchesCountry, UNSET_TIMEZONE_LABEL } from '@/lib/timezone';
+import { leadOrViewer, useTimezoneFilterOptions, countryOfZone, zoneMatchesCountry, UNSET_TIMEZONE_LABEL } from '@/lib/timezone';
 import { useCallingEnabled } from '@/lib/use-calling-enabled';
 import { useCall } from '@/components/call-provider';
 import { useCanCall } from '@/lib/use-can-call';
-import { formatDate, formatDateTime, formatTime } from '@/lib/display-settings';
 
 const LEAD_STATUS_OPTS = [
   { label: 'All Lead Statuses', value: '' },
@@ -153,11 +152,11 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
     },
     {
       key: 'startTime', header: 'Call Date & Time', required: true, searchable: true,
-      searchValue: (c) => formatDateTime(c.startTime),
+      searchValue: (c) => leadOrViewer(c.startTime, c.lead),
       render: (c) => (
         <div>
-          <div className="font-medium">{formatDate(c.startTime)}</div>
-          <div className="text-[11px] text-muted-foreground">{formatTime(c.startTime)}</div>
+          <div className="font-medium">{leadOrViewer(c.startTime, c.lead, 'date')}</div>
+          <div className="text-[11px] text-muted-foreground">{leadOrViewer(c.startTime, c.lead, 'time')}</div>
         </div>
       ),
     },
@@ -373,8 +372,8 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
     const o = outcomeOf(c.outcome) ?? outcomeOf(c.lead?.callStatus);
     const start = new Date(c.startTime);
     return [
-      formatDate(start),
-      formatTime(start),
+      leadOrViewer(start, c.lead, 'date'),
+      leadOrViewer(start, c.lead, 'time'),
       // Mirrors the table: an unknown call exports under the same label it shows,
       // against the number that is its only identity.
       c.unknown ? 'Unknown Call' : c.lead?.businessName ?? '',

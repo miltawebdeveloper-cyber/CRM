@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { runExclusive } from '../../common/scheduler-lock.js';
 import { NotificationType, Role } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
@@ -45,8 +46,10 @@ export class CallbacksService {
 
   @Cron(CronExpression.EVERY_10_MINUTES)
   async scheduledRun() {
-    const { fired } = await this.runReminders();
-    if (fired > 0) this.logger.log(`Callback reminders fired: ${fired}`);
+    // One runner across instances — otherwise every reminder e-mail goes out
+    // once per instance.
+    const r = await runExclusive(this.prisma, 'callback-reminders', 30 * 60_000, () => this.runReminders());
+    if (r && r.fired > 0) this.logger.log(`Callback reminders fired: ${r.fired}`);
   }
 
   /** Scan and dispatch due reminders. Returns how many were fired. */

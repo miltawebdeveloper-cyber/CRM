@@ -1,5 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { runExclusive } from '../../common/scheduler-lock.js';
+import { assertLeadAccess } from '../../common/lead-access.js';
 import { CommDirection, LeadStatus, OutcomeCategory, Prisma, Role, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
@@ -10,18 +12,28 @@ import { closureFields } from '../leads/lead-closure.js';
 import { COMPLETION_ACTIONS, completedOpenLeadCounts, productiveSeconds } from './work-time.js';
 import { queueStatusOf } from './queue-status.js';
 import { ABANDONED_STATUS, FAILED_STATUSES, MISSED_INBOUND_CALL, MISSED_STATUSES } from './call-status.js';
-import { formatInZone, parseFutureInZone, parseInZone, timezoneWhere, tzLabel } from '../../common/timezone.js';
+import {
+  businessDay,
+  businessDayEnd,
+  businessDayStart,
+  businessWeekdayHour,
+  endOfBusinessDay,
+  formatInZone,
+  parseFutureInZone,
+  parseInZone,
+  startOfBusinessDay,
+  timezoneWhere,
+  tzLabel,
+} from '../../common/timezone.js';
 
-function startOfToday() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
+/** Start of today on the business clock (BUSINESS_TIMEZONE), not the server's. */
+const startOfToday = () => startOfBusinessDay();
 
-// yyyy-mm-dd → first/last instant of that local day, so a single-day filter
-// covers the whole day rather than just the midnight instant.
-const dayStart = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d, 0, 0, 0, 0); };
-const dayEnd = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d, 23, 59, 59, 999); };
+// yyyy-mm-dd → first/last instant of that BUSINESS day, so a single-day filter
+// covers the whole day rather than just the midnight instant — and means the
+// same day whichever zone the server happens to run in.
+const dayStart = (s: string) => businessDayStart(s);
+const dayEnd = (s: string) => businessDayEnd(s);
 
 // Connected / missed / failed live in call-status.ts so the dashboard's summary
 // cards count calls by exactly the same rules this module reports them under.
@@ -160,6 +172,12 @@ export class CallsService {
    * happened, and inventing a length would corrupt talk-time and averages.
    */
   @Cron(CronExpression.EVERY_10_MINUTES)
+  async scheduledCloseAbandonedCalls(): Promise<void> {
+    // One runner across instances; the sweep is idempotent, but there is no
+    // reason to run it, and write the same activity rows, once per instance.
+    await runExclusive(this.prisma, 'close-abandoned-calls', 30 * 60_000, () => this.closeAbandonedCalls());
+  }
+
   async closeAbandonedCalls(): Promise<number> {
     if (process.env.ABANDONED_CALL_CRON === 'off') return 0;
     const cutoff = new Date(Date.now() - ABANDONED_AFTER_MS);
@@ -192,8 +210,9 @@ export class CallsService {
    * identity of the employee actually calling, and leaving the call invisible to
    * the inbound/outbound split.
    */
-  async start(dto: StartCallDto, callerId: string) {
-    const { callId } = await this.comms.startCall(dto.leadId, callerId);
+  async start(dto: StartCallDto, caller: { id: string; role: Role }) {
+    // startCall refuses a lead the caller may not reach (another rep's lead).
+    const { callId } = await this.comms.startCall(dto.leadId, caller.id, caller.role);
     // Working a brand-new lead moves it into progress. Conditional in the WHERE
     // so it only touches a lead still sitting at `new`.
     await this.prisma.lead.updateMany({
@@ -970,7 +989,8 @@ export class CallsService {
   // the same rule the timeline and the Recordings tab enforce. Fields are listed
   // explicitly rather than via `include`, so a sensitive column added to Call in
   // future can't leak here by default.
-  async history(leadId: string, current: { role: Role }) {
+  async history(leadId: string, current: { id: string; role: Role }) {
+    await assertLeadAccess(this.prisma, current, leadId);
     const canViewRecordings = current.role === Role.admin || current.role === Role.team_leader;
     const calls = await this.prisma.call.findMany({
       where: { leadId },
@@ -1624,17 +1644,16 @@ export class CallsService {
         case CallPivotDim.leadStatus:
           return c.lead ? { key: c.lead.status, label: c.lead.status.replace(/_/g, ' '), sort: 0 } : none('Unknown');
         case CallPivotDim.date: {
-          // Local calendar day, to match the from/to filter's day bounds.
-          const d = c.startTime;
-          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-          return { key, label: key, sort: new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() };
+          // Business calendar day, to match the from/to filter's day bounds.
+          const key = businessDay(c.startTime);
+          return { key, label: key, sort: businessDayStart(key).getTime() };
         }
         case CallPivotDim.weekday: {
-          const i = (c.startTime.getDay() + 6) % 7; // Monday-first: the working week
+          const i = (businessWeekdayHour(c.startTime).weekday + 6) % 7; // Monday-first: the working week
           return { key: WEEKDAYS[i], label: WEEKDAYS[i], sort: i };
         }
         case CallPivotDim.hour: {
-          const h = c.startTime.getHours();
+          const h = businessWeekdayHour(c.startTime).hour;
           return { key: String(h), label: `${String(h).padStart(2, '0')}:00`, sort: h };
         }
       }
@@ -1950,8 +1969,7 @@ export class CallsService {
   async myLeads(callerId: string) {
     const now = new Date();
     const startOfDay = startOfToday();
-    const endOfToday = new Date();
-    endOfToday.setHours(23, 59, 59, 999);
+    const endOfToday = endOfBusinessDay(now);
     const isToday = (d?: Date | null) => !!d && d >= startOfDay && d <= endOfToday;
 
     const leads = await this.prisma.lead.findMany({

@@ -9,14 +9,14 @@ import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-tab
 import { Avatar } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { SearchInput } from '@/components/filter-controls';
-import { formatInLeadZone } from '@/lib/timezone';
-import { formatDate, formatDateTime, formatTime } from '@/lib/display-settings';
+import { dayInLeadZone, formatInLeadZone, leadDate, leadDateTime, leadTime, zoneNote } from '@/lib/timezone';
 
 /** Kept in step with the user's call history without needing a manual reload. */
 const POLL_MS = 30_000;
 
 /** Whether a missed call landed today, on the viewer's calendar. */
-const isToday = (iso: string) => new Date(iso).toDateString() === new Date().toDateString();
+// Today on the CUSTOMER's calendar — every missed call here belongs to a lead.
+const isToday = (iso: string, tz?: string | null) => dayInLeadZone(iso, tz) === dayInLeadZone(new Date(), tz);
 
 /**
  * Missed Calls — inbound calls that were never picked up.
@@ -53,7 +53,7 @@ export function MissedCalls() {
     [rows, term],
   );
 
-  const todayCount = useMemo(() => rows.filter((r) => isToday(r.at)).length, [rows]);
+  const todayCount = useMemo(() => rows.filter((r) => isToday(r.at, r.timezone)).length, [rows]);
 
   const columns = useMemo<ColumnDef<MissedCall>[]>(
     () => [
@@ -78,12 +78,12 @@ export function MissedCalls() {
         header: 'Date & Time',
         required: true,
         searchable: true,
-        searchValue: (r) => formatDateTime(r.at),
+        searchValue: (r) => leadDateTime(r.at, r.timezone),
         render: (r) => (
           <div>
-            <div className="font-medium">{formatDate(r.at)}</div>
+            <div className="font-medium" title={zoneNote(r.timezone)}>{leadDate(r.at, r.timezone)}</div>
             <div className="text-[11px] text-muted-foreground">
-              {formatTime(r.at)}
+              {leadTime(r.at, r.timezone)}
             </div>
           </div>
         ),
@@ -154,7 +154,7 @@ export function MissedCalls() {
           icon={PhoneIncoming}
           iconBg="var(--tone-teal-bg)"
           iconColor="var(--tone-teal-fg)"
-          value={rows[0] ? formatInLeadZone(rows[0].at, undefined) : '—'}
+          value={rows[0] ? formatInLeadZone(rows[0].at, rows[0].timezone) : '—'}
           label="Most Recent"
         />
       </div>

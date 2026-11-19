@@ -12,7 +12,7 @@ import { DataTable, type ColumnDef } from '@/components/data-table';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { downloadCsv } from '@/lib/export';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
-import { formatDateTime, formatTime } from '@/lib/display-settings';
+import { leadOrViewer, zoneNote } from '@/lib/timezone';
 
 export default function ActivityPage() {
   const { data: allActivities = [] } = useQuery({ queryKey: ['activities'], queryFn: activitiesApi.list, retry: false });
@@ -49,7 +49,7 @@ export default function ActivityPage() {
   ];
 
   const columns = useMemo<ColumnDef<Activity>[]>(() => [
-    { key: 'time', header: 'Time', cellClassName: 'font-mono text-[11.5px] text-muted-foreground', render: (a) => formatTime(a.createdAt) },
+    { key: 'time', header: 'Time', cellClassName: 'font-mono text-[11.5px] text-muted-foreground', render: (a) => <span title={a.lead ? zoneNote(a.lead.timezone) : undefined}>{leadOrViewer(a.createdAt, a.lead, 'time')}</span> },
     { key: 'lead', header: 'Lead', required: true, render: (a) => <div className="flex items-center gap-[10px]"><Avatar name={a.lead?.businessName ?? '—'} /><span className="font-semibold">{a.lead?.businessName ?? '—'}</span></div> },
     { key: 'by', header: 'By', cellClassName: 'text-muted-foreground', render: (a) => a.user?.name ?? '—' },
     { key: 'action', header: 'Action', render: (a) => <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10.5px]">{a.action}</span> },
@@ -75,7 +75,7 @@ export default function ActivityPage() {
               ['Time', 'Lead', 'By', 'Action', 'Outcome'],
               // Outcome resolved the same way the column resolves it, so the
               // export can't print a slug the screen never showed.
-              activities.map((a) => [formatDateTime(a.createdAt), a.lead?.businessName ?? '', a.user?.name ?? '', a.action, outcomeLabel(a.newValue)]),
+              activities.map((a) => [leadOrViewer(a.createdAt, a.lead), a.lead?.businessName ?? '', a.user?.name ?? '', a.action, outcomeLabel(a.newValue)]),
             )
           }
           disabled={activities.length === 0}

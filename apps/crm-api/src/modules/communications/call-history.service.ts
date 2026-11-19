@@ -2,6 +2,8 @@ import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nest
 import { CommDirection, Prisma, Role } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { OpenPhoneService } from '../openphone/openphone.service.js';
+import { safeFetch, UnsafeUrlError, type SafeFetchResponse } from '../../common/safe-fetch.js';
+import { businessDayEnd, businessDayStart } from '../../common/timezone.js';
 
 export interface HistoryQuery {
   search?: string;
@@ -13,8 +15,9 @@ export interface HistoryQuery {
   take?: number;
 }
 
-const dayStart = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d, 0, 0, 0, 0); };
-const dayEnd = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d, 23, 59, 59, 999); };
+// Whole BUSINESS days (BUSINESS_TIMEZONE), not days on the server's clock.
+const dayStart = (s: string) => businessDayStart(s);
+const dayEnd = (s: string) => businessDayEnd(s);
 
 /** Parse a yyyy-mm-dd filter, tolerating a full ISO timestamp. */
 const parseFrom = (s?: string) => (s ? dayStart(s.slice(0, 10)) : undefined);
@@ -78,7 +81,7 @@ export class CallHistoryService {
     const calls = await this.prisma.call.findMany({
       where,
       include: {
-        lead: { select: { id: true, businessName: true, contactName: true, phone: true } },
+        lead: { select: { id: true, businessName: true, contactName: true, phone: true, timezone: true } },
         caller: { select: { name: true } },
         recordings: { orderBy: [{ startTime: 'asc' }, { createdAt: 'asc' }] },
         // Only the status — the full summary/transcript JSON is fetched on demand
@@ -96,6 +99,8 @@ export class CallHistoryService {
       leadId: c.lead?.id ?? null,
       customerName: c.lead?.contactName || c.lead?.businessName || 'Unknown caller',
       businessName: c.lead?.businessName ?? null,
+      /** The lead's zone, so the call time can be shown on the customer's clock. */
+      timezone: c.lead?.timezone ?? null,
       phone: c.lead?.phone ?? c.externalNumber ?? '',
       at: c.startTime,
       direction: c.direction,
@@ -160,7 +165,7 @@ export class CallHistoryService {
     const messages = await this.prisma.message.findMany({
       where,
       include: {
-        lead: { select: { id: true, businessName: true, contactName: true, phone: true } },
+        lead: { select: { id: true, businessName: true, contactName: true, phone: true, timezone: true } },
         sender: { select: { name: true, openphoneNumber: true } },
       },
       orderBy: { createdAt: 'desc' },
@@ -171,6 +176,7 @@ export class CallHistoryService {
       id: m.id,
       leadId: m.leadId,
       businessName: m.lead?.businessName ?? null,
+      timezone: m.lead?.timezone ?? null,
       customerName: m.lead?.contactName || m.lead?.businessName || null,
       direction: m.direction,
       body: m.body,
@@ -277,32 +283,55 @@ export class CallHistoryService {
       this.logger.warn(`Recording fetch failed (${res.status}) for ${rec.id}`);
       throw new NotFoundException(`Recording is unavailable from the provider (HTTP ${res.status})`);
     }
-    const mimeType = rec.mimeType || res.headers.get('content-type') || 'audio/mpeg';
+    const mimeType = rec.mimeType || res.contentType || 'audio/mpeg';
     const ext = mimeType.includes('wav') ? 'wav' : mimeType.includes('ogg') ? 'ogg' : 'mp3';
     return {
-      body: Buffer.from(await res.arrayBuffer()),
+      body: res.body ?? Buffer.alloc(0),
       mimeType,
       filename: `${safeName}_${stamp}.${ext}`,
     };
   }
 
   /**
+   * Fetch recording bytes from a stored URL — which came from a webhook or a
+   * provider sync, so it is untrusted input. `safeFetch` refuses non-HTTPS URLs
+   * and any host that resolves to a private/loopback/link-local address (on
+   * every redirect hop, checked at connect time), and bounds the time and size.
+   *
    * Recording audio lives on a signed share host (share.quo.com?sig=…) where the
    * signature — not our key — is the authorization. So credentials go ONLY to the
-   * API host itself; they are never sent to whatever host a stored URL points at.
+   * API host itself; they are never sent to whatever host a stored URL points at,
+   * nor along a redirect.
+   *
+   * Env:
+   *  • RECORDING_HOST_ALLOWLIST — comma-separated domains (subdomains included).
+   *    When set, a stored URL must be on one of them. Unset, any PUBLIC host is
+   *    accepted, so a provider CDN change can't silently break playback.
+   *  • RECORDING_MAX_MB (default 50) and RECORDING_FETCH_TIMEOUT_MS (default 30000).
    */
-  private fetchAudio(url: string) {
-    const headers: Record<string, string> = {};
-    let host: string;
+  private async fetchAudio(url: string): Promise<SafeFetchResponse> {
+    const allowedHosts = (process.env.RECORDING_HOST_ALLOWLIST ?? '')
+      .split(/[,\s]+/)
+      .map((h) => h.trim())
+      .filter(Boolean);
+    const key = process.env.OPENPHONE_API_KEY;
     try {
-      host = new URL(url).hostname;
-    } catch {
-      throw new NotFoundException('Recording URL is invalid');
+      return await safeFetch(url, {
+        headers: key ? { Authorization: key } : undefined,
+        sendHeadersTo: (host) => /^api\.(openphone|quo)\.com$/i.test(host),
+        allowedHosts: allowedHosts.length ? allowedHosts : undefined,
+        maxBytes: Math.max(1, Number(process.env.RECORDING_MAX_MB) || 50) * 1024 * 1024,
+        timeoutMs: Math.max(1_000, Number(process.env.RECORDING_FETCH_TIMEOUT_MS) || 30_000),
+      });
+    } catch (err) {
+      if (err instanceof UnsafeUrlError) {
+        this.logger.warn(`Blocked recording fetch for an unsafe URL: ${err.message}`);
+        throw new NotFoundException('Recording URL is not allowed');
+      }
+      if (err instanceof TypeError) throw new NotFoundException('Recording URL is invalid'); // new URL() failure
+      this.logger.warn(`Recording fetch error: ${(err as Error).message}`);
+      throw new NotFoundException('Recording is unavailable from the provider');
     }
-    if (/^api\.(openphone|quo)\.com$/.test(host) && process.env.OPENPHONE_API_KEY) {
-      headers.Authorization = process.env.OPENPHONE_API_KEY;
-    }
-    return fetch(url, { headers });
   }
 
   /**

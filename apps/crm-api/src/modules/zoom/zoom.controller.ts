@@ -4,6 +4,11 @@ import { ZoomService } from './zoom.service.js';
 import { CompleteZoomMeetingDto, CreateZoomMeetingDto, UpdateZoomMeetingDto, ZoomQueryDto } from './dto/zoom.dto.js';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 
+/**
+ * Every route that names a meeting or a lead checks the caller may reach it
+ * first (ZoomService.assertAccess): managers any; an employee their own
+ * meetings and meetings on leads they hold. Refused and missing both answer 404.
+ */
 @ApiTags('zoom')
 @ApiBearerAuth()
 @Controller('zoom')
@@ -24,48 +29,57 @@ export class ZoomController {
 
   // Full meeting history/timeline for one client.
   @Get('meetings/lead/:leadId')
-  byLead(@Param('leadId') leadId: string) {
+  async byLead(@Param('leadId') leadId: string, @CurrentUser() user: AuthUser) {
+    await this.zoom.assertLeadAccess(leadId, user);
     return this.zoom.byLead(leadId);
   }
 
   // Audit trail for a single meeting.
   @Get('meetings/:id/activities')
-  activities(@Param('id') id: string) {
+  async activities(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.zoom.assertAccess(id, user);
     return this.zoom.activities(id);
   }
 
   @Get('meetings/:id')
-  get(@Param('id') id: string) {
+  async get(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.zoom.assertAccess(id, user);
     return this.zoom.get(id);
   }
 
   @Post('meetings')
   create(@Body() dto: CreateZoomMeetingDto, @CurrentUser() user: AuthUser) {
-    return this.zoom.create(dto, user.id);
+    return this.zoom.create(dto, user.id, user.role);
   }
 
   @Patch('meetings/:id')
-  update(@Param('id') id: string, @Body() dto: UpdateZoomMeetingDto, @CurrentUser() user: AuthUser) {
+  async update(@Param('id') id: string, @Body() dto: UpdateZoomMeetingDto, @CurrentUser() user: AuthUser) {
+    await this.zoom.assertAccess(id, user);
     return this.zoom.update(id, dto, user.id);
   }
 
   @Post('meetings/:id/start')
-  start(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+  async start(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.zoom.assertAccess(id, user);
     return this.zoom.start(id, user.id);
   }
 
   @Post('meetings/:id/complete')
-  complete(@Param('id') id: string, @Body() dto: CompleteZoomMeetingDto, @CurrentUser() user: AuthUser) {
+  async complete(@Param('id') id: string, @Body() dto: CompleteZoomMeetingDto, @CurrentUser() user: AuthUser) {
+    await this.zoom.assertAccess(id, user);
     return this.zoom.complete(id, dto, user.id);
   }
 
   @Post('meetings/:id/cancel')
-  cancel(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+  async cancel(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.zoom.assertAccess(id, user);
     return this.zoom.cancel(id, user.id);
   }
 
+  // Deleting is narrower than editing: a manager, or the meeting's organiser.
   @Delete('meetings/:id')
-  remove(@Param('id') id: string) {
+  async remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    await this.zoom.assertAccess(id, user, { organizerOnly: true });
     return this.zoom.remove(id);
   }
 }

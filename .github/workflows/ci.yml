@@ -1,4 +1,4 @@
-# DEP-006 — CI: install → generate → lint → typecheck → test → build (< 10 min)
+# DEP-006 — CI: install → generate → migrate (fresh DB) → lint → typecheck → test → build
 name: CI
 
 on:
@@ -10,19 +10,49 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    # A throwaway Postgres, the same image as the local stack
+    # (infrastructure/docker), so every migration is proven to apply cleanly
+    # from scratch BEFORE a deploy tries it on the real database.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: crm
+          POSTGRES_PASSWORD: crm
+          POSTGRES_DB: crm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U crm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://crm:crm@localhost:5432/crm?schema=public
+
     steps:
       - uses: actions/checkout@v4
 
+      # Node 22, the runtime the API needs: it loads the @crm/database workspace
+      # as raw TypeScript via Node's type stripping (>= 22.18 — see Dockerfile).
+      # CI was on Node 20, so it tested a runtime production never runs.
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
+      # `npm ci`, not `npm install`: installs exactly what package-lock.json
+      # records and fails if it is out of date, so CI builds what was reviewed.
       - name: Install
-        run: npm install
+        run: npm ci
 
       - name: Generate Prisma client
         run: npm run db:generate
+
+      - name: Apply migrations to a fresh database
+        run: npm run -w @crm/database migrate:deploy
 
       - name: Lint
         run: npm run lint

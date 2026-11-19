@@ -1,12 +1,29 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AssignmentType, LeadStatus, Role, Prisma } from '@crm/database';
-import { allTimezoneCodes, dayInZone, parseInZone, timezoneWhere, tzLabel, zoneMatchesCountry } from '../../common/timezone.js';
+import {
+  allTimezoneCodes,
+  businessDayEnd,
+  businessDayStart,
+  dayInZone,
+  parseInZone,
+  startOfBusinessDay,
+  timezoneWhere,
+  tzLabel,
+  zoneMatchesCountry,
+} from '../../common/timezone.js';
+
+/**
+ * Lower bound of a date filter. A bare `yyyy-mm-dd` (what the date pickers send)
+ * is the start of that BUSINESS day; a full timestamp is taken as given.
+ */
+const dayFloor = (v: string) => (/^\d{4}-\d{2}-\d{2}$/.test(v.trim()) ? businessDayStart(v.trim()) : new Date(v));
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto.js';
 import { closureCreateFields, closureFields } from './lead-closure.js';
 import { buildMatchKeys, decisionKey, emailDomain, longestWord, type LeadMatchOptions, type MatchableRecord, type MatchSignal } from './lead-dedupe.js';
 import { LeadIdService } from './lead-id.service.js';
+import { assertLeadAccess } from '../../common/lead-access.js';
 
 /**
  * Shown when a same-day reassignment is refused for want of confirmation.
@@ -225,9 +242,8 @@ export class LeadsService {
    */
   /** Start of the current day — the boundary the same-day assignment lock uses. */
   static startOfToday(): Date {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
+    // The business day (BUSINESS_TIMEZONE), not midnight on the server's clock.
+    return startOfBusinessDay();
   }
 
   /**
@@ -745,7 +761,18 @@ export class LeadsService {
     };
   }
 
-  async bulkImport(dto: ImportLeadsDto, userId?: string) {
+  /**
+   * `hooks` let a background job watch the run (see LeadImportJobService):
+   * `onProgress` is called every few rows with how many have been processed, and
+   * `createdIds`, when given, is the array the created ids are pushed into — so a
+   * run that dies half way still leaves the caller holding exactly the leads it
+   * created, and "Undo import" can still remove them.
+   */
+  async bulkImport(
+    dto: ImportLeadsDto,
+    userId?: string,
+    hooks: { onProgress?: (processed: number) => Promise<void> | void; createdIds?: string[] } = {},
+  ) {
     const errors: Array<{ row: number; reason: string }> = [];
     const callerCache = new Map<string, string | undefined>();
     const assignedTodayCache = new Map<string, boolean>();
@@ -760,7 +787,7 @@ export class LeadsService {
     // Ids of leads this import CREATED (not ones it merely updated). Returned so
     // the import can be rolled back to exactly this batch — deleting these leaves
     // every pre-existing lead the import touched untouched.
-    const createdIds: string[] = [];
+    const createdIds: string[] = hooks.createdIds ?? [];
     // Each country's default zone, for rows that name a country but no zone.
     const countryDefaults = new Map(
       (await this.prisma.country.findMany({ select: { code: true, defaultTimezone: true } }))
@@ -799,6 +826,7 @@ export class LeadsService {
     const decisions = new Map<string, 'import' | 'skip'>();
 
     for (let i = 0; i < dto.rows.length; i++) {
+      if (hooks.onProgress && i > 0 && i % 50 === 0) await hooks.onProgress(i);
       const row = dto.rows[i];
       const n = i + 1;
       const phoneKey = (row.phone ?? '').replace(/\D/g, '');
@@ -1305,6 +1333,7 @@ export class LeadsService {
             contactName: leads[i].contactName,
             city: leads[i].city,
             state: leads[i].state,
+            timezone: leads[i].timezone,
             status: leads[i].status,
             assignedTo: leads[i].assignedTo?.name ?? null,
             createdAt: leads[i].createdAt,
@@ -1514,8 +1543,10 @@ export class LeadsService {
      * complete and was missing exactly the leads that had moved.
      */
     const dateBounds = {
-      ...(query.createdFrom ? { gte: new Date(query.createdFrom) } : {}),
-      ...(query.createdTo ? { lte: new Date(`${query.createdTo.slice(0, 10)}T23:59:59.999Z`) } : {}),
+      // Whole BUSINESS days, matching every other date filter and "today" on the
+      // dashboards (this read them as UTC days, which rolled over at 05:30 IST).
+      ...(query.createdFrom ? { gte: dayFloor(query.createdFrom) } : {}),
+      ...(query.createdTo ? { lte: businessDayEnd(query.createdTo.slice(0, 10)) } : {}),
     };
     const dateFilter: Prisma.LeadWhereInput = !(query.createdFrom || query.createdTo)
       ? {}
@@ -1529,8 +1560,8 @@ export class LeadsService {
       query.closedFrom || query.closedTo
         ? {
             closedAt: {
-              ...(query.closedFrom ? { gte: new Date(query.closedFrom) } : {}),
-              ...(query.closedTo ? { lte: new Date(`${query.closedTo.slice(0, 10)}T23:59:59.999Z`) } : {}),
+              ...(query.closedFrom ? { gte: dayFloor(query.closedFrom) } : {}),
+              ...(query.closedTo ? { lte: businessDayEnd(query.closedTo.slice(0, 10)) } : {}),
             },
           }
         : {};
@@ -1795,6 +1826,11 @@ export class LeadsService {
       select: { slug: true, name: true },
     });
     return found ? [...new Set([slugOrName, found.slug, found.name])] : [slugOrName];
+  }
+
+  /** 404 unless `user` may reach this lead — the rule `findOne` applies (common/lead-access.ts). */
+  assertAccess(id: string, user: { id: string; role: Role }) {
+    return assertLeadAccess(this.prisma, user, id);
   }
 
   async findOne(id: string, user?: { id: string; role: Role }) {

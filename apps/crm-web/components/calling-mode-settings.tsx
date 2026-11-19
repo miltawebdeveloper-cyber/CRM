@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { PhoneOff, Loader2, ListChecks } from 'lucide-react';
 import { callingModeApi, type CallingMode } from '@/lib/crm';
@@ -27,9 +27,8 @@ export function CallingModeSettings() {
   const { data, isLoading } = useQuery({ queryKey: ['calling-mode'], queryFn: callingModeApi.get });
   const [form, setForm] = useState<CallingMode | null>(null);
 
-  useEffect(() => {
-    if (data && !form) setForm(data);
-  }, [data, form]);
+  // Seed once, during render (guarded) — see AuthenticationSettings.
+  if (data && !form) setForm(data);
 
   const save = useMutation({
     mutationFn: () => callingModeApi.save(form!),

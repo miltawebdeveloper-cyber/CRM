@@ -34,15 +34,15 @@ export class UsersController {
 
   @Roles(Role.admin)
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
-    return this.users.update(id, dto);
+  update(@Param('id') id: string, @Body() dto: UpdateUserDto, @CurrentUser() user: AuthUser) {
+    return this.users.update(id, dto, { id: user.id });
   }
 
   @Roles(Role.admin)
   @Delete(':id')
   @HttpCode(200)
-  deactivate(@Param('id') id: string) {
-    return this.users.deactivate(id);
+  deactivate(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.users.deactivate(id, { id: user.id });
   }
 
   /**

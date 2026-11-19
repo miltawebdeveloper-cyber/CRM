@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Search, Phone, Settings, LogOut, Menu } from 'lucide-react';
-import { api, tokenStore } from '@/lib/api';
+import { api, revokeSession, tokenStore } from '@/lib/api';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { NotificationBell } from '@/components/notification-bell';
 import { PageTabsSlot, useHasPageTabs } from '@/components/page-tabs';
@@ -50,12 +50,16 @@ export function Topbar({ email, onMenu }: { email?: string; onMenu?: () => void 
     if (token) {
       void api.post('/availability/sign-out', undefined, { headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
     }
+    // End the session server-side too, so its tokens stop working everywhere —
+    // not merely forgotten by this browser. Read before the clear below.
+    revokeSession();
     tokenStore.clear();
     // A full navigation, not `router.replace`. A client-side push keeps the
     // React Query cache alive across the sign-out, so the next person to sign in
     // on this browser rendered the PREVIOUS user's cached `me` — their email in
     // this bar, their role deciding what the menu offered — until each query
     // refetched. Leaving the page drops that cache with the session.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full navigation on purpose, see above
     window.location.href = '/login';
   }
 

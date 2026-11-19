@@ -422,8 +422,8 @@ export default function LeadLibraryPage() {
         {/* Route/nav are already manager-only; the check here is defense in
             depth, matching every other action on this page. */}
         {canManage && (
-          <button onClick={() => (showForm ? closeForm() : setShowForm(true))} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground shadow-sm hover:opacity-90">
-            {showForm ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />} {showForm ? 'Close' : 'Add Lead'}
+          <button onClick={() => setShowForm(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground shadow-sm hover:opacity-90">
+            <Plus className="h-4 w-4" /> Add Lead
           </button>
         )}
       </PageHead>
@@ -451,142 +451,158 @@ export default function LeadLibraryPage() {
         <DateFilter value={dateFilter} onChange={setDateFilter} iconOnly />
       </div>
 
-      {/* Create form */}
+      {/* Add Lead opens as a popup over the page rather than a panel pushed
+          into it. A click on the backdrop does NOT close it: the form runs to
+          two dozen fields, and one stray click outside would throw them all
+          away. The X, Cancel and Escape close it. */}
       {showForm && (
-        <form
-          onSubmit={(e) => { e.preventDefault(); setDupBlock(null); create.mutate({}); }}
-          className="mb-[18px] grid grid-cols-1 gap-3 rounded-2xl border bg-card p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-3"
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="add-lead-title"
+          tabIndex={-1}
+          onKeyDown={(e) => { if (e.key === 'Escape' && !create.isPending) closeForm(); }}
         >
-          <div className="col-span-full flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Add Lead</h3>
-            <button
-              type="button"
-              onClick={closeForm}
-              title="Close"
-              aria-label="Close add lead form"
-              className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-          {([
-            ['leadId', 'Lead ID'],
-            ['leadGenerationId', 'Lead Generation ID'],
-            ['leadSource', 'Lead Source'],
-            ['businessName', 'Company Name *'],
-            ['contactName', 'Contact Person (Primary)'],
-            ['contactName2', 'Designation'],
-            ['phone', 'Phone *'],
-            ['altPhone', 'Alt Phone'],
-            ['email', 'Email'],
-            ['website', 'Website'],
-            ['socialMedia', 'Social Media'],
-            ['state', 'State *'],
-            ['city', 'City *'],
-            ['industry', 'Industry'],
-            ['companySize', 'Company Size'],
-            ['foundedYear', 'Founded Year'],
-            ['address', 'Address'],
-            ['caller', 'Assigned To (name/email)'],
-            ['callStatus', 'Call Status'],
-            ['lostReason', 'Lost Reason'],
-          ] as const).map(([key, label]) => (
-            <label key={key} className="space-y-1 text-sm">
-              <span className="font-medium">{label}</span>
-              <input value={(form as any)[key] ?? ''} onChange={(e) => setForm({ ...form, [key]: e.target.value })} required={label.includes('*')} className="w-full rounded-md border bg-background px-3 py-2" />
-            </label>
-          ))}
-          <label className="space-y-1 text-sm">
-            <span className="font-medium">Country</span>
-            <select value={form.country ?? ''} onChange={(e) => pickFormCountry(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2">
-              <option value="">— none —</option>
-              {countryDefs.map((c) => <option key={c.id} value={c.code}>{c.name}</option>)}
-            </select>
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="font-medium">Timezone</span>
-            <select value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2">
-              {leadTzOpts.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="font-medium">First Contact</span>
-            <input type="date" value={form.firstContact ?? ''} onChange={(e) => setForm({ ...form, firstContact: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="font-medium">Last Contact</span>
-            <input type="date" value={form.lastContact ?? ''} onChange={(e) => setForm({ ...form, lastContact: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="font-medium">Next Follow-up Date</span>
-            <input type="date" value={form.nextFollowUpDate ?? ''} onChange={(e) => setForm({ ...form, nextFollowUpDate: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="font-medium">Follow-up Count</span>
-            <input type="number" value={form.followupCount ?? ''} onChange={(e) => setForm({ ...form, followupCount: e.target.value ? parseInt(e.target.value, 10) : undefined })} className="w-full rounded-md border bg-background px-3 py-2" />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="font-medium">Meeting Date</span>
-            <input type="date" value={form.meetingDate ?? ''} onChange={(e) => setForm({ ...form, meetingDate: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
-          </label>
-          <label className="col-span-full space-y-1 text-sm">
-            <span className="font-medium">Comments</span>
-            <textarea value={form.comments ?? ''} onChange={(e) => setForm({ ...form, comments: e.target.value })} rows={2} className="w-full rounded-md border bg-background px-3 py-2" />
-          </label>
-          {dupBlock && (
-            <div className="col-span-full rounded-lg border border-[var(--tone-amber-line)] bg-[var(--tone-amber-bg)]/60 p-3.5">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--tone-amber-fg-strong)]" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[12.5px] font-semibold text-[#664304]">{dupBlock.message}</div>
-                  <ul className="mt-2 space-y-1.5">
-                    {dupBlock.duplicates.map((m) => (
-                      <li key={m.id} className="text-[12px]">
-                        <span className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-mono text-[11px] text-primary">{m.leadId}</span>
-                          <b>{m.businessName || 'Unnamed lead'}</b>
-                          <span className="rounded-full bg-[var(--tone-amber-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--tone-amber-fg-strong)]">
-                            {m.matchedOn.join(', ')}
-                          </span>
-                        </span>
-                        <span className="block font-mono text-[11px] text-muted-foreground">
-                          {[m.phone, m.altPhone, m.email].filter(Boolean).join(' · ')} · {m.assignedTo ?? 'Unassigned'}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => router.push(`/leads/${dupBlock.duplicates[0].id}`)}
-                      className="rounded-md border bg-card px-3 py-1.5 text-[12px] font-semibold hover:bg-muted"
-                    >
-                      Open {dupBlock.duplicates[0].leadId} instead
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => create.mutate({ allowDuplicate: true })}
-                      disabled={create.isPending}
-                      className="rounded-md border border-[var(--tone-red-line)] bg-card px-3 py-1.5 text-[12px] font-semibold text-[var(--tone-red-fg)] hover:bg-[var(--tone-red-bg-2)] disabled:opacity-60"
-                    >
-                      Create it anyway
-                    </button>
+          <form
+            onSubmit={(e) => { e.preventDefault(); setDupBlock(null); create.mutate({}); }}
+            className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border bg-card shadow-2xl"
+          >
+            <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
+              <h3 id="add-lead-title" className="font-display text-[14px] font-semibold">Add Lead</h3>
+              <button
+                type="button"
+                onClick={closeForm}
+                disabled={create.isPending}
+                title="Close"
+                aria-label="Close add lead form"
+                className="grid h-8 w-8 place-items-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto overscroll-contain p-5 sm:grid-cols-2 lg:grid-cols-3">
+              {([
+                ['leadId', 'Lead ID'],
+                ['leadGenerationId', 'Lead Generation ID'],
+                ['leadSource', 'Lead Source'],
+                ['businessName', 'Company Name *'],
+                ['contactName', 'Contact Person (Primary)'],
+                ['contactName2', 'Designation'],
+                ['phone', 'Phone *'],
+                ['altPhone', 'Alt Phone'],
+                ['email', 'Email'],
+                ['website', 'Website'],
+                ['socialMedia', 'Social Media'],
+                ['state', 'State *'],
+                ['city', 'City *'],
+                ['industry', 'Industry'],
+                ['companySize', 'Company Size'],
+                ['foundedYear', 'Founded Year'],
+                ['address', 'Address'],
+                ['caller', 'Assigned To (name/email)'],
+                ['callStatus', 'Call Status'],
+                ['lostReason', 'Lost Reason'],
+              ] as const).map(([key, label]) => (
+                <label key={key} className="space-y-1 text-sm">
+                  <span className="font-medium">{label}</span>
+                  <input value={(form as any)[key] ?? ''} onChange={(e) => setForm({ ...form, [key]: e.target.value })} required={label.includes('*')} autoFocus={key === 'businessName'} className="w-full rounded-md border bg-background px-3 py-2" />
+                </label>
+              ))}
+              <label className="space-y-1 text-sm">
+                <span className="font-medium">Country</span>
+                <select value={form.country ?? ''} onChange={(e) => pickFormCountry(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2">
+                  <option value="">— none —</option>
+                  {countryDefs.map((c) => <option key={c.id} value={c.code}>{c.name}</option>)}
+                </select>
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium">Timezone</span>
+                <select value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2">
+                  {leadTzOpts.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                </select>
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium">First Contact</span>
+                <input type="date" value={form.firstContact ?? ''} onChange={(e) => setForm({ ...form, firstContact: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium">Last Contact</span>
+                <input type="date" value={form.lastContact ?? ''} onChange={(e) => setForm({ ...form, lastContact: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium">Next Follow-up Date</span>
+                <input type="date" value={form.nextFollowUpDate ?? ''} onChange={(e) => setForm({ ...form, nextFollowUpDate: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium">Follow-up Count</span>
+                <input type="number" value={form.followupCount ?? ''} onChange={(e) => setForm({ ...form, followupCount: e.target.value ? parseInt(e.target.value, 10) : undefined })} className="w-full rounded-md border bg-background px-3 py-2" />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium">Meeting Date</span>
+                <input type="date" value={form.meetingDate ?? ''} onChange={(e) => setForm({ ...form, meetingDate: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
+              </label>
+              <label className="col-span-full space-y-1 text-sm">
+                <span className="font-medium">Comments</span>
+                <textarea value={form.comments ?? ''} onChange={(e) => setForm({ ...form, comments: e.target.value })} rows={2} className="w-full rounded-md border bg-background px-3 py-2" />
+              </label>
+              {dupBlock && (
+                <div className="col-span-full rounded-lg border border-[var(--tone-amber-line)] bg-[var(--tone-amber-bg)]/60 p-3.5">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--tone-amber-fg-strong)]" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[12.5px] font-semibold text-[#664304]">{dupBlock.message}</div>
+                      <ul className="mt-2 space-y-1.5">
+                        {dupBlock.duplicates.map((m) => (
+                          <li key={m.id} className="text-[12px]">
+                            <span className="flex flex-wrap items-center gap-1.5">
+                              <span className="font-mono text-[11px] text-primary">{m.leadId}</span>
+                              <b>{m.businessName || 'Unnamed lead'}</b>
+                              <span className="rounded-full bg-[var(--tone-amber-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--tone-amber-fg-strong)]">
+                                {m.matchedOn.join(', ')}
+                              </span>
+                            </span>
+                            <span className="block font-mono text-[11px] text-muted-foreground">
+                              {[m.phone, m.altPhone, m.email].filter(Boolean).join(' · ')} · {m.assignedTo ?? 'Unassigned'}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/leads/${dupBlock.duplicates[0].id}`)}
+                          className="rounded-md border bg-card px-3 py-1.5 text-[12px] font-semibold hover:bg-muted"
+                        >
+                          Open {dupBlock.duplicates[0].leadId} instead
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => create.mutate({ allowDuplicate: true })}
+                          disabled={create.isPending}
+                          className="rounded-md border border-[var(--tone-red-line)] bg-card px-3 py-1.5 text-[12px] font-semibold text-[var(--tone-red-fg)] hover:bg-[var(--tone-red-bg-2)] disabled:opacity-60"
+                        >
+                          Create it anyway
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
-          )}
 
-          <div className="col-span-full flex items-center gap-3">
-            <button type="submit" disabled={create.isPending} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
-              {create.isPending ? 'Creating…' : 'Create & open'}
-            </button>
-            <button type="button" onClick={closeForm} disabled={create.isPending} className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-60">
-              Cancel
-            </button>
-            {create.isError && !dupBlock && <span className="text-sm text-[var(--tone-red-fg)]">Failed to create lead</span>}
-          </div>
-        </form>
+            <div className="flex items-center gap-3 border-t px-5 py-3.5">
+              <button type="submit" disabled={create.isPending} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
+                {create.isPending ? 'Creating…' : 'Create & open'}
+              </button>
+              <button type="button" onClick={closeForm} disabled={create.isPending} className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-60">
+                Cancel
+              </button>
+              {create.isError && !dupBlock && <span className="text-sm text-[var(--tone-red-fg)]">Failed to create lead</span>}
+            </div>
+          </form>
+        </div>
       )}
 
       <DataTable

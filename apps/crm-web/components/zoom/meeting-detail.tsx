@@ -7,8 +7,7 @@ import { ArrowLeft, X, ExternalLink, History, ScrollText, ClipboardList } from '
 import { zoomApi, STATUS_META, ACTION_LABEL, type ZoomMeeting, type ZoomMeetingStatus } from '@/lib/zoom';
 import { Avatar } from '@/components/page-head';
 import { ZoomTimeline } from '@/components/zoom-timeline';
-import { formatInLeadZone } from '@/lib/timezone';
-import { formatDateTime } from '@/lib/display-settings';
+import { formatInLeadZone, leadDateTime } from '@/lib/timezone';
 
 function StatusPill({ status }: { status: ZoomMeetingStatus }) {
   const m = STATUS_META[status];
@@ -20,13 +19,13 @@ function StatusPill({ status }: { status: ZoomMeetingStatus }) {
   );
 }
 /**
- * Meeting times read on the CLIENT's clock with the zone named; audit stamps
- * (when a row was written) stay on the viewer's, since those record what the CRM
- * did rather than when the client is expected.
+ * Meeting times read on the CLIENT's clock with the zone named. Activity stamps
+ * are on the client's clock too — every timestamp belonging to a lead is stated
+ * in that lead's zone, so the log lines up with the meeting it describes.
  */
 const fmt = (iso: string | null, tz?: string | null) => (iso ? formatInLeadZone(iso, tz) : '—');
-const fmtStamp = (iso: string | null) =>
-  iso ? formatDateTime(iso) : '—';
+const fmtStamp = (iso: string | null, tz?: string | null) =>
+  iso ? leadDateTime(iso, tz) : '—';
 
 /**
  * Full Zoom-meeting detail with Meeting History / Activity Log tabs.
@@ -196,7 +195,7 @@ function ActivityLog({ meetingId, tz }: { meetingId: string; tz?: string | null 
         <tbody>
           {items.map((a) => (
             <tr key={a.id} className="border-b last:border-0 align-top">
-              <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">{fmtStamp(a.createdAt)}</td>
+              <td className="whitespace-nowrap px-3 py-2.5 text-muted-foreground">{fmtStamp(a.createdAt, tz)}</td>
               <td className="px-3 py-2.5">{a.user?.name ?? 'System'}</td>
               <td className="px-3 py-2.5">
                 <span className="font-semibold">{ACTION_LABEL[a.action] ?? a.action}</span>

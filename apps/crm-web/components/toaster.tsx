@@ -1,9 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
 import { subscribeToasts, dismissToast, type ToastItem, type ToastKind } from '@/lib/toast';
+
+/** `useSyncExternalStore` subscription for a value that never changes. */
+const noopSubscribe = () => () => {};
 
 const STYLE: Record<ToastKind, { icon: typeof Info; bar: string; fg: string }> = {
   success: { icon: CheckCircle2, bar: '#3f7a32', fg: '#2b5423' },
@@ -18,12 +21,11 @@ const STYLE: Record<ToastKind, { icon: typeof Info; bar: string; fg: string }> =
  */
 export function Toaster() {
   const [items, setItems] = useState<ToastItem[]>([]);
-  const [mounted, setMounted] = useState(false);
+  // False during server rendering and hydration, true in the browser after —
+  // without a mount effect re-rendering just to flip a flag.
+  const mounted = useSyncExternalStore(noopSubscribe, () => true, () => false);
 
-  useEffect(() => {
-    setMounted(true);
-    return subscribeToasts(setItems);
-  }, []);
+  useEffect(() => subscribeToasts(setItems), []);
 
   if (!mounted) return null;
 

@@ -85,6 +85,7 @@ export default function LoginPage() {
     // it. A full navigation also resets module-level state nothing else does:
     // lib/preferences.ts's preference cache and lib/display-settings.ts's
     // current zone/language.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full navigation on purpose, see above
     window.location.href = '/dashboard';
   }
 

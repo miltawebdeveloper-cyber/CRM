@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { LeadStatus, Prisma, Role, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { allTimezoneCodes, tzLabel, UNSET_TIMEZONE_LABEL } from '../../common/timezone.js';
+import { allTimezoneCodes, businessDayEnd, businessDayStart, tzLabel, UNSET_TIMEZONE_LABEL } from '../../common/timezone.js';
 import { MetricsQueryDto } from './dto/metrics.dto.js';
 import { CONNECTED_CALL, MISSED_INBOUND_CALL } from '../calls/call-status.js';
 
@@ -31,9 +31,14 @@ const datePartsOf = (s: string): [number, number, number] => {
   return [y, m, d];
 };
 
-// First/last instant of that local day.
-const dayStart = (s: string) => { const [y, m, d] = datePartsOf(s); return new Date(y, m - 1, d, 0, 0, 0, 0); };
-const dayEnd = (s: string) => { const [y, m, d] = datePartsOf(s); return new Date(y, m - 1, d, 23, 59, 59, 999); };
+// First/last instant of that BUSINESS day (BUSINESS_TIMEZONE) — the same day
+// whatever zone the server runs in, and the same day "today" means elsewhere.
+const ymdOf = (s: string) => {
+  const [y, m, d] = datePartsOf(s);
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+};
+const dayStart = (s: string) => businessDayStart(ymdOf(s));
+const dayEnd = (s: string) => businessDayEnd(ymdOf(s));
 
 @Injectable()
 export class MetricsService {
