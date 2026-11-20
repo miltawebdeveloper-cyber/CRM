@@ -357,6 +357,28 @@ export interface LeadListSummary {
   chips?: { followUpToday: number; followUpOverdue: number; neverContacted: number; contacted: number };
 }
 
+/** One archived lead, as Recently deleted lists it. */
+export interface ArchivedLead {
+  id: string;
+  leadId: string;
+  businessName: string;
+  phone: string;
+  email: string | null;
+  state: string;
+  city: string;
+  deletedAt: string;
+  /** Owner when it was deleted — restoring puts it back with them. */
+  assignedTo: { name: string } | null;
+  /** Null for leads archived before deletions were logged per lead. */
+  deletedBy: string | null;
+}
+export interface ArchivedLeadPage {
+  rows: ArchivedLead[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 /** A saved lead that matches the record being created, and on what. */
 export interface DuplicateMatch {
   id: string;
@@ -500,6 +522,12 @@ export const leadsApi = {
   /** Put an archived batch back. */
   bulkRestore: async (ids: string[]): Promise<{ restored: number }> =>
     (await api.post('/leads/bulk-restore', { ids })).data,
+  /** Archived leads, newest deletion first — the Library's Recently deleted view. */
+  archived: async (opts: { q?: string; page?: number; pageSize?: number }, signal?: AbortSignal): Promise<ArchivedLeadPage> =>
+    (await api.get('/leads/archived', { params: { ...(opts.q?.trim() ? { q: opts.q.trim() } : {}), page: opts.page, pageSize: opts.pageSize }, signal })).data,
+  /** Delete ARCHIVED leads for good — admin only. The API won't touch a live lead here. */
+  purgeArchived: async (ids: string[]): Promise<{ deleted: number }> =>
+    (await api.post('/leads/archived/purge', { ids })).data,
   /** Duplicate groups among saved leads — read-only; removal goes via bulkDelete. */
   duplicates: async (opts: DuplicateScanOptions = {}): Promise<DuplicateScanResult> =>
     (await api.get('/leads/duplicates', {

@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Import as ImportIcon, Upload, Plus, Clock, MapPin, Building2, Globe, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, AlertTriangle, CalendarClock, Percent, Target, Zap, Undo2, Loader2 } from 'lucide-react';
+import { Import as ImportIcon, Upload, Plus, Clock, MapPin, Building2, Globe, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, AlertTriangle, CalendarClock, Percent, Target, Zap, Undo2, Loader2, Trash2 } from 'lucide-react';
 import { leadsApi, type CreateLeadInput, type DuplicateMatch, type Lead, type LeadListQuery } from '@/lib/leads';
 import { usersApi } from '@/lib/users';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
@@ -346,6 +346,10 @@ export default function LeadLibraryPage() {
   return (
     <div>
       <PageHead>
+        {/* Where deleted leads go — restorable, or removable for good by an admin. */}
+        <button onClick={() => router.push('/lead-library/deleted')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted">
+          <Trash2 className="h-4 w-4" /> Recently deleted
+        </button>
         <button onClick={() => router.push('/import')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted">
           <ImportIcon className="h-4 w-4" /> Import CSV
         </button>
@@ -420,7 +424,7 @@ export default function LeadLibraryPage() {
           <Undo2 className="h-4 w-4 shrink-0 text-[var(--brand-on-surface)]" />
           <span className="flex-1 text-[12.5px] text-[var(--brand-on-surface)]">
             <b className="font-semibold">{undoable.count}</b> {undoable.count === 1 ? 'lead' : 'leads'} deleted. Their calls,
-            notes and history are kept, so they can still be brought back.
+            notes and history are kept, so they can still be brought back — here, or later from Recently deleted.
           </span>
           <button
             onClick={() => restoreLeads.mutate(undoable.ids)}
