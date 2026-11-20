@@ -3,9 +3,8 @@
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Import as ImportIcon, Upload, Plus, Clock, MapPin, Building2, Globe, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, AlertTriangle, CalendarClock, Percent, Target, Zap, Undo2, Loader2, Trash2 } from 'lucide-react';
+import { Import as ImportIcon, Plus, Clock, MapPin, Building2, Globe, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, AlertTriangle, CalendarClock, Percent, Target, Zap, Undo2, Loader2, Trash2 } from 'lucide-react';
 import { leadsApi, type CreateLeadInput, type DuplicateMatch, type Lead, type LeadListQuery } from '@/lib/leads';
-import { usersApi } from '@/lib/users';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { LeadAssignDialog } from '@/components/lead-assign-dialog';
 import { AddLeadFields } from '@/components/add-lead-fields';
@@ -19,8 +18,7 @@ import { useLeadTimezones, useTimezoneFilterOptions, countryOfZone, zoneMatchesC
 import { ClearFiltersButton, DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, useColumnPrefs } from '@/components/data-table';
 import { type SortState } from '@/lib/use-column-prefs';
-import { downloadCsv, downloadXlsx } from '@/lib/export';
-import { EXPORT_HEADERS, exportRows } from '@/lib/lead-export';
+import { LeadExportButtons } from '@/components/lead-export-buttons';
 import { type DateFilterValue } from '@/lib/date-filters';
 import { useLeadListFilters, type Ownership } from '@/lib/lead-list-filters';
 import { useSavedViews } from '@/lib/saved-views';
@@ -28,7 +26,6 @@ import { SavedViewsMenu } from '@/components/saved-views-menu';
 import { LeadOutcomeFilter, LeadQuickFilters } from '@/components/lead-filters';
 import { useDebounced } from '@/lib/use-debounced';
 import { useInfiniteLeads, useLeadScrollSentinel } from '@/lib/use-infinite-leads';
-import { pushToast } from '@/lib/toast';
 
 /**
  * Lead Library — the master lead database.
@@ -51,7 +48,6 @@ import { pushToast } from '@/lib/toast';
  * had already drifted apart.
  */
 
-const EXPORT_LIMIT = 5000;
 
 const EMPTY: CreateLeadInput = {
   businessName: '',
@@ -111,16 +107,15 @@ export default function LeadLibraryPage() {
   const [showForm, setShowForm] = useState(false);
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   const canManage = me?.role === 'admin' || me?.role === 'team_leader';
-  const isAdmin = me?.role === 'admin';
 
   // The whole filter bar as one value, saved and mirrored into the URL — see
   // the same block in Lead Management and lib/lead-list-filters.
-  const { filters, update, clear: clearFilters, replace: replaceFilters, activeCount } = useLeadListFilters('lead-library:filters', { employee: isAdmin });
+  const { filters, update, clear: clearFilters, replace: replaceFilters, activeCount } = useLeadListFilters('lead-library:filters', { employee: canManage });
   // Named filter sets, per user and per list — see lib/saved-views.
   const savedViews = useSavedViews('lead-library');
   const { q, country, tz, state, city, ownership, contact, followUp, outcomes, dateFilter, dateField, sort } = filters;
-  // Admin-only control; a value saved by an admin isn't sent for anyone else.
-  const employeeId = isAdmin ? filters.employeeId : '';
+  // Managers only; a value saved by a manager isn't sent for an employee.
+  const employeeId = canManage ? filters.employeeId : '';
   const setQ = (v: string) => update({ q: v });
   const setEmployeeId = (v: string) => update({ employeeId: v });
   const setDateFilter = (v: DateFilterValue) => update({ dateFilter: v });
@@ -160,10 +155,13 @@ export default function LeadLibraryPage() {
     staleTime: 5 * 60_000,
     placeholderData: keepPreviousData,
   });
-  const { data: staff = [] } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: !!isAdmin, retry: false });
+  // Who the Employee filter offers: the people who hold leads in this list,
+  // from the same filter-options request as the dropdowns beside it — so a
+  // team leader gets the list too (the users list is admin-only), and it never
+  // offers a name with no leads behind it.
   const employeeOpts = useMemo(
-    () => [{ label: 'Employees', value: '' }, ...staff.filter((u) => u.role !== 'admin').map((u) => ({ label: u.name, value: u.id }))],
-    [staff],
+    () => [{ label: 'Employees', value: '' }, ...(filterOpts?.owners ?? []).map((u) => ({ label: u.name, value: u.id }))],
+    [filterOpts?.owners],
   );
   // Admin-managed list (Admin → Countries) that backs the create form's
   // Country picker — distinct from `countryOpts` below, which is the live
@@ -329,19 +327,6 @@ export default function LeadLibraryPage() {
 
   const prefs = useColumnPrefs('lead-library', columns, 1);
 
-  const [exporting, setExporting] = useState(false);
-  const runExport = async (write: (rows: (string | number)[][]) => void) => {
-    setExporting(true);
-    try {
-      const all = await leadsApi.page({ ...listQuery, page: 1, pageSize: undefined, limit: EXPORT_LIMIT });
-      write(exportRows(all.rows));
-      if (all.total > all.rows.length) {
-        pushToast('info', `Exported the first ${all.rows.length.toLocaleString()} of ${all.total.toLocaleString()} leads. Narrow the filters to export the rest.`);
-      }
-    } finally {
-      setExporting(false);
-    }
-  };
 
   return (
     <div>
@@ -353,20 +338,8 @@ export default function LeadLibraryPage() {
         <button onClick={() => router.push('/import')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted">
           <ImportIcon className="h-4 w-4" /> Import CSV
         </button>
-        <button
-          onClick={() => runExport((rows) => downloadCsv('lead-library', EXPORT_HEADERS, rows))}
-          disabled={total === 0 || exporting}
-          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
-        >
-          <Upload className="h-4 w-4" /> {exporting ? 'Preparing…' : 'Export CSV'}
-        </button>
-        <button
-          onClick={() => runExport((rows) => downloadXlsx('lead-library', EXPORT_HEADERS, rows))}
-          disabled={total === 0 || exporting}
-          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
-        >
-          <Upload className="h-4 w-4" /> Export Excel
-        </button>
+        {/* The whole filtered list, however long — see lib/use-lead-export. */}
+        <LeadExportButtons query={listQuery} fileBase="lead-library" disabled={total === 0} />
         {/* Route/nav are already manager-only; the check here is defense in
             depth, matching every other action on this page. */}
         {canManage && (
@@ -408,7 +381,7 @@ export default function LeadLibraryPage() {
         <FilterSelect className="min-w-0 flex-1" icon={Clock} value={tz} onChange={pickZone} options={tzOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={MapPin} value={state} onChange={(v) => update({ state: v, city: '' })} options={stateOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={Building2} value={city} onChange={(v) => update({ city: v })} options={cityOpts} />
-        {isAdmin && <FilterSelect className="min-w-0 flex-1" icon={UserIcon} value={employeeId} onChange={setEmployeeId} options={employeeOpts} />}
+        {canManage && <FilterSelect className="min-w-0 flex-1" icon={UserIcon} value={employeeId} onChange={setEmployeeId} options={employeeOpts} />}
         <FilterSelect className="min-w-0 flex-1" icon={Tag} value={ownership} onChange={(v) => update({ ownership: v as Ownership })} options={OWNERSHIP_OPTS} />
         <LeadOutcomeFilter className="min-w-0 flex-1" value={outcomes} onChange={(v) => update({ outcomes: v })} />
         <FilterSelect className="min-w-0 flex-1" icon={CalendarClock} value={dateField} onChange={(v) => setDateField(v as 'created' | 'scheduled')} options={DATE_FIELD_OPTS} />

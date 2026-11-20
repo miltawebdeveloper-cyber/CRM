@@ -481,7 +481,7 @@ export const leadsApi = {
    * list paginated the current page holds a few dozen leads, and a filter built
    * from those would offer only the cities that happen to be on it.
    */
-  filterOptions: async (opts?: Pick<LeadListQuery, 'closed' | 'country' | 'timezone' | 'state'>, signal?: AbortSignal): Promise<{ timezones: string[]; states: string[]; cities: string[]; countries: string[]; closers: string[] }> => {
+  filterOptions: async (opts?: Pick<LeadListQuery, 'closed' | 'country' | 'timezone' | 'state'>, signal?: AbortSignal): Promise<{ timezones: string[]; states: string[]; cities: string[]; countries: string[]; closers: string[]; owners?: { id: string; name: string }[] }> => {
     const params: Record<string, string | boolean> = {};
     if (opts?.closed !== undefined) params.closed = opts.closed;
     if (opts?.country) params.country = opts.country;
