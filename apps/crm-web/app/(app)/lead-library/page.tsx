@@ -3,28 +3,29 @@
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Import as ImportIcon, Upload, Plus, Phone, Eye, Clock, MapPin, Building2, Globe, Info, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, Lock, AlertTriangle, CalendarClock, Percent, Target, Zap } from 'lucide-react';
-import { leadsApi, movementLabel, type CreateLeadInput, type DuplicateMatch, type Lead, type LeadListQuery } from '@/lib/leads';
+import { Import as ImportIcon, Upload, Plus, Clock, MapPin, Building2, Globe, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, AlertTriangle, CalendarClock, Percent, Target, Zap, Undo2, Loader2 } from 'lucide-react';
+import { leadsApi, type CreateLeadInput, type DuplicateMatch, type Lead, type LeadListQuery } from '@/lib/leads';
 import { usersApi } from '@/lib/users';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { LeadAssignDialog } from '@/components/lead-assign-dialog';
-import { LeadOutcomeCell } from '@/components/lead-outcome-cell';
-import { LeadCommentCell } from '@/components/lead-comment-cell';
-import { LeadInlineCell } from '@/components/lead-inline-cell';
-import { metricsApi, outcomesApi, countriesApi } from '@/lib/crm';
+import { AddLeadFields } from '@/components/add-lead-fields';
+import { leadColumns } from '@/components/lead-columns';
+import { countriesApi } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { useCanCall } from '@/lib/use-can-call';
-import { TimezoneChip } from '@/components/timezone-chip';
-import { PageHead, Avatar } from '@/components/page-head';
+import { PageHead } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { useLeadTimezones, useTimezoneFilterOptions, countryOfZone, zoneMatchesCountry, UNSET_TIMEZONE_LABEL, leadDate, leadDateTime, zoneNote } from '@/lib/timezone';
-import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
-import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
+import { useLeadTimezones, useTimezoneFilterOptions, countryOfZone, zoneMatchesCountry, UNSET_TIMEZONE_LABEL } from '@/lib/timezone';
+import { ClearFiltersButton, DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
+import { DataTable, useColumnPrefs } from '@/components/data-table';
 import { type SortState } from '@/lib/use-column-prefs';
 import { downloadCsv, downloadXlsx } from '@/lib/export';
 import { EXPORT_HEADERS, exportRows } from '@/lib/lead-export';
-import { EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
-import { usePersistedState } from '@/lib/use-persisted-state';
+import { type DateFilterValue } from '@/lib/date-filters';
+import { useLeadListFilters, type Ownership } from '@/lib/lead-list-filters';
+import { useSavedViews } from '@/lib/saved-views';
+import { SavedViewsMenu } from '@/components/saved-views-menu';
+import { LeadOutcomeFilter, LeadQuickFilters } from '@/components/lead-filters';
 import { useDebounced } from '@/lib/use-debounced';
 import { useInfiniteLeads, useLeadScrollSentinel } from '@/lib/use-infinite-leads';
 import { pushToast } from '@/lib/toast';
@@ -44,7 +45,10 @@ import { pushToast } from '@/lib/toast';
  * Deliberately built as its own page composed from the same primitives Lead
  * Management uses (`FilterSelect`, `DataTable`, `useInfiniteLeads`, …) rather
  * than a shared component with a mode flag — same convention Closed Leads
- * already follows for "a second page shaped like the leads grid".
+ * already follows for "a second page shaped like the leads grid". The one
+ * thing shared outright is the column list (`components/lead-columns`): the
+ * two grids show the same lead the same way, and two copies of thirty columns
+ * had already drifted apart.
  */
 
 const EXPORT_LIMIT = 5000;
@@ -55,7 +59,12 @@ const EMPTY: CreateLeadInput = {
   email: '',
   state: '',
   city: '',
-  timezone: 'EST',
+  // Blank, not EST. A lead's zone is what its callbacks are booked on, and a
+  // form that pre-filled Eastern made every hand-typed lead claim to be in it —
+  // the same false default the import and the schema already dropped. Picking a
+  // Country fills in that country's zone; otherwise it stays unset and the
+  // lead reads as needing one.
+  timezone: '',
   leadId: '',
   leadGenerationId: '',
   leadSource: '',
@@ -86,12 +95,13 @@ const DATE_FIELD_OPTS = [
 
 // Both states are meaningful here — Library shows the whole book, assigned
 // and unassigned alike, unlike Lead Management which only ever shows
-// assigned leads.
-const STATUS_OPTS = [
-  { label: 'Status', value: '' },
+// assigned leads. Contact used to share this dropdown, so "unassigned AND
+// never contacted" — the first pool a manager hands out — couldn't be asked
+// for; it is the quick-filter chips now.
+const OWNERSHIP_OPTS = [
+  { label: 'Ownership', value: '' },
   { label: 'Assigned', value: 'assigned' },
   { label: 'Unassigned', value: 'unassigned' },
-  { label: 'Contacted', value: 'contacted' },
 ];
 
 export default function LeadLibraryPage() {
@@ -99,17 +109,23 @@ export default function LeadLibraryPage() {
   const qc = useQueryClient();
   const [form, setForm] = useState<CreateLeadInput>(EMPTY);
   const [showForm, setShowForm] = useState(false);
-  const [tz, setTz] = useState('');
-  const [state, setState] = useState('');
-  const [city, setCity] = useState('');
-  const [employeeId, setEmployeeId] = useState('');
-  const [country, setCountry] = useState('');
-  const [status, setStatus] = useState('');
-  const [callStatus, setCallStatus] = useState('');
-  const [dateFilter, setDateFilter] = usePersistedState<DateFilterValue>('lead-library:date-filter', EMPTY_DATE_FILTER);
-  const [dateField, setDateField] = usePersistedState<'created' | 'scheduled'>('lead-library:date-field', 'created');
-  const [q, setQ] = useState('');
-  const [sort, setSort] = useState<SortState>({ key: 'importSeq', dir: 'asc' });
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
+  const canManage = me?.role === 'admin' || me?.role === 'team_leader';
+  const isAdmin = me?.role === 'admin';
+
+  // The whole filter bar as one value, saved and mirrored into the URL — see
+  // the same block in Lead Management and lib/lead-list-filters.
+  const { filters, update, clear: clearFilters, replace: replaceFilters, activeCount } = useLeadListFilters('lead-library:filters', { employee: isAdmin });
+  // Named filter sets, per user and per list — see lib/saved-views.
+  const savedViews = useSavedViews('lead-library');
+  const { q, country, tz, state, city, ownership, contact, followUp, outcomes, dateFilter, dateField, sort } = filters;
+  // Admin-only control; a value saved by an admin isn't sent for anyone else.
+  const employeeId = isAdmin ? filters.employeeId : '';
+  const setQ = (v: string) => update({ q: v });
+  const setEmployeeId = (v: string) => update({ employeeId: v });
+  const setDateFilter = (v: DateFilterValue) => update({ dateFilter: v });
+  const setDateField = (v: 'created' | 'scheduled') => update({ dateField: v });
+  const setSort = (v: SortState) => update({ sort: v });
 
   const debouncedQ = useDebounced(q, 250);
 
@@ -122,16 +138,17 @@ export default function LeadLibraryPage() {
     state: state || undefined,
     city: city || undefined,
     country: country || undefined,
-    assigned: status === 'assigned' ? 'assigned' : status === 'unassigned' ? 'unassigned' : undefined,
-    status: status === 'contacted' ? 'contacted' : undefined,
-    callStatus: callStatus || undefined,
+    assigned: ownership || undefined,
+    contact: contact || undefined,
+    followUp: followUp || undefined,
+    callStatus: outcomes.length ? outcomes.join(',') : undefined,
     employeeId: employeeId || undefined,
     createdFrom: dateFilter.from || undefined,
     createdTo: dateFilter.to || undefined,
     dateField,
     sortBy: sort.key,
     sortDir: sort.dir,
-  }), [debouncedQ, tz, state, city, country, status, callStatus, employeeId, dateFilter.from, dateFilter.to, dateField, sort.key, sort.dir]);
+  }), [debouncedQ, tz, state, city, country, ownership, contact, followUp, outcomes, employeeId, dateFilter.from, dateFilter.to, dateField, sort.key, sort.dir]);
 
   const leadsQuery = useInfiniteLeads(listQuery);
   const { rows: leads, total, isLoading, isRefreshing, isFetchingNextPage, hasNextPage } = leadsQuery;
@@ -143,19 +160,10 @@ export default function LeadLibraryPage() {
     staleTime: 5 * 60_000,
     placeholderData: keepPreviousData,
   });
-  const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
-  const canManage = me?.role === 'admin' || me?.role === 'team_leader';
-  const isAdmin = me?.role === 'admin';
-
   const { data: staff = [] } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: !!isAdmin, retry: false });
   const employeeOpts = useMemo(
     () => [{ label: 'Employees', value: '' }, ...staff.filter((u) => u.role !== 'admin').map((u) => ({ label: u.name, value: u.id }))],
     [staff],
-  );
-  const { data: outcomeDefs = [] } = useQuery({ queryKey: ['outcomes-config'], queryFn: outcomesApi.list });
-  const callOutcomeOpts = useMemo(
-    () => [{ label: 'Call Outcomes', value: '' }, ...outcomeDefs.map((o) => ({ label: o.name, value: o.slug }))],
-    [outcomeDefs],
   );
   // Admin-managed list (Admin → Countries) that backs the create form's
   // Country picker — distinct from `countryOpts` below, which is the live
@@ -192,36 +200,59 @@ export default function LeadLibraryPage() {
   // Country -> Time Zone -> State -> City. A country drops any zone that isn't
   // in it; a zone picked with no country set fills its own country in, so the
   // pair on screen can never be India + EST.
+  // One update per pick, so the cascade lands as a single change of filters.
   const pickCountry = (v: string) => {
-    setCountry(v);
-    if (tz && !zoneMatchesCountry(tz === UNSET_TIMEZONE_LABEL ? null : tz, v || null)) setTz('');
-    setState('');
-    setCity('');
+    const keepZone = !tz || zoneMatchesCountry(tz === UNSET_TIMEZONE_LABEL ? null : tz, v || null);
+    update({ country: v, tz: keepZone ? tz : '', state: '', city: '' });
   };
   const pickZone = (v: string) => {
-    setTz(v);
-    setState('');
-    setCity('');
     const owner = countryOfZone(v);
-    if (owner && !country) setCountry(owner);
+    update({ tz: v, state: '', city: '', ...(owner && !country ? { country: owner } : {}) });
   };
 
+  // The cards count exactly what the table shows — same query, minus paging
+  // and sort. See the same block in Lead Management.
+  const { sortBy: _sortBy, sortDir: _sortDir, ...summaryQuery } = listQuery;
   const { data: s } = useQuery({
-    queryKey: ['metrics', 'summary', dateFilter.from, dateFilter.to, dateField],
-    queryFn: ({ signal }) => metricsApi.summary({ from: dateFilter.from || undefined, to: dateFilter.to || undefined, dateField }, signal),
+    queryKey: ['leads', 'summary', summaryQuery],
+    queryFn: ({ signal }) => leadsApi.summary(summaryQuery, signal),
     retry: false,
     placeholderData: keepPreviousData,
   });
 
+  const refreshAfterRemoval = () => {
+    qc.invalidateQueries({ queryKey: ['leads'] });
+    qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
+    qc.invalidateQueries({ queryKey: ['assignments-summary'] });
+    qc.invalidateQueries({ queryKey: ['caller-leads'] });
+    qc.invalidateQueries({ queryKey: ['caller-dash'] });
+    qc.invalidateQueries({ queryKey: ['lead-duplicates'] });
+  };
+
+  /**
+   * Bulk delete ARCHIVES — the same reversible removal the Duplicate Leads purge
+   * uses — so the bar below can bring the batch back. It used to be the
+   * permanent cascade (calls, notes, history and all) behind a "cannot be
+   * undone" prompt, on a grid with drag-select, where sweeping up a few rows
+   * too many is the likeliest mistake there is.
+   *
+   * Archived leads leave every list, queue, count and export exactly as deleted
+   * ones did. Permanent removal is still the import's own Undo.
+   */
+  const [undoable, setUndoable] = useState<{ ids: string[]; count: number } | null>(null);
   const removeLeads = useMutation({
-    mutationFn: (rows: Lead[]) => leadsApi.bulkDelete(rows.map((l) => l.id)),
-    meta: { successMessage: 'Selected lead(s) deleted' },
+    mutationFn: (rows: Lead[]) => leadsApi.bulkArchive(rows.map((l) => l.id)),
+    onSuccess: (res) => {
+      setUndoable(res.archived > 0 ? { ids: res.ids, count: res.archived } : null);
+      refreshAfterRemoval();
+    },
+  });
+  const restoreLeads = useMutation({
+    mutationFn: (ids: string[]) => leadsApi.bulkRestore(ids),
+    meta: { successMessage: 'Leads restored' },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['leads'] });
-      qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
-      qc.invalidateQueries({ queryKey: ['assignments-summary'] });
-      qc.invalidateQueries({ queryKey: ['caller-leads'] });
-      qc.invalidateQueries({ queryKey: ['caller-dash'] });
+      setUndoable(null);
+      refreshAfterRemoval();
     },
   });
 
@@ -257,131 +288,44 @@ export default function LeadLibraryPage() {
 
   const closeForm = () => { setForm(EMPTY); setShowForm(false); setDupBlock(null); create.reset(); };
 
-  const columns = useMemo<ColumnDef<Lead>[]>(() => [
-    {
-      key: 'importSeq', header: 'Import Order', defaultHidden: true, sortable: true,
-      cellClassName: 'tabular-nums text-muted-foreground',
-      sortValue: (l) => l.importSeq,
-      render: (l) => l.importSeq,
-    },
-    {
-      key: 'leadId', header: 'Lead ID', required: true, pinFirst: true, searchable: true, sortable: true,
-      searchValue: (l) => l.leadId,
-      render: (l) => (
-        <div className="flex items-center gap-[10px]">
-          <Avatar name={l.leadId} />
-          <span className="font-mono text-[11px] text-muted-foreground">{l.leadId}</span>
-        </div>
-      ),
-    },
-    { key: 'leadGenerationId', header: 'Lead Generation ID', cellClassName: 'text-muted-foreground', render: (l) => l.leadGenerationId ?? '—', searchable: true, sortable: true, searchValue: (l) => l.leadGenerationId },
-    {
-      key: 'createdAt', header: 'Created Date & Time', width: 170, sortable: true,
-      cellClassName: 'text-muted-foreground whitespace-nowrap',
-      searchable: true,
-      searchValue: (l) => leadDateTime(l.createdAt, l.timezone, ''),
-      render: (l) => <span title={zoneNote(l.timezone)}>{leadDateTime(l.createdAt, l.timezone)}</span>,
-    },
-    {
-      key: 'scheduledDate', header: 'Scheduled Date', width: 150,
-      cellClassName: 'text-muted-foreground whitespace-nowrap',
-      trackable: true,
-      render: (l) => <span title={zoneNote(l.timezone)}>{leadDate(l.assignedAt, l.timezone)}</span>,
-    },
-    {
-      key: 'movement', header: 'Movement', width: 190, defaultHidden: true,
-      cellClassName: 'text-muted-foreground',
-      searchable: true,
-      searchValue: (l) => movementLabel(l),
-      render: (l) => movementLabel(l) || '—',
-    },
-    { key: 'leadSource', header: 'Lead Source', cellClassName: 'text-muted-foreground', render: (l) => l.leadSource ?? '—', searchable: true, sortable: true, searchValue: (l) => l.leadSource },
-    { key: 'businessName', header: 'Company Name', render: (l) => l.businessName, searchable: true, sortable: true, searchValue: (l) => l.businessName },
-    { key: 'contactName', header: 'Contact Person', render: (l) => l.contactName ?? '—', searchable: true, sortable: true, searchValue: (l) => l.contactName },
-    { key: 'contactName2', header: 'Designation', render: (l) => l.contactName2 ?? '—', searchable: true, sortable: true, searchValue: (l) => l.contactName2 },
-    { key: 'phone', header: 'Phone', cellClassName: 'font-mono text-[11.5px] text-muted-foreground', render: (l) => l.phone, searchable: true, sortable: true, searchValue: (l) => l.phone },
-    { key: 'altPhone', header: 'Alt Phone', cellClassName: 'font-mono text-[11.5px] text-muted-foreground', render: (l) => l.altPhone ?? '—', searchable: true, sortable: true, searchValue: (l) => l.altPhone },
-    { key: 'email', header: 'Email', cellClassName: 'text-muted-foreground', render: (l) => l.email ?? '—', searchable: true, sortable: true, searchValue: (l) => l.email },
-    { key: 'website', header: 'Website', cellClassName: 'text-muted-foreground', render: (l) => l.website ?? '—', searchable: true, sortable: true, searchValue: (l) => l.website },
-    { key: 'socialMedia', header: 'Social Media', cellClassName: 'text-muted-foreground', render: (l) => l.socialMedia ?? '—', searchable: true, sortable: true, searchValue: (l) => l.socialMedia },
-    { key: 'country', header: 'Country', cellClassName: 'text-muted-foreground', render: (l) => l.country ?? '—', searchable: true, sortable: true, searchValue: (l) => l.country },
-    { key: 'state', header: 'State', cellClassName: 'text-muted-foreground', render: (l) => l.state, searchable: true, sortable: true, searchValue: (l) => l.state },
-    { key: 'city', header: 'City', cellClassName: 'text-muted-foreground', render: (l) => l.city, searchable: true, sortable: true, searchValue: (l) => l.city },
-    { key: 'tz', header: 'Time Zone', render: (l) => <TimezoneChip tz={l.timezone} /> },
-    { key: 'industry', header: 'Industry', cellClassName: 'text-muted-foreground', render: (l) => l.industry ?? '—', searchable: true, sortable: true, searchValue: (l) => l.industry },
-    { key: 'companySize', header: 'Company Size', cellClassName: 'text-muted-foreground', render: (l) => l.companySize ?? '—', searchable: true, sortable: true, searchValue: (l) => l.companySize },
-    { key: 'foundedYear', header: 'Founded Year', cellClassName: 'text-muted-foreground', render: (l) => l.foundedYear ?? '—', searchable: true, sortable: true, searchValue: (l) => l.foundedYear },
-    { key: 'address', header: 'Address', cellClassName: 'text-muted-foreground max-w-[200px] truncate', render: (l) => l.address ?? '—', searchable: true, sortable: true, searchValue: (l) => l.address },
-    {
-      key: 'caller',
-      header: 'Assigned To',
-      render: (l) =>
-        l.assignedTo ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--brand-surface)] px-2 py-0.5 text-[10.5px] font-medium text-[var(--brand-on-surface)]">
-            <Lock className="h-3 w-3" /> {l.assignedTo.name}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">Unassigned</span>
-        ),
-      searchable: true,
-      trackable: true,
-      searchValue: (l) => l.assignedTo?.name,
-    },
-    {
-      key: 'callStatus',
-      header: 'Call Outcome',
-      render: (l) => <LeadOutcomeCell lead={l} />,
-      searchable: true,
-      sortable: true,
-      searchValue: (l) => l.callStatus,
-    },
-    { key: 'firstContact', header: 'First Contact', width: 170, cellClassName: 'text-muted-foreground whitespace-nowrap', render: (l) => <span title={zoneNote(l.timezone)}>{leadDateTime(l.firstContact, l.timezone)}</span> },
-    { key: 'lastContact', header: 'Last Contact', width: 170, cellClassName: 'text-muted-foreground whitespace-nowrap', render: (l) => <span title={zoneNote(l.timezone)}>{leadDateTime(l.lastContact, l.timezone)}</span> },
-    { key: 'followup', header: 'Next Follow-up', width: 170, cellClassName: 'text-muted-foreground whitespace-nowrap', render: (l) => <span title={zoneNote(l.timezone)}>{leadDateTime(l.nextFollowUpDate, l.timezone)}</span>, trackable: true },
-    { key: 'followupCount', header: 'Follow-up Count', cellClassName: 'text-muted-foreground tabular-nums', render: (l) => l.followupCount ?? '—' },
-    { key: 'meetingDate', header: 'Meeting Date & Time', width: 170, cellClassName: 'text-muted-foreground whitespace-nowrap', render: (l) => <span title={zoneNote(l.timezone)}>{leadDateTime(l.meetingDate, l.timezone)}</span> },
-    {
-      key: 'comments',
-      header: 'Comments',
-      width: 240,
-      render: (l) => <LeadCommentCell lead={l} />,
-      searchable: true,
-      trackable: true,
-      sortable: true,
-      searchValue: (l) => l.comments,
-    },
-    {
-      key: 'lostReason',
-      header: 'Lost Reason',
-      width: 200,
-      render: (l) => <LeadInlineCell lead={l} field="lostReason" placeholder="Add a reason…" />,
-      searchable: true,
-      trackable: true,
-      sortable: true,
-      searchValue: (l) => l.lostReason,
-    },
-    {
-      key: 'actions', header: '', required: true,
-      render: (l) => (
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setActivityLead(l)}
-            title="Lead history"
-            aria-label="Lead history"
-            className="grid h-[30px] w-[30px] place-items-center rounded-lg border border-[var(--tone-blue-line)] bg-[var(--tone-blue-bg-2)] text-[var(--tone-blue-fg-2)] hover:bg-[#2D8CFF] hover:text-white"
-          >
-            <Info className="h-[15px] w-[15px]" />
-          </button>
-          <div className="flex gap-1.5 opacity-50 transition-opacity group-hover:opacity-100">
-            {callingEnabled && (
-              <button onClick={() => { if (!dial(l.phone)) return; router.push(`/calling?leadId=${l.id}&autocall=1`); }} title="Call" aria-label={`Call ${l.businessName}`} className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[var(--brand-deep)] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Phone className="h-[15px] w-[15px]" /></button>
-            )}
-            <button onClick={() => router.push(`/leads/${l.id}`)} title="View" aria-label={`View ${l.businessName}`} className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[var(--brand-deep)] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Eye className="h-[15px] w-[15px]" /></button>
-          </div>
-        </div>
-      ),
-    },
-  ], [router, dial, callingEnabled]);
+  /**
+   * Possible duplicates, checked while the form is being filled in.
+   *
+   * `POST /leads/check-duplicate` was built for exactly this and nothing called
+   * it, so a duplicate only surfaced as the 409 on save — after every other
+   * field had been typed. Only a value that could actually match is sent: seven
+   * or more digits of a phone, or something shaped like an email. The save
+   * still runs its own check; this is the early warning, not the gate.
+   */
+  const dupProbe = useMemo(() => {
+    const phoneish = (v?: string | null) => ((v ?? '').replace(/\D/g, '').length >= 7 ? (v ?? '').trim() : undefined);
+    const phone = phoneish(form.phone);
+    const altPhone = phoneish(form.altPhone);
+    const email = /^\S+@\S+\.\S+$/.test((form.email ?? '').trim()) ? (form.email ?? '').trim() : undefined;
+    // A string, not an object, so the debounce below settles: a fresh object
+    // every render would restart its timer on every render.
+    return phone || altPhone || email ? JSON.stringify({ phone, altPhone, email }) : '';
+  }, [form.phone, form.altPhone, form.email]);
+  const settledDupProbe = useDebounced(dupProbe, 400);
+  const { data: liveDups = [] } = useQuery({
+    queryKey: ['lead-dup-check', settledDupProbe],
+    queryFn: () => leadsApi.checkDuplicate(JSON.parse(settledDupProbe)),
+    enabled: showForm && canManage && settledDupProbe !== '',
+    staleTime: 30_000,
+    retry: false,
+  });
+  // Shown only while the value it was checked for is still the one typed.
+  const showLiveDups = liveDups.length > 0 && !dupBlock && settledDupProbe === dupProbe;
+
+  // The grid's columns are shared with Lead Management — see components/lead-columns.
+  // What differs between the pages is what they let you do with a lead.
+  const columns = useMemo(() => leadColumns({
+    onView: (l) => router.push(`/leads/${l.id}`),
+    onCall: callingEnabled ? (l) => { if (!dial(l.phone)) return; router.push(`/calling?leadId=${l.id}&autocall=1`); } : undefined,
+    // Lead history is Admin + Team Leader only on the API, so only they get the button.
+    onHistory: canManage ? setActivityLead : undefined,
+    canEditLostReason: canManage,
+  }), [router, dial, callingEnabled, canManage]);
 
   const prefs = useColumnPrefs('lead-library', columns, 1);
 
@@ -436,20 +380,64 @@ export default function LeadLibraryPage() {
         <KpiCard icon={Percent} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={`${s?.progressPct ?? 0}%`} label="Progress" />
       </div>
 
+      <LeadQuickFilters
+        followUp={followUp}
+        contact={contact}
+        onChange={update}
+        counts={s?.chips}
+        leading={
+          <SavedViewsMenu
+            views={savedViews.views}
+            current={filters}
+            onApply={replaceFilters}
+            onSave={(name) => savedViews.save(name, filters)}
+            onDelete={savedViews.remove}
+          />
+        }
+      />
+
       {/* Filter order: Time Zone, Country, State, City, Employee — Country
           sits right after Time Zone, ahead of the State/City cascade. */}
       <div className="mb-[18px] flex flex-wrap items-center gap-2.5 lg:flex-nowrap">
         <SearchInput value={q} onChange={setQ} placeholder="Search business, ID, phone, email…" className="min-w-[260px] flex-[2]" />
         <FilterSelect className="min-w-0 flex-1" icon={Globe} value={country} onChange={pickCountry} options={countryOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={Clock} value={tz} onChange={pickZone} options={tzOpts} />
-        <FilterSelect className="min-w-0 flex-1" icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
-        <FilterSelect className="min-w-0 flex-1" icon={Building2} value={city} onChange={setCity} options={cityOpts} />
+        <FilterSelect className="min-w-0 flex-1" icon={MapPin} value={state} onChange={(v) => update({ state: v, city: '' })} options={stateOpts} />
+        <FilterSelect className="min-w-0 flex-1" icon={Building2} value={city} onChange={(v) => update({ city: v })} options={cityOpts} />
         {isAdmin && <FilterSelect className="min-w-0 flex-1" icon={UserIcon} value={employeeId} onChange={setEmployeeId} options={employeeOpts} />}
-        <FilterSelect className="min-w-0 flex-1" icon={Tag} value={status} onChange={setStatus} options={STATUS_OPTS} />
-        <FilterSelect className="min-w-0 flex-1" icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={callOutcomeOpts} />
+        <FilterSelect className="min-w-0 flex-1" icon={Tag} value={ownership} onChange={(v) => update({ ownership: v as Ownership })} options={OWNERSHIP_OPTS} />
+        <LeadOutcomeFilter className="min-w-0 flex-1" value={outcomes} onChange={(v) => update({ outcomes: v })} />
         <FilterSelect className="min-w-0 flex-1" icon={CalendarClock} value={dateField} onChange={(v) => setDateField(v as 'created' | 'scheduled')} options={DATE_FIELD_OPTS} />
         <DateFilter value={dateFilter} onChange={setDateFilter} iconOnly />
+        <ClearFiltersButton count={activeCount} onClear={clearFilters} />
       </div>
+
+      {/* Undo for the last bulk delete — a bar rather than a toast, like the
+          Duplicate Leads purge: the rows a drag swept up by mistake are
+          noticed a moment later, after a four-second toast has gone. */}
+      {undoable && (
+        <div className="mb-[18px] flex flex-wrap items-center gap-3 rounded-xl border border-[var(--brand-edge)] bg-[var(--brand-surface)] px-4 py-3">
+          <Undo2 className="h-4 w-4 shrink-0 text-[var(--brand-on-surface)]" />
+          <span className="flex-1 text-[12.5px] text-[var(--brand-on-surface)]">
+            <b className="font-semibold">{undoable.count}</b> {undoable.count === 1 ? 'lead' : 'leads'} deleted. Their calls,
+            notes and history are kept, so they can still be brought back.
+          </span>
+          <button
+            onClick={() => restoreLeads.mutate(undoable.ids)}
+            disabled={restoreLeads.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3.5 py-2 text-[12.5px] font-semibold text-primary-foreground disabled:opacity-60"
+          >
+            {restoreLeads.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />}
+            {restoreLeads.isPending ? 'Restoring…' : 'Undo'}
+          </button>
+          <button
+            onClick={() => setUndoable(null)}
+            className="rounded-md border bg-card px-3 py-2 text-[12.5px] font-medium hover:bg-muted"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Add Lead opens as a popup over the page rather than a panel pushed
           into it. A click on the backdrop does NOT close it: the form runs to
@@ -483,70 +471,13 @@ export default function LeadLibraryPage() {
             </div>
 
             <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto overscroll-contain p-5 sm:grid-cols-2 lg:grid-cols-3">
-              {([
-                ['leadId', 'Lead ID'],
-                ['leadGenerationId', 'Lead Generation ID'],
-                ['leadSource', 'Lead Source'],
-                ['businessName', 'Company Name *'],
-                ['contactName', 'Contact Person (Primary)'],
-                ['contactName2', 'Designation'],
-                ['phone', 'Phone *'],
-                ['altPhone', 'Alt Phone'],
-                ['email', 'Email'],
-                ['website', 'Website'],
-                ['socialMedia', 'Social Media'],
-                ['state', 'State *'],
-                ['city', 'City *'],
-                ['industry', 'Industry'],
-                ['companySize', 'Company Size'],
-                ['foundedYear', 'Founded Year'],
-                ['address', 'Address'],
-                ['caller', 'Assigned To (name/email)'],
-                ['callStatus', 'Call Status'],
-                ['lostReason', 'Lost Reason'],
-              ] as const).map(([key, label]) => (
-                <label key={key} className="space-y-1 text-sm">
-                  <span className="font-medium">{label}</span>
-                  <input value={(form as any)[key] ?? ''} onChange={(e) => setForm({ ...form, [key]: e.target.value })} required={label.includes('*')} autoFocus={key === 'businessName'} className="w-full rounded-md border bg-background px-3 py-2" />
-                </label>
-              ))}
-              <label className="space-y-1 text-sm">
-                <span className="font-medium">Country</span>
-                <select value={form.country ?? ''} onChange={(e) => pickFormCountry(e.target.value)} className="w-full rounded-md border bg-background px-3 py-2">
-                  <option value="">— none —</option>
-                  {countryDefs.map((c) => <option key={c.id} value={c.code}>{c.name}</option>)}
-                </select>
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="font-medium">Timezone</span>
-                <select value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2">
-                  {leadTzOpts.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
-                </select>
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="font-medium">First Contact</span>
-                <input type="date" value={form.firstContact ?? ''} onChange={(e) => setForm({ ...form, firstContact: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="font-medium">Last Contact</span>
-                <input type="date" value={form.lastContact ?? ''} onChange={(e) => setForm({ ...form, lastContact: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="font-medium">Next Follow-up Date</span>
-                <input type="date" value={form.nextFollowUpDate ?? ''} onChange={(e) => setForm({ ...form, nextFollowUpDate: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="font-medium">Follow-up Count</span>
-                <input type="number" value={form.followupCount ?? ''} onChange={(e) => setForm({ ...form, followupCount: e.target.value ? parseInt(e.target.value, 10) : undefined })} className="w-full rounded-md border bg-background px-3 py-2" />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span className="font-medium">Meeting Date</span>
-                <input type="date" value={form.meetingDate ?? ''} onChange={(e) => setForm({ ...form, meetingDate: e.target.value })} className="w-full rounded-md border bg-background px-3 py-2" />
-              </label>
-              <label className="col-span-full space-y-1 text-sm">
-                <span className="font-medium">Comments</span>
-                <textarea value={form.comments ?? ''} onChange={(e) => setForm({ ...form, comments: e.target.value })} rows={2} className="w-full rounded-md border bg-background px-3 py-2" />
-              </label>
+              <AddLeadFields
+                form={form}
+                onChange={(patch) => setForm({ ...form, ...patch })}
+                onCountry={pickFormCountry}
+                countries={countryDefs}
+                zones={leadTzOpts}
+              />
               {dupBlock && (
                 <div className="col-span-full rounded-lg border border-[var(--tone-amber-line)] bg-[var(--tone-amber-bg)]/60 p-3.5">
                   <div className="flex items-start gap-2">
@@ -592,6 +523,33 @@ export default function LeadLibraryPage() {
               )}
             </div>
 
+            {/* Outside the scrolling grid on purpose: shown above the fields it
+                would push the Phone box down under the cursor mid-typing, and
+                below them it would be out of sight. Here it is always visible
+                and moves nothing. */}
+            {showLiveDups && (
+              <div role="status" className="flex flex-wrap items-center gap-2 border-t border-[var(--tone-amber-line)] bg-[var(--tone-amber-bg)] px-5 py-2.5 text-[12px] text-[var(--tone-amber-fg-strong)]">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 flex-1">
+                  {liveDups.length === 1 ? 'Possible duplicate: ' : `${liveDups.length} possible duplicates: `}
+                  {liveDups.slice(0, 3).map((m, i) => (
+                    <span key={m.id}>
+                      {i > 0 && ', '}
+                      <span className="font-mono text-[11px]">{m.leadId}</span> <b>{m.businessName || 'Unnamed lead'}</b> ({m.matchedOn.join(', ')})
+                    </span>
+                  ))}
+                  {liveDups.length > 3 && ` +${liveDups.length - 3} more`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/leads/${liveDups[0].id}`)}
+                  className="rounded-md border bg-card px-2.5 py-1 text-[11.5px] font-semibold text-foreground hover:bg-muted"
+                >
+                  Open {liveDups[0].leadId}
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center gap-3 border-t px-5 py-3.5">
               <button type="submit" disabled={create.isPending} className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
                 {create.isPending ? 'Creating…' : 'Create & open'}
@@ -631,7 +589,7 @@ export default function LeadLibraryPage() {
         onSortChange={setSort}
         uppercaseHeaders
         onDeleteSelected={async (rows) => { await removeLeads.mutateAsync(rows); }}
-        deleteConfirm={() => 'Are you sure you want to delete the selected lead(s)? This action cannot be undone.'}
+        deleteConfirm={(rows) => `Delete ${rows.length} selected lead${rows.length === 1 ? '' : 's'}? You can undo this straight afterwards.`}
         bulkActions={(rows, clear) => (
           <button
             onClick={() => { clearTableSelection.current = clear; setAssignLeads(rows); }}

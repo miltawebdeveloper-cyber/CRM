@@ -262,7 +262,11 @@ export interface CreateLeadInput {
 }
 
 /** Lead edit payload — any subset of the create fields, plus editable status. */
-export type UpdateLeadInput = Partial<CreateLeadInput> & { status?: string };
+export type UpdateLeadInput = Partial<CreateLeadInput> & {
+  status?: string;
+  /** Answers the once-a-day rule when `caller` moves a lead already handed over today. */
+  confirmSameDayReassign?: boolean;
+};
 
 /** Everything the list can be narrowed, ordered and paged by — all of it applied
  *  by the API, so a caller only ever receives the rows it is going to show. */
@@ -278,8 +282,13 @@ export interface LeadListQuery {
   city?: string;
   country?: string;
   timezone?: string;
+  /** One outcome slug, or several comma-separated (matches any of them). */
   callStatus?: string;
   assigned?: 'assigned' | 'unassigned';
+  /** Quick filter on Next Follow-up: today (on the lead's clock) or overdue. */
+  followUp?: 'today' | 'overdue';
+  /** Contacted / never contacted — the same rule as the Contacted card. */
+  contact?: 'contacted' | 'never';
   /**
    * One employee's leads. Different question from `assigned`, which asks only
    * whether a lead has an owner. Admin-only — the API ignores it for every
@@ -319,9 +328,34 @@ export interface LeadPage {
 
 const LIST_KEYS: (keyof LeadListQuery)[] = [
   'mine', 'closed', 'fromLeadId', 'toLeadId', 'limit', 'q', 'status', 'state', 'city', 'country',
-  'timezone', 'callStatus', 'assigned', 'employeeId', 'createdFrom', 'createdTo', 'dateField', 'closedFrom', 'closedTo',
+  'timezone', 'callStatus', 'assigned', 'followUp', 'contact', 'employeeId', 'createdFrom', 'createdTo', 'dateField', 'closedFrom', 'closedTo',
   'closedBy', 'page', 'pageSize', 'sortBy', 'sortDir', 'idsOnly',
 ];
+
+/** Query params for a lead list request — blanks dropped, strings trimmed. */
+function listParams(opts?: LeadListQuery): Record<string, string | number | boolean> | undefined {
+  const params: Record<string, string | number | boolean> = {};
+  for (const k of LIST_KEYS) {
+    const v = opts?.[k];
+    if (v === undefined || v === '' || v === false) continue;
+    params[k] = typeof v === 'string' ? v.trim() : v;
+  }
+  // `closed` is meaningful when false — it is what selects Lead Management
+  // over Closed Leads — so it can't be dropped with the other falsy values.
+  if (opts?.closed !== undefined) params.closed = opts.closed;
+  return Object.keys(params).length ? params : undefined;
+}
+
+/** The cards above Lead Library / Lead Management — see `GET /leads/summary`. */
+export interface LeadListSummary {
+  totalLeads: number;
+  assignedLeads: number;
+  contactedLeads: number;
+  balanceLeads: number;
+  progressPct: number;
+  /** How many leads each quick-filter chip would show, given the other filters. */
+  chips?: { followUpToday: number; followUpOverdue: number; neverContacted: number; contacted: number };
+}
 
 /** A saved lead that matches the record being created, and on what. */
 export interface DuplicateMatch {
@@ -402,17 +436,17 @@ export const leadsApi = {
   // discarded. Without it a burst of filter changes leaves that many requests in
   // flight, queued behind each other on one connection, and the newest answer
   // waits behind answers nobody wants.
-  page: async (opts?: LeadListQuery, signal?: AbortSignal): Promise<LeadPage> => {
-    const params: Record<string, string | number | boolean> = {};
-    for (const k of LIST_KEYS) {
-      const v = opts?.[k];
-      if (v === undefined || v === '' || v === false) continue;
-      params[k] = typeof v === 'string' ? v.trim() : v;
-    }
-    // `closed` is meaningful when false — it is what selects Lead Management
-    // over Closed Leads — so it can't be dropped with the other falsy values.
-    if (opts?.closed !== undefined) params.closed = opts.closed;
-    return (await api.get('/leads', { params: Object.keys(params).length ? params : undefined, signal })).data;
+  page: async (opts?: LeadListQuery, signal?: AbortSignal): Promise<LeadPage> =>
+    (await api.get('/leads', { params: listParams(opts), signal })).data,
+
+  /**
+   * The KPI cards above a lead list, counted by the API over the SAME filters
+   * as `page` — so the cards describe the rows in the grid, not the whole book.
+   * Paging and sort are dropped: they don't change what is counted.
+   */
+  summary: async (opts?: LeadListQuery, signal?: AbortSignal): Promise<LeadListSummary> => {
+    const { page: _p, pageSize: _ps, limit: _l, sortBy: _sb, sortDir: _sd, idsOnly: _i, ...filters } = opts ?? {};
+    return (await api.get('/leads/summary', { params: listParams(filters), signal })).data;
   },
 
   /** The rows alone, for callers that want a bounded list and no page state. */

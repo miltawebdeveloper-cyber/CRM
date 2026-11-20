@@ -185,6 +185,10 @@ export const assignmentsApi = {
     (await api.post('/assignments/batch', body)).data,
   auto: async (body: { callerIds: string[]; strategy: 'equal' | 'state' | 'timezone'; timezone?: string; state?: string }) =>
     (await api.post('/assignments/auto', body)).data,
+  // Return leads to the unassigned pool (Lead Library). Leads with no owner, or
+  // that changed hands before the write, come back counted in `skipped`.
+  unassign: async (leadIds: string[]): Promise<{ unassigned: number; skipped: number }> =>
+    (await api.post('/assignments/unassign', { leadIds })).data,
 };
 
 // ─────────────────────────── Calls ─────────────────────────────

@@ -3,7 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
 import { AssignmentsService } from './assignments.service.js';
 import { AssignmentCarryForwardService } from './assignment-carry-forward.service.js';
-import { ManualAssignDto, AutoAssignDto, BatchAssignDto } from './dto/assignment.dto.js';
+import { ManualAssignDto, AutoAssignDto, BatchAssignDto, UnassignDto } from './dto/assignment.dto.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 
@@ -53,6 +53,13 @@ export class AssignmentsController {
   @Post('batch')
   batch(@Body() dto: BatchAssignDto, @CurrentUser() user: AuthUser) {
     return this.assignments.batch(dto, user.id);
+  }
+
+  /** Return leads to the unassigned pool. See AssignmentsService.unassign. */
+  @Roles(Role.admin, Role.team_leader)
+  @Post('unassign')
+  unassign(@Body() dto: UnassignDto, @CurrentUser() user: AuthUser) {
+    return this.assignments.unassign(dto.leadIds, user.id);
   }
 
   @Roles(Role.admin, Role.team_leader)

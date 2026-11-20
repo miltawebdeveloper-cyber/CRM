@@ -14,8 +14,10 @@
     "set-admin": "tsx prisma/set-admin.ts",
     "fix-schedule-timezones": "tsx prisma/fix-schedule-timezones.ts",
     "merge-duplicate-calls": "tsx prisma/merge-duplicate-calls.ts",
+    "repair-lead-edits": "tsx prisma/repair-lead-edits.ts",
     "flush-data": "tsx prisma/flush-transactional-data.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test prisma/*.test.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

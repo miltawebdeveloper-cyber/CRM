@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { allTimezoneCodes, businessDayEnd, businessDayStart, tzLabel, UNSET_TIMEZONE_LABEL } from '../../common/timezone.js';
 import { MetricsQueryDto } from './dto/metrics.dto.js';
 import { CONNECTED_CALL, MISSED_INBOUND_CALL } from '../calls/call-status.js';
+import { CONTACTED_LEAD_WHERE } from '../../common/lead-contacted.js';
 
 interface Node {
   total: number;
@@ -120,13 +121,11 @@ export class MetricsService {
    * Note this is a fragment, always spread onto an already-scoped clause — it is
    * never the whole WHERE. The Contacted card counts contacted leads WITHIN the
    * assigned set, not across the whole book.
+   *
+   * Defined once in `common/lead-contacted` and shared with the Lead Library /
+   * Lead Management cards, so the word means the same thing on both.
    */
-  private static readonly CONTACTED: Prisma.LeadWhereInput = {
-    OR: [
-      { status: { in: [LeadStatus.contacted, LeadStatus.interested, LeadStatus.closed] } },
-      { calls: { some: { endTime: { not: null } } } },
-    ],
-  };
+  private static readonly CONTACTED: Prisma.LeadWhereInput = CONTACTED_LEAD_WHERE;
 
   /**
    * DSH-001..004 / MET — the dashboard's summary cards, scoped to the caller.

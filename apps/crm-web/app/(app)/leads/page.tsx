@@ -3,29 +3,29 @@
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Phone, Eye, Clock, MapPin, Building2, Globe, Target, Zap, Percent, RefreshCw, PhoneCall, Tag, UserPlus, User as UserIcon, Hourglass, Lock, CalendarClock } from 'lucide-react';
-import { leadsApi, movementLabel, type Lead, type LeadListQuery } from '@/lib/leads';
+import { Upload, Clock, MapPin, Building2, Globe, Zap, Percent, RefreshCw, PhoneCall, UserPlus, UserMinus, User as UserIcon, Hourglass, CalendarClock } from 'lucide-react';
+import { leadsApi, type Lead, type LeadListQuery } from '@/lib/leads';
 import { usersApi } from '@/lib/users';
 import { LeadAssignDialog } from '@/components/lead-assign-dialog';
-import { LeadOutcomeCell } from '@/components/lead-outcome-cell';
-import { LeadCommentCell } from '@/components/lead-comment-cell';
-import { LeadInlineCell } from '@/components/lead-inline-cell';
-import { metricsApi, outcomesApi } from '@/lib/crm';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { LeadOutcomeFilter, LeadQuickFilters } from '@/components/lead-filters';
+import { LeadActivityDrawer } from '@/components/lead-activity-log';
+import { leadColumns } from '@/components/lead-columns';
+import { assignmentsApi } from '@/lib/crm';
 import { api } from '@/lib/api';
-import { QuoStatusBadge } from '@/components/quo-status-badge';
 import { useCanCall } from '@/lib/use-can-call';
-import { StatusPill } from '@/components/status-pill';
-import { TimezoneChip } from '@/components/timezone-chip';
-import { PageHead, Avatar } from '@/components/page-head';
+import { PageHead } from '@/components/page-head';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { useTimezoneFilterOptions, countryOfZone, zoneMatchesCountry, UNSET_TIMEZONE_LABEL, leadDate, leadDateTime, zoneNote } from '@/lib/timezone';
-import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
-import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
+import { useTimezoneFilterOptions, countryOfZone, zoneMatchesCountry, UNSET_TIMEZONE_LABEL } from '@/lib/timezone';
+import { ClearFiltersButton, DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
+import { DataTable, useColumnPrefs } from '@/components/data-table';
 import { type SortState } from '@/lib/use-column-prefs';
 import { downloadCsv, downloadXlsx } from '@/lib/export';
 import { EXPORT_HEADERS, exportRows } from '@/lib/lead-export';
-import { EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
-import { usePersistedState } from '@/lib/use-persisted-state';
+import { type DateFilterValue } from '@/lib/date-filters';
+import { useLeadListFilters } from '@/lib/lead-list-filters';
+import { useSavedViews } from '@/lib/saved-views';
+import { SavedViewsMenu } from '@/components/saved-views-menu';
 import { useDebounced } from '@/lib/use-debounced';
 import { useInfiniteLeads, useLeadScrollSentinel } from '@/lib/use-infinite-leads';
 import { pushToast } from '@/lib/toast';
@@ -48,29 +48,43 @@ const DATE_FIELD_OPTS = [
   { label: 'By Scheduled Date', value: 'scheduled' },
 ];
 
-// No 'Closed' option — closed leads live in the Closed Leads module and are
-// filtered out of this list by the API. No Assigned/Unassigned either — this
-// page only ever shows assigned leads now (Lead Library shows both), so
-// ownership is no longer a toggle here.
-const STATUS_OPTS = [
-  { label: 'Status', value: '' },
-  { label: 'Contacted', value: 'contacted' },
-];
+/** "the queues of Ann (8) and Bob (4)" — whose work an Unassign takes away. */
+function ownerSummary(rows: Lead[]): string {
+  const counts = new Map<string, number>();
+  for (const l of rows) {
+    const name = l.assignedTo?.name ?? 'nobody';
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  const parts = [...counts].sort((a, b) => b[1] - a[1]).map(([name, n]) => `${name} (${n})`);
+  const shown = parts.length > 3 ? [...parts.slice(0, 3), `${parts.length - 3} more`] : parts;
+  const list = shown.length > 1 ? `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}` : shown[0];
+  return `the queue${counts.size === 1 ? '' : 's'} of ${list}`;
+}
 
 export default function LeadsPage() {
   const router = useRouter();
   const qc = useQueryClient();
-  const [tz, setTz] = useState('');
-  const [state, setState] = useState('');
-  const [city, setCity] = useState('');
-  const [country, setCountry] = useState('');
-  const [status, setStatus] = useState('');
-  const [callStatus, setCallStatus] = useState('');
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
+  const canManage = me?.role === 'admin' || me?.role === 'team_leader';
+  const isAdmin = me?.role === 'admin';
+
+  // The whole filter bar as one value — saved per browser and mirrored into the
+  // URL, so opening a lead and coming back (by Back, the menu, or a shared link)
+  // restores the view instead of resetting every control. See lead-list-filters.
+  const { filters, update, clear: clearFilters, replace: replaceFilters, activeCount } = useLeadListFilters('leads:filters', { employee: isAdmin });
+  // Named filter sets, per user and per list — see lib/saved-views.
+  const savedViews = useSavedViews('leads');
+  // No ownership filter here: this page only ever lists assigned leads (Lead
+  // Library shows both). Contact and follow-up are the quick-filter chips.
+  const { q, country, tz, state, city, contact, followUp, outcomes, dateFilter, dateField, sort } = filters;
   // Whose leads to show. Admin-only — the API ignores this parameter for every
-  // other role, so the control is hidden rather than merely disabled.
-  const [employeeId, setEmployeeId] = useState('');
-  // Persisted so the chosen date filter survives navigating within the module.
-  const [dateFilter, setDateFilter] = usePersistedState<DateFilterValue>('leads:date-filter', EMPTY_DATE_FILTER);
+  // other role, so the control is hidden rather than merely disabled, and a
+  // value saved by an admin in a shared browser is not sent for anyone else.
+  const employeeId = isAdmin ? filters.employeeId : '';
+  const setQ = (v: string) => update({ q: v });
+  const setEmployeeId = (v: string) => update({ employeeId: v });
+  const setDateFilter = (v: DateFilterValue) => update({ dateFilter: v });
+  const setSort = (v: SortState) => update({ sort: v });
   /**
    * Which of a lead's two dates the date filter above applies to.
    *
@@ -84,14 +98,13 @@ export default function LeadsPage() {
    * and exporting the first while calling it the second is what left carried
    * leads out of the file.
    */
-  const [dateField, setDateField] = usePersistedState<'created' | 'scheduled'>('leads:date-field', 'created');
-  const [q, setQ] = useState('');
+  const setDateField = (v: 'created' | 'scheduled') => update({ dateField: v });
   // Lead lists open in IMPORT order — row 1 of the uploaded file first — until
   // the user sorts by something else. Declared here because the list query below
   // is built from it: ordering is the server's job, not a pass over rows already
   // downloaded. Was `leadId`, which the API had to reinterpret because sorting
-  // the id as a string puts L-2026-10 ahead of L-2026-2.
-  const [sort, setSort] = useState<SortState>({ key: 'importSeq', dir: 'asc' });
+  // the id as a string puts L-2026-10 ahead of L-2026-2. That default lives in
+  // DEFAULT_LEAD_LIST_FILTERS now, with the rest of the bar.
 
   // Only active leads — one marked closed moves to /closed-leads.
   //
@@ -125,15 +138,16 @@ export default function LeadsPage() {
     // book is server-side scoped to their own assignedToId regardless), and
     // for a manager it's exactly the new intended default.
     assigned: 'assigned',
-    status: status === 'contacted' ? 'contacted' : undefined,
-    callStatus: callStatus || undefined,
+    contact: contact || undefined,
+    followUp: followUp || undefined,
+    callStatus: outcomes.length ? outcomes.join(',') : undefined,
     employeeId: employeeId || undefined,
     createdFrom: dateFilter.from || undefined,
     createdTo: dateFilter.to || undefined,
     dateField,
     sortBy: sort.key,
     sortDir: sort.dir,
-  }), [debouncedQ, tz, state, city, country, status, callStatus, employeeId, dateFilter.from, dateFilter.to, dateField, sort.key, sort.dir]);
+  }), [debouncedQ, tz, state, city, country, contact, followUp, outcomes, employeeId, dateFilter.from, dateFilter.to, dateField, sort.key, sort.dir]);
 
   // Changing a filter or the sort changes the query key, so the list starts
   // again from the top on its own — no page number to reset.
@@ -157,10 +171,6 @@ export default function LeadsPage() {
     // and the chosen value disappears out of the control the user is holding.
     placeholderData: keepPreviousData,
   });
-  const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
-  const canManage = me?.role === 'admin' || me?.role === 'team_leader';
-  const isAdmin = me?.role === 'admin';
-
   // Who the Employee filter offers. Fetched only for an admin: `usersApi.list`
   // is itself role-gated, so asking as anyone else is a guaranteed 403 in the
   // console for a control they cannot see anyway.
@@ -174,15 +184,6 @@ export default function LeadsPage() {
     ],
     [staff],
   );
-  // The configured outcome list (Admin → Outcomes) drives both the Call Outcome
-  // filter and the inline editor, so renaming or adding an outcome shows up in
-  // both with no code change — and the filter can't offer a value the CRM no
-  // longer recognises, which the old hard-coded list did.
-  const { data: outcomeDefs = [] } = useQuery({ queryKey: ['outcomes-config'], queryFn: outcomesApi.list });
-  const callOutcomeOpts = useMemo(
-    () => [{ label: 'Call Outcomes', value: '' }, ...outcomeDefs.map((o) => ({ label: o.name, value: o.slug }))],
-    [outcomeDefs],
-  );
   // Refuse to dial before the API would reject the call (no assigned caller ID),
   // since the Quo app handoff fires first and can't be taken back.
   const { dial, callingEnabled } = useCanCall();
@@ -190,6 +191,32 @@ export default function LeadsPage() {
   // own leads, and their KPI cards are derived from that book.
   const isEmployee = !!me && !canManage;
   const [assignLeads, setAssignLeads] = useState<Lead[] | null>(null);  // Reassign popup (managers only)
+  const [activityLead, setActivityLead] = useState<Lead | null>(null);  // History drawer (managers only)
+  const [unassignLeads, setUnassignLeads] = useState<Lead[] | null>(null); // Unassign confirmation (managers only)
+
+  /**
+   * Bulk Unassign — the selected leads go back to the Lead Library's unassigned
+   * pool. Before this, taking a lead off someone without handing it to somebody
+   * else meant opening each lead's own page. The server re-checks ownership at
+   * the moment of the write, so a lead that changed hands since the grid loaded
+   * is left with its new owner and reported as skipped.
+   */
+  const unassign = useMutation({
+    mutationFn: (rows: Lead[]) => assignmentsApi.unassign(rows.map((l) => l.id)),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ['leads'] });
+      qc.invalidateQueries({ queryKey: ['assignments-summary'] });
+      qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
+      qc.invalidateQueries({ queryKey: ['caller-leads'] });
+      qc.invalidateQueries({ queryKey: ['caller-dash'] });
+      pushToast(
+        'success',
+        `${r.unassigned.toLocaleString()} lead${r.unassigned === 1 ? '' : 's'} returned to the Lead Library` +
+          (r.skipped ? ` · ${r.skipped} skipped (no longer assigned to the same person)` : ''),
+      );
+      clearTableSelection.current?.();
+    },
+  });
   const clearTableSelection = useRef<(() => void) | null>(null);        // set from DataTable's bulkActions clear fn
 
   // Bulk-push every not-yet-synced lead to Quo/OpenPhone as a contact.
@@ -241,239 +268,42 @@ export default function LeadsPage() {
   // Country -> Time Zone -> State -> City. A country drops any zone that isn't
   // in it; a zone picked with no country set fills its own country in, so the
   // pair on screen can never be India + EST.
+  // One update per pick, so the cascade lands as a single change of filters
+  // (one request, one URL write) rather than four.
   const pickCountry = (v: string) => {
-    setCountry(v);
-    if (tz && !zoneMatchesCountry(tz === UNSET_TIMEZONE_LABEL ? null : tz, v || null)) setTz('');
-    setState('');
-    setCity('');
+    const keepZone = !tz || zoneMatchesCountry(tz === UNSET_TIMEZONE_LABEL ? null : tz, v || null);
+    update({ country: v, tz: keepZone ? tz : '', state: '', city: '' });
   };
   const pickZone = (v: string) => {
-    setTz(v);
-    setState('');
-    setCity('');
     const owner = countryOfZone(v);
-    if (owner && !country) setCountry(owner);
+    update({ tz: v, state: '', city: '', ...(owner && !country ? { country: owner } : {}) });
   };
 
-  // KPI cards respect the same date filter as the table, ON THE SAME DATE —
-  // `dateField` goes with the range, so switching the grid to scheduled dates
-  // moves the cards with it rather than leaving them counting leads by when they
-  // were created while the table below lists leads by when they are queued.
+  // KPI cards count exactly what the table shows: the same query, minus paging
+  // and sort, counted by the API (`GET /leads/summary`). They used to come from
+  // the dashboard summary, which knew only the date range — so filtering the
+  // grid to one state left the cards still counting the whole book.
+  const { sortBy: _sortBy, sortDir: _sortDir, ...summaryQuery } = listQuery;
   const { data: s } = useQuery({
-    queryKey: ['metrics', 'summary', dateFilter.from, dateFilter.to, dateField],
-    queryFn: ({ signal }) => metricsApi.summary({ from: dateFilter.from || undefined, to: dateFilter.to || undefined, dateField }, signal),
+    queryKey: ['leads', 'summary', summaryQuery],
+    queryFn: ({ signal }) => leadsApi.summary(summaryQuery, signal),
     retry: false,
-    // Same reason as the filter options: the date range is part of the key, so
-    // moving it would drop every card to "0" until the new counts land. Holding
-    // the previous figures for a moment is a smaller lie than reporting zero
-    // leads to someone who has just changed a date.
+    // The filters are part of the key, so changing one would drop every card to
+    // "0" until the new counts land. Holding the previous figures for a moment
+    // is a smaller lie than reporting zero leads to someone who has just
+    // changed a filter.
     placeholderData: keepPreviousData,
   });
 
-  const columns = useMemo<ColumnDef<Lead>[]>(() => [
-    // The order the leads arrived in, and the grid's default sort. Hidden by
-    // default — it is the order the rows are already in, so it earns its space
-    // only when someone wants to see or re-apply the position explicitly.
-    {
-      key: 'importSeq', header: 'Import Order', defaultHidden: true, sortable: true,
-      cellClassName: 'tabular-nums text-muted-foreground',
-      sortValue: (l) => l.importSeq,
-      render: (l) => l.importSeq,
-    },
-    {
-      // Pinned leftmost: the Lead ID identifies the row, so it stays the first
-      // thing on it whatever else a user rearranges. `importSeq` above is hidden
-      // by default and sorts behind this when shown.
-      key: 'leadId', header: 'Lead ID', required: true, pinFirst: true, searchable: true, sortable: true,
-      searchValue: (l) => l.leadId,
-      render: (l) => (
-        <div className="flex items-center gap-[10px]">
-          <Avatar name={l.leadId} />
-          <span className="font-mono text-[11px] text-muted-foreground">{l.leadId}</span>
-        </div>
-      ),
-    },
-    { key: 'leadGenerationId', header: 'Lead Generation ID', cellClassName: 'text-muted-foreground', render: (l) => l.leadGenerationId ?? '—', searchable: true, sortable: true, searchValue: (l) => l.leadGenerationId },
-    /**
-     * The original creation stamp, to the minute.
-     *
-     * This is where the module's plain "Created Date" column used to be, and it
-     * has taken that column's place: the date-only version was WITHDRAWN
-     * TEMPORARILY rather than kept alongside, because the two showed the same
-     * instant and the grid is wide enough already. Restoring it is one line —
-     * `{ key: 'createdDate', header: 'Created Date', … formatDate(l.createdAt) }`
-     * back in front of this one. The export still writes both.
-     *
-     * The date alone was never enough for the question this answers. A lead
-     * reassigned in the afternoon, or carried into the next day, is
-     * indistinguishable on the date from one created that morning. The time is
-     * the evidence that the record is the ORIGINAL — and it survives every
-     * reassignment and every next-day move, because nothing in the CRM writes
-     * `createdAt` after the lead is created.
-     *
-     * `key` is `createdAt` deliberately: the grid sends the column key as the
-     * server's sort field, and that is the column the server orders by.
-     */
-    {
-      key: 'createdAt', header: 'Created Date & Time', width: 170, sortable: true,
-      cellClassName: 'text-muted-foreground whitespace-nowrap',
-      searchable: true,
-      searchValue: (l) => leadDateTime(l.createdAt, l.timezone, ''),
-      render: (l) => <span title={zoneNote(l.timezone)}>{leadDateTime(l.createdAt, l.timezone)}</span>,
-    },
-    /**
-     * The other half of the pair: the day this lead is currently scheduled to be
-     * worked, taken from its active assignment.
-     *
-     * Distinct from Created Date & Time in exactly the way the two dates are
-     * distinct. A lead created on the 1st, never finished, and carried forward
-     * every night reads "Jan 1, 09:14" beside today's date — one row saying both
-     * how old the lead is and that it is on today's queue. Before this pair
-     * existed the grid could only show the first, so a carried lead looked like
-     * a stale one nobody had scheduled.
-     */
-    {
-      key: 'scheduledDate', header: 'Scheduled Date', width: 150,
-      cellClassName: 'text-muted-foreground whitespace-nowrap',
-      trackable: true,
-      render: (l) => <span title={zoneNote(l.timezone)}>{leadDate(l.assignedAt, l.timezone)}</span>,
-    },
-    /**
-     * How the lead came to be on that date — assigned, handed over, or moved
-     * forward, with the number of times it has been moved.
-     *
-     * Hidden by default: it is a diagnosis column, wanted when a manager is
-     * asking why a lead is still open rather than on every screen.
-     */
-    {
-      key: 'movement', header: 'Movement', width: 190, defaultHidden: true,
-      cellClassName: 'text-muted-foreground',
-      searchable: true,
-      searchValue: (l) => movementLabel(l),
-      render: (l) => movementLabel(l) || '—',
-    },
-    { key: 'leadSource', header: 'Lead Source', cellClassName: 'text-muted-foreground', render: (l) => l.leadSource ?? '—', searchable: true, sortable: true, searchValue: (l) => l.leadSource },
-    { key: 'businessName', header: 'Company Name', render: (l) => l.businessName, searchable: true, sortable: true, searchValue: (l) => l.businessName },
-    { key: 'contactName', header: 'Contact Person', render: (l) => l.contactName ?? '—', searchable: true, sortable: true, searchValue: (l) => l.contactName },
-    { key: 'contactName2', header: 'Designation', render: (l) => l.contactName2 ?? '—', searchable: true, sortable: true, searchValue: (l) => l.contactName2 },
-    { key: 'phone', header: 'Phone', cellClassName: 'font-mono text-[11.5px] text-muted-foreground', render: (l) => l.phone, searchable: true, sortable: true, searchValue: (l) => l.phone },
-    { key: 'altPhone', header: 'Alt Phone', cellClassName: 'font-mono text-[11.5px] text-muted-foreground', render: (l) => l.altPhone ?? '—', searchable: true, sortable: true, searchValue: (l) => l.altPhone },
-    { key: 'email', header: 'Email', cellClassName: 'text-muted-foreground', render: (l) => l.email ?? '—', searchable: true, sortable: true, searchValue: (l) => l.email },
-    { key: 'website', header: 'Website', cellClassName: 'text-muted-foreground', render: (l) => l.website ?? '—', searchable: true, sortable: true, searchValue: (l) => l.website },
-    { key: 'socialMedia', header: 'Social Media', cellClassName: 'text-muted-foreground', render: (l) => l.socialMedia ?? '—', searchable: true, sortable: true, searchValue: (l) => l.socialMedia },
-    { key: 'country', header: 'Country', cellClassName: 'text-muted-foreground', render: (l) => l.country ?? '—', searchable: true, sortable: true, searchValue: (l) => l.country },
-    { key: 'state', header: 'State', cellClassName: 'text-muted-foreground', render: (l) => l.state, searchable: true, sortable: true, searchValue: (l) => l.state },
-    { key: 'city', header: 'City', cellClassName: 'text-muted-foreground', render: (l) => l.city, searchable: true, sortable: true, searchValue: (l) => l.city },
-    // A lead with no zone is called out rather than shown as an empty chip: it
-    // is the one state that blocks scheduling a callback, so the list is where
-    // someone notices and fixes it.
-    { key: 'tz', header: 'Time Zone', render: (l) => <TimezoneChip tz={l.timezone} /> },
-    { key: 'industry', header: 'Industry', cellClassName: 'text-muted-foreground', render: (l) => l.industry ?? '—', searchable: true, sortable: true, searchValue: (l) => l.industry },
-    { key: 'companySize', header: 'Company Size', cellClassName: 'text-muted-foreground', render: (l) => l.companySize ?? '—', searchable: true, sortable: true, searchValue: (l) => l.companySize },
-    { key: 'foundedYear', header: 'Founded Year', cellClassName: 'text-muted-foreground', render: (l) => l.foundedYear ?? '—', searchable: true, sortable: true, searchValue: (l) => l.foundedYear },
-    { key: 'address', header: 'Address', cellClassName: 'text-muted-foreground max-w-[200px] truncate', render: (l) => l.address ?? '—', searchable: true, sortable: true, searchValue: (l) => l.address },
-    // An owned lead is called out with a badge, not just a name: a lead has exactly
-    // one owner, and these rows are locked out of bulk assignment, so it has to be
-    // obvious at a glance why their checkbox is greyed out.
-    {
-      key: 'caller',
-      header: 'Assigned To',
-      render: (l) =>
-        l.assignedTo ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-[var(--brand-surface)] px-2 py-0.5 text-[10.5px] font-medium text-[var(--brand-on-surface)]">
-            <Lock className="h-3 w-3" /> {l.assignedTo.name}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">Unassigned</span>
-        ),
-      searchable: true,
-      trackable: true,
-      searchValue: (l) => l.assignedTo?.name,
-    },
-    {
-      key: 'callStatus',
-      header: 'Call Outcome',
-      // Editable in place: one click opens the configured outcome list and the
-      // pick saves straight away, so a mis-dispositioned lead is corrected from
-      // the row instead of a round trip through the Edit Lead page.
-      render: (l) => <LeadOutcomeCell lead={l} />,
-      searchable: true,
-      sortable: true,
-      searchValue: (l) => l.callStatus,
-    },
-    // Every date on this row belongs to the lead, so every one of them is read
-    // on the lead's clock — including the follow-up, which is an hour agreed
-    // with the customer and is the one it would be most damaging to state on
-    // anybody else's.
-    /**
-     * The three contact stamps, to the minute.
-     *
-     * They carry a time now because the calling flow writes one: a disposition
-     * records the instant it happened, and a booked callback is an hour agreed
-     * with the customer. Shown to the day these read as three identical dates on
-     * a lead called three times in an afternoon, and Next Follow-up — the one
-     * somebody acts on — loses the only part of it that says when to ring.
-     *
-     * A lead whose values came from the import shows midnight, which is what its
-     * sheet actually said.
-     */
-    { key: 'firstContact', header: 'First Contact', width: 170, cellClassName: 'text-muted-foreground whitespace-nowrap', render: (l) => <span title={zoneNote(l.timezone)}>{leadDateTime(l.firstContact, l.timezone)}</span> },
-    { key: 'lastContact', header: 'Last Contact', width: 170, cellClassName: 'text-muted-foreground whitespace-nowrap', render: (l) => <span title={zoneNote(l.timezone)}>{leadDateTime(l.lastContact, l.timezone)}</span> },
-    { key: 'followup', header: 'Next Follow-up', width: 170, cellClassName: 'text-muted-foreground whitespace-nowrap', render: (l) => <span title={zoneNote(l.timezone)}>{leadDateTime(l.nextFollowUpDate, l.timezone)}</span>, trackable: true },
-    // Counts the follow-ups actually MADE — a call that answered one an earlier
-    // call booked. Written by the calling flow, so it climbs on its own; see the
-    // contact-tracking block in the API's `applyDisposition`.
-    { key: 'followupCount', header: 'Follow-up Count', cellClassName: 'text-muted-foreground tabular-nums', render: (l) => l.followupCount ?? '—' },
-    // Requested tail order: Meeting Date → Comments → Lost Reason → Actions. Comments
-    // and Lost Reason both edit in place; Comments also syncs with call notes.
-    /**
-     * The lead's next Zoom meeting, to the minute.
-     *
-     * Written by the Zoom module rather than only by the import: booking a
-     * meeting sets it, rescheduling moves it, cancelling or completing it moves
-     * to the next pending meeting or clears it. A meeting booked through the CRM
-     * used to leave this cell empty, so the grid said a lead had no meeting
-     * while the calendar had one.
-     *
-     * Independent of Next Follow-up above, and never written from it. The two
-     * answer different questions — when are we meeting them, and when are we
-     * ringing them back — and a lead can easily have one and not the other.
-     */
-    { key: 'meetingDate', header: 'Meeting Date & Time', width: 170, cellClassName: 'text-muted-foreground whitespace-nowrap', render: (l) => <span title={zoneNote(l.timezone)}>{leadDateTime(l.meetingDate, l.timezone)}</span> },
-    {
-      key: 'comments',
-      header: 'Comments',
-      width: 240,
-      render: (l) => <LeadCommentCell lead={l} />,
-      searchable: true,
-      trackable: true,
-      sortable: true,
-      searchValue: (l) => l.comments,
-    },
-    {
-      key: 'lostReason',
-      header: 'Lost Reason',
-      width: 200,
-      render: (l) => <LeadInlineCell lead={l} field="lostReason" placeholder="Add a reason…" />,
-      searchable: true,
-      trackable: true,
-      sortable: true,
-      searchValue: (l) => l.lostReason,
-    },
-    {
-      key: 'actions', header: '', required: true,
-      render: (l) => (
-        <div className="flex items-center gap-1.5 opacity-50 transition-opacity group-hover:opacity-100">
-          {/* Hidden while calling is disabled — a Call button that can't call is
-              worse than no button. The row's View action still opens the lead. */}
-          {callingEnabled && (
-            <button onClick={() => { if (!dial(l.phone)) return; router.push(`/calling?leadId=${l.id}&autocall=1`); }} title="Call" aria-label={`Call ${l.businessName}`} className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[var(--brand-deep)] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Phone className="h-[15px] w-[15px]" /></button>
-          )}
-          <button onClick={() => router.push(`/leads/${l.id}`)} title="View" aria-label={`View ${l.businessName}`} className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[var(--brand-deep)] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Eye className="h-[15px] w-[15px]" /></button>
-        </div>
-      ),
-    },
-  ], [router, dial, callingEnabled]);
+  // The grid's columns are shared with Lead Library — see components/lead-columns.
+  // What differs between the pages is what they let you do with a lead.
+  const columns = useMemo(() => leadColumns({
+    onView: (l) => router.push(`/leads/${l.id}`),
+    onCall: callingEnabled ? (l) => { if (!dial(l.phone)) return; router.push(`/calling?leadId=${l.id}&autocall=1`); } : undefined,
+    // Lead history is Admin + Team Leader only on the API, so only they get the button.
+    onHistory: canManage ? setActivityLead : undefined,
+    canEditLostReason: canManage,
+  }), [router, dial, callingEnabled, canManage]);
 
   // Shared column prefs for Column Customization (visibility/order).
   //
@@ -551,12 +381,29 @@ export default function LeadsPage() {
           TARGET, not the number of leads anyone had been given — which made
           Balance and Progress answer a different question than their labels. */}
       <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
-        <KpiCard icon={Target} iconBg="var(--tone-blue-bg)" iconColor="var(--tone-blue-fg)" value={(s?.totalLeads ?? 0).toLocaleString()} label="Total Leads" />
+        {/* No "Total Leads" here: this page lists assigned leads only, so it
+            always equalled Assigned Leads. The Library, which lists both, keeps it. */}
         <KpiCard icon={Zap} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={(s?.assignedLeads ?? 0).toLocaleString()} label="Assigned Leads" />
         <KpiCard icon={PhoneCall} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value={(s?.contactedLeads ?? 0).toLocaleString()} label="Contacted" />
         <KpiCard icon={Hourglass} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={(s?.balanceLeads ?? 0).toLocaleString()} label="Balance Leads" />
         <KpiCard icon={Percent} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={`${s?.progressPct ?? 0}%`} label="Progress" />
       </div>
+
+      <LeadQuickFilters
+        followUp={followUp}
+        contact={contact}
+        onChange={update}
+        counts={s?.chips}
+        leading={
+          <SavedViewsMenu
+            views={savedViews.views}
+            current={filters}
+            onApply={replaceFilters}
+            onSave={(name) => savedViews.save(name, filters)}
+            onDelete={savedViews.remove}
+          />
+        }
+      />
 
       {/* Filter bar — one row on a laptop and up.
           Each control takes `min-w-0 flex-1` so the row divides its width between
@@ -569,20 +416,21 @@ export default function LeadsPage() {
         <SearchInput value={q} onChange={setQ} placeholder="Search business, ID, phone, email…" className="min-w-[260px] flex-[2]" />
         <FilterSelect className="min-w-0 flex-1" icon={Globe} value={country} onChange={pickCountry} options={countryOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={Clock} value={tz} onChange={pickZone} options={tzOpts} />
-        <FilterSelect className="min-w-0 flex-1" icon={MapPin} value={state} onChange={(v) => { setState(v); setCity(''); }} options={stateOpts} />
-        <FilterSelect className="min-w-0 flex-1" icon={Building2} value={city} onChange={setCity} options={cityOpts} />
+        <FilterSelect className="min-w-0 flex-1" icon={MapPin} value={state} onChange={(v) => update({ state: v, city: '' })} options={stateOpts} />
+        <FilterSelect className="min-w-0 flex-1" icon={Building2} value={city} onChange={(v) => update({ city: v })} options={cityOpts} />
         {/* Admin only. Hidden rather than disabled for other roles: a team
             leader has no use for a control the API will ignore, and an
             employee is already pinned to their own book. */}
         {isAdmin && <FilterSelect className="min-w-0 flex-1" icon={UserIcon} value={employeeId} onChange={setEmployeeId} options={employeeOpts} />}
-        <FilterSelect className="min-w-0 flex-1" icon={Tag} value={status} onChange={setStatus} options={STATUS_OPTS} />
-        <FilterSelect className="min-w-0 flex-1" icon={PhoneCall} value={callStatus} onChange={setCallStatus} options={callOutcomeOpts} />
+        {/* The configured outcome list (Admin → Outcomes), several at once. */}
+        <LeadOutcomeFilter className="min-w-0 flex-1" value={outcomes} onChange={(v) => update({ outcomes: v })} />
         {/* Sits immediately before the calendar because it says what the calendar
             means. Picking a day is ambiguous on its own — created that day, or
             queued for that day — and these are different sets of leads the
             moment anything is carried forward. */}
         <FilterSelect className="min-w-0 flex-1" icon={CalendarClock} value={dateField} onChange={(v) => setDateField(v as 'created' | 'scheduled')} options={DATE_FIELD_OPTS} />
         <DateFilter value={dateFilter} onChange={setDateFilter} iconOnly />
+        <ClearFiltersButton count={activeCount} onClear={clearFilters} />
       </div>
 
       {/* Table */}
@@ -634,13 +482,22 @@ export default function LeadsPage() {
         // refuses the move regardless of what the client sends unless that
         // choice was made. The "Assigned" badge on each row shows who holds it.
         bulkActions={canManage ? (rows, clear) => (
-          <button
-            onClick={() => { clearTableSelection.current = clear; setAssignLeads(rows); }}
-            title="Reassign selected leads to another employee"
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-[12px] font-semibold text-foreground hover:bg-muted"
-          >
-            <UserPlus className="h-4 w-4" /> Reassign
-          </button>
+          <>
+            <button
+              onClick={() => { clearTableSelection.current = clear; setAssignLeads(rows); }}
+              title="Reassign selected leads to another employee"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-[12px] font-semibold text-foreground hover:bg-muted"
+            >
+              <UserPlus className="h-4 w-4" /> Reassign
+            </button>
+            <button
+              onClick={() => { clearTableSelection.current = clear; setUnassignLeads(rows); }}
+              title="Take the selected leads off their owners and return them to the Lead Library"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-card px-2.5 text-[12px] font-semibold text-foreground hover:bg-muted"
+            >
+              <UserMinus className="h-4 w-4" /> Unassign
+            </button>
+          </>
         ) : undefined}
       />
 
@@ -666,6 +523,29 @@ export default function LeadsPage() {
         )}
       </div>
 
+
+      {/* Ownership trail + activity log, without leaving the list. Only managers
+          can open it — the button isn't rendered for anyone else. */}
+      {activityLead && (
+        <LeadActivityDrawer leadId={activityLead.id} leadName={activityLead.businessName} onClose={() => setActivityLead(null)} />
+      )}
+
+      {/* Names whose queues the leads leave — "12 leads" alone doesn't tell a
+          manager they are about to empty one rep's afternoon. */}
+      {unassignLeads && (
+        <ConfirmDialog
+          title={`Unassign ${unassignLeads.length.toLocaleString()} lead${unassignLeads.length === 1 ? '' : 's'}?`}
+          message={
+            <>
+              {unassignLeads.length === 1 ? 'It' : 'They'} will leave {ownerSummary(unassignLeads)} and go back to the Lead
+              Library as Unassigned. Calls, notes and history stay with each lead.
+            </>
+          }
+          confirmLabel="Unassign"
+          onConfirm={async () => { await unassign.mutateAsync(unassignLeads); }}
+          onClose={() => setUnassignLeads(null)}
+        />
+      )}
 
       {/* Employee-wise assign popup — Admin / Team Leader */}
       {assignLeads && (

@@ -20,6 +20,9 @@ export function MultiSelect({
   disabled,
   emptyText = 'No options',
   maxRendered = 100,
+  className = '',
+  triggerClassName = 'bg-background px-2.5 py-1.5 text-[12px]',
+  panelClassName = '',
 }: {
   icon?: LucideIcon;
   label: string;
@@ -30,6 +33,12 @@ export function MultiSelect({
   disabled?: boolean;
   emptyText?: string;
   maxRendered?: number;
+  /** Sizing for the wrapper — e.g. `min-w-0 flex-1` to share a filter bar's width. */
+  className?: string;
+  /** Padding, text size and background of the button — override to match a filter bar. */
+  triggerClassName?: string;
+  /** Extra classes for the dropdown, e.g. a min width when the button is narrow. */
+  panelClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -62,12 +71,12 @@ export function MultiSelect({
     selected.length === 0 ? label : selected.length === 1 ? selected[0] : `${label}: ${selected.length}`;
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className={`relative ${className}`}>
       <button
         type="button"
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
-        className={`flex w-full items-center gap-2 rounded-md border bg-background px-2.5 py-1.5 text-left text-[12px] outline-none focus:border-primary disabled:opacity-50 ${selected.length ? 'border-primary/60' : ''}`}
+        className={`flex w-full items-center gap-2 rounded-md border text-left outline-none focus:border-primary disabled:opacity-50 ${triggerClassName} ${selected.length ? 'border-primary/60' : ''}`}
       >
         {Icon && <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
         <span className={`min-w-0 flex-1 truncate ${selected.length ? 'font-medium' : 'text-muted-foreground'}`}>{summary}</span>
@@ -86,7 +95,7 @@ export function MultiSelect({
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 z-[60] mt-1 overflow-hidden rounded-lg border bg-card shadow-xl">
+        <div className={`absolute left-0 right-0 z-[60] mt-1 overflow-hidden rounded-lg border bg-card shadow-xl ${panelClassName}`}>
           <div className="flex items-center gap-2 border-b px-2.5 py-1.5">
             <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <input

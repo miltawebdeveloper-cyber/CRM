@@ -25,6 +25,8 @@ const ACTION_LABEL: Record<string, string> = {
   lead_updated: 'Lead updated',
   lead_assigned: 'Lead assigned',
   lead_reassigned: 'Lead reassigned',
+  // Returned to the unassigned pool (Lead Management → Unassign).
+  lead_unassigned: 'Lead unassigned',
   status_changed: 'Status changed',
   call_completed: 'Call completed',
   call_queued: 'Call queued (Quo)',
@@ -35,6 +37,8 @@ const ACTION_LABEL: Record<string, string> = {
   call_summary_synced: 'AI summary synced',
   call_transcript_synced: 'Transcript synced',
   callback_scheduled: 'Callback scheduled',
+  // Next Follow-up cleared on the lead's page, which cancels the booked call.
+  callback_cancelled: 'Callback cancelled',
   // Written by the overnight rollover when a scheduled call's day ended without
   // it: the appointment moves to the next working day, the lead does not change
   // hands, and nothing about the lead's own record is rewritten.
