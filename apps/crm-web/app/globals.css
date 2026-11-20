@@ -614,3 +614,15 @@
     width: 100%;
   }
 }
+
+/* The route loading indicator (components/route-loading) holds off for 200ms
+   before fading in, so a navigation that finishes quickly never flashes it —
+   it only appears when there is a real wait to acknowledge. `both` keeps it at
+   opacity 0 through the delay. */
+.route-loading {
+  animation: route-loading-in 150ms ease-out 200ms both;
+}
+@keyframes route-loading-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}

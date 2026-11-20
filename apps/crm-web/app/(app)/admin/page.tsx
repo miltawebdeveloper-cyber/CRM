@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { Users, Activity, Database, ShieldCheck, Import as ImportIcon, Upload, Trash2, type LucideIcon } from 'lucide-react';
 import { activitiesApi, metricsApi } from '@/lib/crm';
@@ -42,7 +42,6 @@ const DM: { icon: LucideIcon; t: string; d: string; href?: string }[] = [
 ];
 
 export default function AdminPage() {
-  const router = useRouter();
   const { data: activities = [] } = useQuery({ queryKey: ['activities'], queryFn: activitiesApi.list, retry: false });
   const { data: users = [] } = useQuery<{ id: string; isActive: boolean }[]>({ queryKey: ['users'], queryFn: async () => (await api.get('/users')).data, retry: false });
   const { data: summary } = useQuery({ queryKey: ['metrics', 'summary'], queryFn: () => metricsApi.summary(), retry: false });
@@ -98,13 +97,23 @@ export default function AdminPage() {
       <div className="mt-[18px] rounded-2xl border bg-card shadow-sm">
         <div className="border-b px-[18px] py-4"><h3 className="font-display text-[14px] font-semibold">Data Management</h3></div>
         <div className="grid gap-3.5 p-[18px] sm:grid-cols-2 lg:grid-cols-4">
-          {DM.map((d) => (
-            <button key={d.t} onClick={() => d.href && router.push(d.href)} className="rounded-2xl border bg-card p-5 text-center transition-all hover:-translate-y-0.5 hover:shadow-md">
-              <div className="mx-auto mb-3 grid h-[46px] w-[46px] place-items-center rounded-[12px] bg-[var(--brand-surface)] text-[var(--brand-on-surface)]"><d.icon className="h-[22px] w-[22px]" /></div>
-              <div className="font-display text-[13px] font-bold">{d.t}</div>
-              <div className="mt-0.5 text-[11.5px] text-muted-foreground">{d.d}</div>
-            </button>
-          ))}
+          {DM.map((d) => {
+            const tile = 'rounded-2xl border bg-card p-5 text-center transition-all hover:-translate-y-0.5 hover:shadow-md';
+            const body = (
+              <>
+                <div className="mx-auto mb-3 grid h-[46px] w-[46px] place-items-center rounded-[12px] bg-[var(--brand-surface)] text-[var(--brand-on-surface)]"><d.icon className="h-[22px] w-[22px]" /></div>
+                <div className="font-display text-[13px] font-bold">{d.t}</div>
+                <div className="mt-0.5 text-[11.5px] text-muted-foreground">{d.d}</div>
+              </>
+            );
+            // A tile that goes somewhere is a link (prefetched, and it opens in
+            // a new tab); the rest stay buttons, unchanged.
+            return d.href ? (
+              <Link key={d.t} href={d.href} className={tile}>{body}</Link>
+            ) : (
+              <button key={d.t} type="button" className={tile}>{body}</button>
+            );
+          })}
         </div>
       </div>
     </div>

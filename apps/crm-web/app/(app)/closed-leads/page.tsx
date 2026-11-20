@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Upload, Eye, Clock, MapPin, Building2, PhoneCall, Info, Globe } from 'lucide-react';
 import { leadsApi, type Lead, type LeadListQuery } from '@/lib/leads';
@@ -38,7 +38,6 @@ const EXPORT_LIMIT = 5000;
 const ALL_STATUSES = { label: 'All Call Statuses', value: '' };
 
 export default function ClosedLeadsPage() {
-  const router = useRouter();
   const { outcomes } = useOutcomeLabels();
   // Ordered by the outcome list's own sortOrder, which the API already applies —
   // so this menu reads in the order an admin arranged them.
@@ -213,12 +212,12 @@ export default function ClosedLeadsPage() {
             </button>
           )}
           <div className="flex gap-1.5 opacity-50 transition-opacity group-hover:opacity-100">
-            <button onClick={() => router.push(`/leads/${l.id}`)} title="View" aria-label={`View ${l.businessName}`} className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#333f25] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Eye className="h-[15px] w-[15px]" /></button>
+            <Link href={`/leads/${l.id}`} prefetch={false} title="View" aria-label={`View ${l.businessName}`} className="grid h-[30px] w-[30px] place-items-center rounded-lg border text-[#333f25] hover:bg-primary hover:text-primary-foreground dark:text-foreground"><Eye className="h-[15px] w-[15px]" /></Link>
           </div>
         </div>
       ),
     },
-  ], [router, canManage]);
+  ], [canManage]);
 
   const prefs = useColumnPrefs('closed-leads', columns);
 

@@ -26,8 +26,10 @@ jest.mock('@/lib/preferences', () => ({
   removeServerPreference: jest.fn(),
 }));
 
+// Mutable so the scroll tests can navigate; every other test stays on /dashboard.
+let mockPathname = '/dashboard';
 jest.mock('next/navigation', () => ({
-  usePathname: () => '/dashboard',
+  usePathname: () => mockPathname,
   useRouter: () => ({ replace: jest.fn(), push: jest.fn(), prefetch: jest.fn() }),
 }));
 
@@ -114,5 +116,70 @@ describe('AppLayout role gate', () => {
     expect(screen.queryByTestId('sidebar-stub')).toBeNull();
     expect(screen.queryByTestId('topbar-stub')).toBeNull();
     expect(screen.queryByTestId('page-content')).toBeNull();
+  });
+});
+
+/**
+ * The shell scrolls <main>, which Next's own scroll restoration doesn't know
+ * about: a new navigation starts at the top, Back/Forward returns to where the
+ * page was left.
+ */
+describe('AppLayout scroll position', () => {
+  beforeEach(() => {
+    getMock.mockReset();
+    getMock.mockResolvedValue({ data: { id: 'u1', email: 'm@crm.local', role: 'admin' } } as never);
+    mockPathname = '/leads';
+    window.history.replaceState(null, '', '/leads');
+  });
+
+  /** jsdom has no layout, so give <main> a scrollTop that remembers what it's set to. */
+  function trackScroll(main: HTMLElement) {
+    let top = 0;
+    Object.defineProperty(main, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { top = v; } });
+    return {
+      scrollTo(y: number) {
+        top = y;
+        main.dispatchEvent(new Event('scroll'));
+      },
+    };
+  }
+
+  it('starts a new page at the top and puts a Back where it was', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const tree = () => (
+      <QueryClientProvider client={qc}>
+        <AppLayout>
+          <div>{mockPathname}</div>
+        </AppLayout>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree());
+    const main = await screen.findByRole('main');
+    const scroller = trackScroll(main);
+
+    // Reading the list, 1,200px down.
+    scroller.scrollTo(1200);
+
+    // Open a lead — a new navigation, so the top of the page.
+    mockPathname = '/leads/abc';
+    window.history.pushState(null, '', '/leads/abc');
+    act(() => rerender(tree()));
+    expect(main.scrollTop).toBe(0);
+
+    // Back to the list — where it was left.
+    window.history.back = () => {};
+    window.history.replaceState(null, '', '/leads');
+    act(() => {
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    mockPathname = '/leads';
+    act(() => rerender(tree()));
+    expect(main.scrollTop).toBe(1200);
+
+    // And an ordinary click afterwards starts at the top again.
+    mockPathname = '/dashboard';
+    window.history.pushState(null, '', '/dashboard');
+    act(() => rerender(tree()));
+    expect(main.scrollTop).toBe(0);
   });
 });

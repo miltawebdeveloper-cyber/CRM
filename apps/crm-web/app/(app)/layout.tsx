@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { api, tokenStore } from '@/lib/api';
 import { canAccessPath, type Role } from '@/lib/nav';
+import { loginUrl } from '@/lib/return-to';
 import { setBusinessTimezone } from '@/lib/business-day';
 import { Sidebar } from '@/components/sidebar';
 import { Topbar } from '@/components/topbar';
@@ -29,13 +30,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => {
-    if (!tokenStore.access) router.replace('/login');
+    // Carries the page asked for, so signing in lands on it rather than on the
+    // dashboard — a lead link opened from an e-mail after the session lapsed.
+    if (!tokenStore.access) router.replace(loginUrl(window.location.pathname + window.location.search));
   }, [router]);
-
-  // Reset the scroll container to top on navigation (Next scrolls window, not <main>).
-  useEffect(() => {
-    mainRef.current?.scrollTo({ top: 0 });
-  }, [pathname]);
 
   const {
     data: me,
@@ -52,6 +50,62 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     },
     retry: false,
   });
+
+  /**
+   * Scroll position on navigation.
+   *
+   * This app scrolls `<main>`, not the window, and Next's own scroll handling
+   * only knows about the window. So the shell resets `<main>` to the top on a
+   * new navigation — and, on Back or Forward, puts it back where that page was
+   * left, which it used to reset too: a Back from a lead to a long list landed
+   * at the top of the list.
+   *
+   * Positions are remembered per path, from the scroll events themselves. The
+   * path they are filed under moves in a LAYOUT effect, before the browser can
+   * dispatch the scroll event that swapping the content causes — otherwise that
+   * event would file the new page's clamped position under the old page.
+   */
+  const scrollByPath = useRef(new Map<string, number>());
+  const scrollPath = useRef(pathname);
+  // The path a Back/Forward is going to — matched against the path that then
+  // renders, so a history step that only changes the query string can't leave
+  // the next ordinary click restoring a position instead of starting at the top.
+  const historyMove = useRef<string | null>(null);
+  useEffect(() => {
+    const onPop = () => { historyMove.current = window.location.pathname; };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+  // `<main>` only exists once the account has loaded, so this re-binds then.
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    const onScroll = () => scrollByPath.current.set(scrollPath.current, main.scrollTop);
+    main.addEventListener('scroll', onScroll, { passive: true });
+    return () => main.removeEventListener('scroll', onScroll);
+  }, [mePending, meErrored]);
+  useLayoutEffect(() => {
+    scrollPath.current = pathname;
+    const main = mainRef.current;
+    if (!main) return;
+    const restoring = historyMove.current === pathname;
+    historyMove.current = null;
+    if (!restoring) {
+      main.scrollTop = 0;
+      return;
+    }
+    const target = scrollByPath.current.get(pathname) ?? 0;
+    // The page may still be growing to its full height — rows painting from
+    // cache, a second chunk — so keep trying for a few frames until it fits.
+    let frames = 0;
+    let raf = 0;
+    const restore = () => {
+      main.scrollTop = target;
+      if (Math.abs(main.scrollTop - target) > 2 && frames++ < 20) raf = requestAnimationFrame(restore);
+    };
+    restore();
+    return () => cancelAnimationFrame(raf);
+  }, [pathname]);
 
   // RBAC: bounce a role away from a page it may not access.
   const role = me?.role as Role | undefined;

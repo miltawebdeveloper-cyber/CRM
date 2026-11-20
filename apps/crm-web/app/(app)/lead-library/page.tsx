@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Import as ImportIcon, Plus, Clock, MapPin, Building2, Globe, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, AlertTriangle, CalendarClock, Percent, Target, Zap, Undo2, Loader2, Trash2 } from 'lucide-react';
@@ -318,7 +319,6 @@ export default function LeadLibraryPage() {
   // The grid's columns are shared with Lead Management — see components/lead-columns.
   // What differs between the pages is what they let you do with a lead.
   const columns = useMemo(() => leadColumns({
-    onView: (l) => router.push(`/leads/${l.id}`),
     onCall: callingEnabled ? (l) => { if (!dial(l.phone)) return; router.push(`/calling?leadId=${l.id}&autocall=1`); } : undefined,
     // Lead history is Admin + Team Leader only on the API, so only they get the button.
     onHistory: canManage ? setActivityLead : undefined,
@@ -332,12 +332,12 @@ export default function LeadLibraryPage() {
     <div>
       <PageHead>
         {/* Where deleted leads go — restorable, or removable for good by an admin. */}
-        <button onClick={() => router.push('/lead-library/deleted')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted">
+        <Link href="/lead-library/deleted" className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted">
           <Trash2 className="h-4 w-4" /> Recently deleted
-        </button>
-        <button onClick={() => router.push('/import')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted">
+        </Link>
+        <Link href="/import" className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted">
           <ImportIcon className="h-4 w-4" /> Import CSV
-        </button>
+        </Link>
         {/* The whole filtered list, however long — see lib/use-lead-export. */}
         <LeadExportButtons query={listQuery} fileBase="lead-library" disabled={total === 0} />
         {/* Route/nav are already manager-only; the check here is defense in

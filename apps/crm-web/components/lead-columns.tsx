@@ -25,9 +25,16 @@ import { LeadInlineCell } from '@/components/lead-inline-cell';
  * layout (`useColumnPrefs`) is keyed by them, and a sortable column's key is
  * the field name the API orders by.
  */
+/**
+ * Per-row links to a lead's page are NOT prefetched (`prefetch={false}`).
+ * `next/link` prefetches every link that scrolls into view, and a grid holds
+ * hundreds of leads, each its own dynamic URL — that would be hundreds of
+ * background requests for pages nobody may open. The lead page's loading
+ * boundary (`leads/[id]/loading.tsx`) makes the click itself feel immediate.
+ */
+const leadHref = (l: Lead) => `/leads/${l.id}`;
+
 export interface LeadColumnOptions {
-  /** View — opens the lead's own page. */
-  onView: (lead: Lead) => void;
   /**
    * Call. Omitted while calling is disabled — a Call button that can't call is
    * worse than no button. The row's View action still opens the lead.
@@ -49,7 +56,7 @@ export interface LeadColumnOptions {
 const ACTION_BTN =
   'grid h-[30px] w-[30px] place-items-center rounded-lg border text-[var(--brand-deep)] hover:bg-primary hover:text-primary-foreground dark:text-foreground';
 
-export function leadColumns({ onView, onCall, onHistory, canEditLostReason }: LeadColumnOptions): ColumnDef<Lead>[] {
+export function leadColumns({ onCall, onHistory, canEditLostReason }: LeadColumnOptions): ColumnDef<Lead>[] {
   return [
     // The order the leads arrived in, and the grid's default sort. Hidden by
     // default — it is the order the rows are already in, so it earns its space
@@ -71,7 +78,7 @@ export function leadColumns({ onView, onCall, onHistory, canEditLostReason }: Le
       // on a row already ticks it (that is how drag-select starts), and the
       // drag ignores presses that land on a link.
       render: (l) => (
-        <Link href={`/leads/${l.id}`} title={`Open ${l.leadId}`} className="group/link flex items-center gap-[10px]">
+        <Link href={leadHref(l)} prefetch={false} title={`Open ${l.leadId}`} className="group/link flex items-center gap-[10px]">
           <Avatar name={l.leadId} />
           <span className="font-mono text-[11px] text-muted-foreground group-hover/link:text-primary group-hover/link:underline">{l.leadId}</span>
         </Link>
@@ -140,7 +147,7 @@ export function leadColumns({ onView, onCall, onHistory, canEditLostReason }: Le
     {
       key: 'businessName', header: 'Company Name', searchable: true, sortable: true, searchValue: (l) => l.businessName,
       render: (l) => (
-        <Link href={`/leads/${l.id}`} className="font-medium hover:text-primary hover:underline">
+        <Link href={leadHref(l)} prefetch={false} className="font-medium hover:text-primary hover:underline">
           {l.businessName || 'Unnamed lead'}
         </Link>
       ),
@@ -277,9 +284,11 @@ export function leadColumns({ onView, onCall, onHistory, canEditLostReason }: Le
                 <Phone className="h-[15px] w-[15px]" />
               </button>
             )}
-            <button onClick={() => onView(l)} title="View" aria-label={`View ${l.businessName}`} className={ACTION_BTN}>
+            {/* A link, so it opens in a new tab like any other — it was a button
+                that could only navigate in place. */}
+            <Link href={leadHref(l)} prefetch={false} title="View" aria-label={`View ${l.businessName}`} className={ACTION_BTN}>
               <Eye className="h-[15px] w-[15px]" />
-            </button>
+            </Link>
           </div>
         </div>
       ),

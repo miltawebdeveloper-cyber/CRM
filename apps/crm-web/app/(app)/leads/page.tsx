@@ -286,7 +286,6 @@ export default function LeadsPage() {
   // The grid's columns are shared with Lead Library — see components/lead-columns.
   // What differs between the pages is what they let you do with a lead.
   const columns = useMemo(() => leadColumns({
-    onView: (l) => router.push(`/leads/${l.id}`),
     onCall: callingEnabled ? (l) => { if (!dial(l.phone)) return; router.push(`/calling?leadId=${l.id}&autocall=1`); } : undefined,
     // Lead history is Admin + Team Leader only on the API, so only they get the button.
     onHistory: canManage ? setActivityLead : undefined,

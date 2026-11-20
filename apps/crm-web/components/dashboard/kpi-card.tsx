@@ -1,6 +1,5 @@
 'use client';
 
-import { motion } from 'framer-motion';
 import { type LucideIcon } from 'lucide-react';
 
 export interface KpiProps {
@@ -9,6 +8,11 @@ export interface KpiProps {
   iconColor: string;
   value: React.ReactNode;
   label: string;
+  /**
+   * Was the stagger for an entry animation, which is gone: replayed on every
+   * visit, it made each page's cards pop in a beat after the page itself.
+   * Still accepted so the existing call sites keep compiling.
+   */
   index?: number;
   /**
    * Still accepted so the existing call sites keep compiling, but no longer drawn.
@@ -33,12 +37,11 @@ export interface KpiProps {
  * and only the content differs between modules. This mirrors the Calls dashboard,
  * which is the reference design.
  */
-export function KpiCard({ icon: Icon, iconBg, iconColor, value, label, index = 0 }: KpiProps) {
+export function KpiCard({ icon: Icon, iconBg, iconColor, value, label }: KpiProps) {
+  // Rendered as it is, with no entry animation — the figures are what someone
+  // navigates to the page to read, so they arrive with it.
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25, delay: index * 0.03 }}
+    <div
       className="flex items-center gap-2.5 overflow-hidden rounded-xl border bg-card px-3 py-2.5 shadow-sm transition-all hover:-translate-y-[1px] hover:shadow-md"
     >
       <div
@@ -55,6 +58,6 @@ export function KpiCard({ icon: Icon, iconBg, iconColor, value, label, index = 0
           {label}
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }

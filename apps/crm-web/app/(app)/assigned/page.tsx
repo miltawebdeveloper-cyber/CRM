@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { RefreshCw, Plus, Pencil } from 'lucide-react';
 import { productivityApi, type CallerProductivity } from '@/lib/crm';
@@ -9,7 +9,6 @@ import { PageHead, Avatar } from '@/components/page-head';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 
 export default function AssignedPage() {
-  const router = useRouter();
   const { data: callers = [] } = useQuery({ queryKey: ['productivity'], queryFn: () => productivityApi.perCaller() });
 
   const columns = useMemo<ColumnDef<CallerProductivity>[]>(() => [
@@ -21,14 +20,14 @@ export default function AssignedPage() {
       key: 'distribution', header: 'Distribution', cellClassName: 'min-w-[130px]',
       render: (c) => { const pct = c.assigned ? Math.round((c.leadsCompleted / c.assigned) * 100) : 0; return <div className="h-2 overflow-hidden rounded-full bg-[var(--brand-surface)]"><span className="block h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg,var(--brand-mid),var(--brand-lime-deep))' }} /></div>; },
     },
-    { key: 'actions', header: '', required: true, render: () => <button onClick={() => router.push('/assignments')} className="grid h-[30px] w-[30px] place-items-center rounded-lg border hover:bg-primary hover:text-primary-foreground"><Pencil className="h-[15px] w-[15px]" /></button> },
-  ], [router]);
+    { key: 'actions', header: '', required: true, render: () => <Link href="/assignments" title="Edit assignments" aria-label="Edit assignments" className="grid h-[30px] w-[30px] place-items-center rounded-lg border hover:bg-primary hover:text-primary-foreground"><Pencil className="h-[15px] w-[15px]" /></Link> },
+  ], []);
 
   return (
     <div>
       <PageHead>
-        <button onClick={() => router.push('/assignments')} className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"><RefreshCw className="h-4 w-4" /> Auto-distribute</button>
-        <button onClick={() => router.push('/assignments')} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> Assign calls</button>
+        <Link href="/assignments" className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"><RefreshCw className="h-4 w-4" /> Auto-distribute</Link>
+        <Link href="/assignments" className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> Assign calls</Link>
       </PageHead>
 
       <div className="mb-[18px] grid gap-[18px] md:grid-cols-2 xl:grid-cols-3">

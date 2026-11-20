@@ -2,7 +2,6 @@
 
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { motion } from 'framer-motion';
 import { RefreshCw, Upload, PhoneCall, Target, Percent, Phone, PhoneMissed, CheckCircle2, Hourglass, Users, UserPlus, TrendingUp, Video } from 'lucide-react';
 import Link from 'next/link';
 import { leadsApi, type Lead } from '@/lib/leads';
@@ -278,7 +277,9 @@ export default function DashboardPage() {
       </section>
 
       {/* Widget grid — all live */}
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.2 }} className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+      {/* Rendered at once. It faded in after a 0.2s delay, so the widgets — the
+          live part of the page — arrived half a second after the dashboard did. */}
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <WidgetCard
           title="Today's Callbacks"
           columns={callbackColumns}
@@ -290,7 +291,7 @@ export default function DashboardPage() {
         <WidgetCard title="Missed Calls" columns={missedColumns} rows={missed} emptyMessage="No missed calls." />
         <WidgetCard title="Today's Leads" columns={leadColumns} rows={todaysLeads} emptyMessage="No leads added today." />
         <WidgetCard title="Recently Closed & Interested" columns={closedColumns} rows={recentClosed} emptyMessage="No closed leads yet." />
-      </motion.div>
+      </div>
     </div>
   );
 }

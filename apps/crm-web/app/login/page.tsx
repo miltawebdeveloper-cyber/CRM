@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, tokenStore } from '@/lib/api';
+import { safeReturnPath } from '@/lib/return-to';
 
 /** Pull the API's message out of an axios error. */
 function msgOf(err: unknown, fallback: string): string {
@@ -85,8 +86,10 @@ export default function LoginPage() {
     // it. A full navigation also resets module-level state nothing else does:
     // lib/preferences.ts's preference cache and lib/display-settings.ts's
     // current zone/language.
-    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- full navigation on purpose, see above
-    window.location.href = '/dashboard';
+    //
+    // To the page the user was sent here from, when there is one (`?next=`,
+    // same-site paths only — see lib/return-to), else the dashboard.
+    window.location.href = safeReturnPath(new URLSearchParams(window.location.search).get('next')) ?? '/dashboard';
   }
 
   async function onSubmit(e: React.FormEvent) {

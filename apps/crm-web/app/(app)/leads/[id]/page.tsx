@@ -4,7 +4,6 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { motion } from 'framer-motion';
 import { Phone, MessageSquare, Info, Pencil } from 'lucide-react';
 import { leadsApi, movementLabel, type UpdateLeadInput } from '@/lib/leads';
 import { assignmentsApi, communicationsApi, countriesApi, sameDayConflicts, type SameDayConflict } from '@/lib/crm';
@@ -486,13 +485,9 @@ export default function LeadDetailPage() {
 
           {/* Error handling surface */}
           {lead.quoStatus === 'failed' && lead.quoError && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-600 dark:text-red-400"
-            >
+            <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-600 dark:text-red-400">
               <strong>Quo error:</strong> {lead.quoError}
-            </motion.div>
+            </div>
           )}
 
           {/* Stored response */}

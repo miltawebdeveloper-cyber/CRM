@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { loginUrl } from './return-to';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
@@ -62,8 +63,8 @@ const isAuthRequest = (url?: string) => !!url && AUTH_PATHS.some((p) => url.incl
 function bounceToLogin() {
   tokenStore.clear();
   // A full navigation, not a router push: it drops the query cache with the session.
-  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-  window.location.href = '/login';
+  // Carries the page the session lapsed on, so signing back in returns there.
+  window.location.href = loginUrl(window.location.pathname + window.location.search);
 }
 
 /**
