@@ -41,7 +41,7 @@ import { ArchivedLeadsQueryDto, CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto
 import { closureCreateFields, closureFields } from './lead-closure.js';
 import { buildMatchKeys, decisionKey, emailDomain, longestWord, type LeadMatchOptions, type MatchableRecord, type MatchSignal } from './lead-dedupe.js';
 import { LeadIdService } from './lead-id.service.js';
-import { assertLeadAccess } from '../../common/lead-access.js';
+import { assertLeadAccess, isManagerRole } from '../../common/lead-access.js';
 import { CONTACTED_LEAD_WHERE } from '../../common/lead-contacted.js';
 
 /**
@@ -1633,19 +1633,21 @@ export class LeadsService {
     const closedByFilter = query.closedBy ? { closedBy: { name: query.closedBy } } : {};
 
     /**
-     * Narrow the book to one employee's leads — admins only.
+     * Narrow the book to one employee's leads — managers (admin, team leader).
      *
      * The role check lives here rather than in a guard on the route because the
-     * parameter is optional: everyone may call this endpoint, and only an admin
+     * parameter is optional: everyone may call this endpoint, and only a manager
      * may use this one field. An employee is already pinned to their own leads
      * by `scope` above, but ignoring the field for them as well means a
      * hand-written request naming somebody else's id reads as "no filter"
      * rather than quietly relying on `scope` being spread in the right order.
      *
-     * Team leaders are excluded deliberately — see the module docs.
+     * Team leaders were left out at first, with no reason recorded. They see
+     * every lead already, so the filter only narrows what they can see — it
+     * grants no reach they don't have. Opened to them on 2026-11-20.
      */
     const employeeFilter =
-      user?.role === Role.admin && query.employeeId
+      user && isManagerRole(user.role) && query.employeeId
         ? query.closed === true
           ? { closedById: query.employeeId }
           : { assignedToId: query.employeeId }
@@ -1957,7 +1959,7 @@ export class LeadsService {
     // above it, never below — the country list stays whole whatever else is set.
     const byCountry = query.country ? { country: query.country } : {};
     const byZone = { ...byCountry, ...timezoneWhere(query.timezone) };
-    const [zones, states, cities, countries, closers] = await Promise.all([
+    const [zones, states, cities, countries, closers, owners] = await Promise.all([
       this.prisma.lead.groupBy({ by: ['timezone'], where: { ...base, ...byCountry }, orderBy: { timezone: 'asc' } }),
       this.prisma.lead.groupBy({ by: ['state'], where: { ...base, ...byZone }, orderBy: { state: 'asc' } }),
       this.prisma.lead.groupBy({
@@ -1977,6 +1979,18 @@ export class LeadsService {
             orderBy: { name: 'asc' },
           })
         : Promise.resolve([]),
+      // Who holds leads in this list — the Employee filter on Lead Library and
+      // Lead Management. Read from the leads, like the dropdowns above, so it
+      // offers exactly the people with something to show (a team leader or a
+      // since-deactivated rep still holding leads included) and never a name
+      // with nothing behind it. Managers only: an employee sees just their own.
+      user && isManagerRole(user.role) && query.closed !== true
+        ? this.prisma.user.findMany({
+            where: { assignedLeads: { some: base } },
+            select: { id: true, name: true },
+            orderBy: { name: 'asc' },
+          })
+        : Promise.resolve([] as { id: string; name: string }[]),
     ]);
     return {
       // Leads with no zone are offered as their own filter value rather than
@@ -1988,6 +2002,7 @@ export class LeadsService {
       cities: cities.map((c) => c.city).filter(Boolean),
       countries: countries.map((c) => c.country).filter(Boolean),
       closers: closers.map((c) => c.name).filter(Boolean),
+      owners,
     };
   }
 

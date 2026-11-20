@@ -3,9 +3,8 @@
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Upload, Clock, MapPin, Building2, Globe, Zap, Percent, RefreshCw, PhoneCall, UserPlus, UserMinus, User as UserIcon, Hourglass, CalendarClock } from 'lucide-react';
+import { Clock, MapPin, Building2, Globe, Zap, Percent, RefreshCw, PhoneCall, UserPlus, UserMinus, User as UserIcon, Hourglass, CalendarClock } from 'lucide-react';
 import { leadsApi, type Lead, type LeadListQuery } from '@/lib/leads';
-import { usersApi } from '@/lib/users';
 import { LeadAssignDialog } from '@/components/lead-assign-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { LeadOutcomeFilter, LeadQuickFilters } from '@/components/lead-filters';
@@ -20,8 +19,7 @@ import { useTimezoneFilterOptions, countryOfZone, zoneMatchesCountry, UNSET_TIME
 import { ClearFiltersButton, DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, useColumnPrefs } from '@/components/data-table';
 import { type SortState } from '@/lib/use-column-prefs';
-import { downloadCsv, downloadXlsx } from '@/lib/export';
-import { EXPORT_HEADERS, exportRows } from '@/lib/lead-export';
+import { LeadExportButtons } from '@/components/lead-export-buttons';
 import { type DateFilterValue } from '@/lib/date-filters';
 import { useLeadListFilters } from '@/lib/lead-list-filters';
 import { useSavedViews } from '@/lib/saved-views';
@@ -29,11 +27,6 @@ import { SavedViewsMenu } from '@/components/saved-views-menu';
 import { useDebounced } from '@/lib/use-debounced';
 import { useInfiniteLeads, useLeadScrollSentinel } from '@/lib/use-infinite-leads';
 import { pushToast } from '@/lib/toast';
-
-/** Ceiling for an export — the API's own `limit` cap, and five times what the
- *  module could reach before. Beyond it the user is told what was left out
- *  rather than handed a short file that looks complete. */
-const EXPORT_LIMIT = 5000;
 
 /**
  * What the date filter beside this one is filtering on.
@@ -66,21 +59,21 @@ export default function LeadsPage() {
   const qc = useQueryClient();
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: async () => (await api.get('/auth/me')).data, retry: false });
   const canManage = me?.role === 'admin' || me?.role === 'team_leader';
-  const isAdmin = me?.role === 'admin';
 
   // The whole filter bar as one value — saved per browser and mirrored into the
   // URL, so opening a lead and coming back (by Back, the menu, or a shared link)
   // restores the view instead of resetting every control. See lead-list-filters.
-  const { filters, update, clear: clearFilters, replace: replaceFilters, activeCount } = useLeadListFilters('leads:filters', { employee: isAdmin });
+  const { filters, update, clear: clearFilters, replace: replaceFilters, activeCount } = useLeadListFilters('leads:filters', { employee: canManage });
   // Named filter sets, per user and per list — see lib/saved-views.
   const savedViews = useSavedViews('leads');
   // No ownership filter here: this page only ever lists assigned leads (Lead
   // Library shows both). Contact and follow-up are the quick-filter chips.
   const { q, country, tz, state, city, contact, followUp, outcomes, dateFilter, dateField, sort } = filters;
-  // Whose leads to show. Admin-only — the API ignores this parameter for every
-  // other role, so the control is hidden rather than merely disabled, and a
-  // value saved by an admin in a shared browser is not sent for anyone else.
-  const employeeId = isAdmin ? filters.employeeId : '';
+  // Whose leads to show. Managers only (admin, team leader) — the API ignores
+  // this parameter for an employee, so the control is hidden rather than merely
+  // disabled, and a value saved by a manager in a shared browser is not sent
+  // for an employee.
+  const employeeId = canManage ? filters.employeeId : '';
   const setQ = (v: string) => update({ q: v });
   const setEmployeeId = (v: string) => update({ employeeId: v });
   const setDateFilter = (v: DateFilterValue) => update({ dateFilter: v });
@@ -171,18 +164,13 @@ export default function LeadsPage() {
     // and the chosen value disappears out of the control the user is holding.
     placeholderData: keepPreviousData,
   });
-  // Who the Employee filter offers. Fetched only for an admin: `usersApi.list`
-  // is itself role-gated, so asking as anyone else is a guaranteed 403 in the
-  // console for a control they cannot see anyway.
-  const { data: staff = [] } = useQuery({ queryKey: ['users'], queryFn: usersApi.list, enabled: !!isAdmin, retry: false });
+  // Who the Employee filter offers: the people who hold leads in this list,
+  // from the same filter-options request as the dropdowns beside it — so a
+  // team leader gets the list too (the users list is admin-only), and it never
+  // offers a name with no leads behind it.
   const employeeOpts = useMemo(
-    () => [
-      { label: 'Employees', value: '' },
-      // Admins hold no lead book of their own, so listing them would offer
-      // filters that can only ever come back empty.
-      ...staff.filter((u) => u.role !== 'admin').map((u) => ({ label: u.name, value: u.id })),
-    ],
-    [staff],
+    () => [{ label: 'Employees', value: '' }, ...(filterOpts?.owners ?? []).map((u) => ({ label: u.name, value: u.id }))],
+    [filterOpts?.owners],
   );
   // Refuse to dial before the API would reject the call (no assigned caller ID),
   // since the Quo app handoff fires first and can't be taken back.
@@ -321,43 +309,12 @@ export default function LeadsPage() {
   // every row. Both are the API's job now (see `listQuery`), which is what lets
   // this list start with a screenful rather than the whole book.
 
-  // Re-runs the current query unpaged so the file holds every matching lead.
-  // Capped at the API's ceiling; if the filter selects more than that, say so
-  // rather than handing over a truncated file that looks complete.
-  const [exporting, setExporting] = useState(false);
-  const runExport = async (write: (rows: (string | number)[][]) => void) => {
-    setExporting(true);
-    try {
-      // `limit` rather than `pageSize`: pageSize is capped at 500 so a page
-      // request can't turn into a bulk read, while `limit` is the deliberate
-      // bulk path and allows the full 5,000.
-      const all = await leadsApi.page({ ...listQuery, page: 1, pageSize: undefined, limit: EXPORT_LIMIT });
-      write(exportRows(all.rows));
-      if (all.total > all.rows.length) {
-        pushToast('info', `Exported the first ${all.rows.length.toLocaleString()} of ${all.total.toLocaleString()} leads. Narrow the filters to export the rest.`);
-      }
-    } finally {
-      setExporting(false);
-    }
-  };
 
   return (
     <div>
       <PageHead>
-        <button
-          onClick={() => runExport((rows) => downloadCsv('leads', EXPORT_HEADERS, rows))}
-          disabled={total === 0 || exporting}
-          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
-        >
-          <Upload className="h-4 w-4" /> {exporting ? 'Preparing…' : 'Export CSV'}
-        </button>
-        <button
-          onClick={() => runExport((rows) => downloadXlsx('leads', EXPORT_HEADERS, rows))}
-          disabled={total === 0 || exporting}
-          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
-        >
-          <Upload className="h-4 w-4" /> Export Excel
-        </button>
+        {/* The whole filtered list, however long — see lib/use-lead-export. */}
+        <LeadExportButtons query={listQuery} fileBase="leads" disabled={total === 0} />
         {canManage && (
           <button
             onClick={() => { setSyncMsg(null); syncAll.mutate(); }}
@@ -418,10 +375,9 @@ export default function LeadsPage() {
         <FilterSelect className="min-w-0 flex-1" icon={Clock} value={tz} onChange={pickZone} options={tzOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={MapPin} value={state} onChange={(v) => update({ state: v, city: '' })} options={stateOpts} />
         <FilterSelect className="min-w-0 flex-1" icon={Building2} value={city} onChange={(v) => update({ city: v })} options={cityOpts} />
-        {/* Admin only. Hidden rather than disabled for other roles: a team
-            leader has no use for a control the API will ignore, and an
-            employee is already pinned to their own book. */}
-        {isAdmin && <FilterSelect className="min-w-0 flex-1" icon={UserIcon} value={employeeId} onChange={setEmployeeId} options={employeeOpts} />}
+        {/* Managers only. Hidden rather than disabled for an employee, who
+            is already pinned to their own book. */}
+        {canManage && <FilterSelect className="min-w-0 flex-1" icon={UserIcon} value={employeeId} onChange={setEmployeeId} options={employeeOpts} />}
         {/* The configured outcome list (Admin → Outcomes), several at once. */}
         <LeadOutcomeFilter className="min-w-0 flex-1" value={outcomes} onChange={(v) => update({ outcomes: v })} />
         {/* Sits immediately before the calendar because it says what the calendar

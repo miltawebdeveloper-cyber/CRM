@@ -884,3 +884,40 @@ describe('LeadsService — Recently deleted', () => {
     expect(whereOf(h.findMany, 1).deletedAt).toBeNull();
   });
 });
+
+/** The Employee filter, open to team leaders as well as admins. */
+describe('LeadsService — the Employee filter for managers', () => {
+  function harness() {
+    const findMany = jest.fn(async (_a: unknown) => []);
+    const userFind = jest.fn(async (_a: unknown) => [{ id: 'u-ann', name: 'Ann' }]);
+    const prisma = {
+      lead: { findMany, count: jest.fn(async () => 0), groupBy: jest.fn(async () => []) },
+      user: { findMany: userFind },
+      $transaction: jest.fn(async (ops: unknown[]) => Promise.all(ops as Promise<unknown>[])),
+    } as unknown as PrismaService;
+    return { service: new LeadsService(prisma, {} as NotificationsService, {} as LeadIdService), findMany, userFind };
+  }
+  const whereOf = (fn: ReturnType<typeof jest.fn>) => (fn.mock.calls[0][0] as { where: Record<string, unknown> }).where;
+
+  it("narrows a team leader's list to one employee", async () => {
+    const h = harness();
+    await h.service.findAll({ closed: false, employeeId: 'u-ann' } as never, { id: 'tl-1', role: 'team_leader' } as never);
+    expect(whereOf(h.findMany).assignedToId).toBe('u-ann');
+  });
+
+  it("is ignored for an employee, who stays pinned to their own leads", async () => {
+    const h = harness();
+    await h.service.findAll({ closed: false, employeeId: 'u-ann' } as never, { id: 'emp-1', role: 'employee' } as never);
+    expect(whereOf(h.findMany).assignedToId).toBe('emp-1');
+  });
+
+  it('offers managers the people who hold leads in the list, and employees nobody', async () => {
+    const h = harness();
+    const forTl = await h.service.filterOptions({ closed: false } as never, { id: 'tl-1', role: 'team_leader' } as never);
+    expect(forTl.owners).toEqual([{ id: 'u-ann', name: 'Ann' }]);
+    expect(JSON.stringify(h.userFind.mock.calls[0][0])).toContain('assignedLeads');
+
+    const forRep = await harness().service.filterOptions({ closed: false } as never, { id: 'emp-1', role: 'employee' } as never);
+    expect(forRep.owners).toEqual([]);
+  });
+});
