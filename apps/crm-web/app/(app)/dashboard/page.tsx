@@ -8,7 +8,7 @@ import { leadsApi, type Lead } from '@/lib/leads';
 import { metricsApi, tasksApi, callsApi, communicationsApi, type Task, type Followup, type MissedCall } from '@/lib/crm';
 import { AvailabilityPanel } from '@/components/availability-panel';
 import { WidgetCard, type Column } from '@/components/dashboard/widget-card';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { AnimatedNumber } from '@/components/animated-number';
 import { LiveIndicator } from '@/components/live-indicator';
 import { StatusPill } from '@/components/status-pill';
@@ -230,7 +230,7 @@ export default function DashboardPage() {
         <h2 className="mb-2 text-[11.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
           {mine ? 'My Leads' : 'Leads — all employees'}
         </h2>
-        <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+        <KpiGrid bottom={false}>
           <KpiCard index={0} icon={Target} iconBg="var(--tone-blue-bg)" iconColor="var(--tone-blue-fg)" value={<AnimatedNumber value={s?.totalLeads ?? 0} />} label={card('Total Leads')} />
           {/* The rest of the book. Without it Total 471 sat beside Assigned 181
               with no account of the other 290 — which reads as a number the
@@ -258,7 +258,7 @@ export default function DashboardPage() {
           {!mine && s?.avgLeadsPerEmployee !== null && (
             <KpiCard index={8} icon={Users} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={<AnimatedNumber value={s?.avgLeadsPerEmployee ?? 0} decimals={1} />} label="Avg Leads / Employee" />
           )}
-        </div>
+        </KpiGrid>
       </section>
 
       {/* ── Call cards ── same scope, same rules as the Calls Made dashboard. */}

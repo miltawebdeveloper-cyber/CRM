@@ -7,7 +7,7 @@ import { Users, Activity, Database, ShieldCheck, Import as ImportIcon, Upload, T
 import { activitiesApi, metricsApi } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { PageHead } from '@/components/page-head';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { EmailNotificationSettings } from '@/components/admin/email-notification-settings';
 import { OutcomeManagement } from '@/components/admin/outcome-management';
 import { CountryManagement } from '@/components/admin/country-management';
@@ -50,12 +50,12 @@ export default function AdminPage() {
   return (
     <div>
 
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+      <KpiGrid>
         <KpiCard icon={Users} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={activeUsers || '—'} label="Active Users" />
         <KpiCard icon={Activity} iconBg="var(--tone-teal-bg-2)" iconColor="var(--tone-teal-fg)" value="99.98%" label="Uptime (30d)" />
         <KpiCard icon={Database} iconBg="var(--tone-amber-bg-2)" iconColor="var(--tone-amber-fg)" value={(summary?.totalLeads ?? 0).toLocaleString()} label="Lead Records" />
         <KpiCard icon={ShieldCheck} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value="Healthy" label="Security Status" />
-      </div>
+      </KpiGrid>
 
       <div className="grid gap-[18px] lg:grid-cols-2">
         <div className="rounded-2xl border bg-card shadow-sm">

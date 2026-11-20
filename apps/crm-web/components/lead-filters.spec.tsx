@@ -25,4 +25,10 @@ describe('LeadQuickFilters', () => {
     // valid view, so picking one group never clears the other.
     expect(onChange).toHaveBeenLastCalledWith({ contact: 'never' });
   });
+
+  it("carries the page's actions at the end of the row, so they don't need a row of their own", () => {
+    render(<LeadQuickFilters followUp="" contact="" onChange={() => {}} trailing={<button>Export CSV</button>} />);
+    const action = screen.getByRole('button', { name: 'Export CSV' });
+    expect(action.parentElement!.className).toContain('ml-auto');
+  });
 });

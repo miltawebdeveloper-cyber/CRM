@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Flag, MapPin, Building2 } from 'lucide-react';
 import { targetsApi, type Target } from '@/lib/crm';
 import { PageHead } from '@/components/page-head';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 
 export default function TargetsPage() {
@@ -24,11 +24,11 @@ export default function TargetsPage() {
   return (
     <div>
 
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+      <KpiGrid>
         <KpiCard icon={Flag} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={totalTarget.toLocaleString()} label="Total Planned Leads" />
         <KpiCard icon={Building2} iconBg="var(--tone-blue-bg)" iconColor="var(--tone-blue-fg)" value={cities} label="Cities with Targets" />
         <KpiCard icon={MapPin} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={states} label="States Covered" />
-      </div>
+      </KpiGrid>
 
       <DataTable
         tableKey="targets"

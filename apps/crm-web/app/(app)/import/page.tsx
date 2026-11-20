@@ -1,8 +1,9 @@
 'use client';
 
+import { IconAction } from '@/components/icon-action';
 import { Fragment, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Import as ImportIcon, Check, AlertTriangle, Undo2, Filter, Loader2, Download, GitCompare, History, Info } from 'lucide-react';
+import { Import as ImportIcon, Check, AlertTriangle, Undo2, Filter, Loader2, Download, GitCompare, History, Info, FileDown, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { importApi, type LeadRow, type ImportCheckResult, type ImportMatchedLead } from '@/lib/crm';
 import { leadsApi } from '@/lib/leads';
@@ -627,18 +628,9 @@ export default function ImportPage() {
   return (
     <div>
       <PageHead>
-        <button
-          onClick={downloadTemplateXlsx}
-          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"
-        >
-          <Download className="h-4 w-4" /> Template (Excel)
-        </button>
-        <button
-          onClick={() => downloadCsv(TEMPLATE_FILENAME, TEMPLATE_HEADERS, [])}
-          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"
-        >
-          <Download className="h-4 w-4" /> Template (CSV)
-        </button>
+        {/* Secondary actions as compact icons (name on hover, focus or tap); the page's main action keeps its text. See components/icon-action. */}
+        <IconAction size="md" icon={FileSpreadsheet} label="Download template (Excel)" onClick={downloadTemplateXlsx} />
+        <IconAction size="md" icon={FileDown} label="Download template (CSV)" onClick={() => downloadCsv(TEMPLATE_FILENAME, TEMPLATE_HEADERS, [])} />
       </PageHead>
 
       <div className="grid gap-[18px] lg:grid-cols-2">

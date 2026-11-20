@@ -20,7 +20,7 @@ import { PageTabs } from '@/components/page-tabs';
 import { PageHead, Avatar } from '@/components/page-head';
 import { StatusPill } from '@/components/status-pill';
 import { OutcomePill } from '@/components/outcome-pill';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { DialPad } from '@/components/dial-pad';
 import { useCall } from '@/components/call-provider';
 import { useCanCall } from '@/lib/use-can-call';
@@ -899,7 +899,7 @@ export default function CallingPage() {
           The average switches source rather than showing a misleading zero: with
           dialling off there are no call durations to average, so it reports time
           per lead worked instead — which is the number that actually moves. */}
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+      <KpiGrid min={180}>
         <KpiCard icon={Target} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={dash?.assignedLeads ?? 0} label="Assigned Leads" />
         <KpiCard icon={CheckCircle2} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={dash?.callsCompleted ?? 0} label="Calls Completed" />
         <KpiCard icon={Clock} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={dash?.pendingLeads ?? 0} label="Pending" />
@@ -911,7 +911,7 @@ export default function CallingPage() {
           value={formatDuration(showAvgCall ? dash?.avgCallSecs ?? 0 : dash?.avgHandleSecs ?? 0)}
           label={showAvgCall ? 'Avg Call' : 'Avg / Lead'}
         />
-      </div>
+      </KpiGrid>
 
       {/* Queue (left) · Green lead card + notes (centre) · Dial pad (right).
           All three from `xl` up — this was the one place in the CRM where a

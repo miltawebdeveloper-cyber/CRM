@@ -1,9 +1,10 @@
 'use client';
 
+import { IconAction } from '@/components/icon-action';
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Upload, Eye, Clock, MapPin, Building2, PhoneCall, Info, Globe } from 'lucide-react';
+import { FileDown, FileSpreadsheet, Loader2, Eye, Clock, MapPin, Building2, PhoneCall, Info, Globe } from 'lucide-react';
 import { leadsApi, type Lead, type LeadListQuery } from '@/lib/leads';
 import { useDebounced } from '@/lib/use-debounced';
 import { useInfiniteLeads, useLeadScrollSentinel } from '@/lib/use-infinite-leads';
@@ -244,20 +245,22 @@ export default function ClosedLeadsPage() {
   return (
     <div>
       <PageHead>
-        <button
+        {/* Secondary actions as compact icons (name on hover, focus or tap); the page's main action keeps its text. See components/icon-action. */}
+        <IconAction
+          size="md"
+          icon={exporting ? Loader2 : FileDown}
+          busy={exporting}
+          label={exporting ? 'Preparing export…' : 'Export CSV'}
+          disabled={total === 0 || exporting}
           onClick={() => runExport((rows) => downloadCsv('onboarding-leads', EXPORT_HEADERS, rows))}
+        />
+        <IconAction
+          size="md"
+          icon={FileSpreadsheet}
+          label="Export Excel"
           disabled={total === 0 || exporting}
-          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
-        >
-          <Upload className="h-4 w-4" /> {exporting ? 'Preparing…' : 'Export CSV'}
-        </button>
-        <button
           onClick={() => runExport((rows) => downloadXlsx('onboarding-leads', EXPORT_HEADERS, rows))}
-          disabled={total === 0 || exporting}
-          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
-        >
-          <Upload className="h-4 w-4" /> Export Excel
-        </button>
+        />
       </PageHead>
 
       {/* Filter bar — one row from `lg` up; see the note on Lead Management's. */}

@@ -1,5 +1,6 @@
 'use client';
 
+import { IconAction } from '@/components/icon-action';
 import { useMemo } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
@@ -26,7 +27,8 @@ export default function AssignedPage() {
   return (
     <div>
       <PageHead>
-        <Link href="/assignments" className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"><RefreshCw className="h-4 w-4" /> Auto-distribute</Link>
+        {/* Secondary actions as compact icons (name on hover, focus or tap); the page's main action keeps its text. See components/icon-action. */}
+        <IconAction size="md" icon={RefreshCw} label="Auto-distribute" href="/assignments" />
         <Link href="/assignments" className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> Assign calls</Link>
       </PageHead>
 

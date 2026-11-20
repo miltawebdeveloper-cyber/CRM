@@ -6,7 +6,7 @@ import { Headphones, Phone, Clock, Percent, Filter } from 'lucide-react';
 import { productivityApi, formatDuration } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
 import { StatusPill } from '@/components/status-pill';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { FilterSelect, SearchInput } from '@/components/filter-controls';
 
 const PRESENCE_OPTS = [
@@ -41,12 +41,12 @@ export default function ManagerPage() {
         <span className="text-[12.5px] font-semibold text-muted-foreground">{onCall} active now</span>
       </PageHead>
 
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+      <KpiGrid>
         <KpiCard icon={Headphones} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={onCall} label="On Call" />
         <KpiCard icon={Phone} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={k?.totalCallsToday ?? 0} label="Calls Today" />
         <KpiCard icon={Clock} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value={formatDuration(k?.totalTalkSecs ?? 0)} label="Talk Time Today" />
         <KpiCard icon={Percent} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={`${k?.conversionRate ?? 0}%`} label="Conversion Rate" />
-      </div>
+      </KpiGrid>
 
       <div className="grid gap-[18px] md:grid-cols-2 xl:grid-cols-3">
         {shown.map((c) => {

@@ -8,7 +8,7 @@ import { availabilityApi } from '@/lib/availability';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { PageHead, Avatar } from '@/components/page-head';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
 import { DataTable, useColumnPrefs, type ColumnDef } from '@/components/data-table';
@@ -231,12 +231,12 @@ export default function UsersPage() {
         <button onClick={() => setCreating(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> Add User</button>
       </PageHead>
 
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+      <KpiGrid>
         <KpiCard icon={Users} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={users.length} label="Total Users" />
         <KpiCard icon={Shield} iconBg="var(--tone-amber-bg-2)" iconColor="var(--tone-amber-fg)" value={count('admin')} label="Admins" />
         <KpiCard icon={UserCheck} iconBg="var(--tone-teal-bg-2)" iconColor="var(--tone-teal-fg)" value={count('team_leader')} label="Team Leaders" />
         <KpiCard icon={Phone} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={count('employee')} label="Sales Callers" />
-      </div>
+      </KpiGrid>
 
       <div className="mb-5 grid gap-[18px] md:grid-cols-3">
         {Object.entries(ROLE_META).map(([r, m]) => (

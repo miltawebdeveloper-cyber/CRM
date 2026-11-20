@@ -1,7 +1,7 @@
 'use client';
 
+import { IconAction } from '@/components/icon-action';
 import { useMemo, useState } from 'react';
-import Link from 'next/link';
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, RotateCcw, Trash2 } from 'lucide-react';
 import { leadsApi, type ArchivedLead } from '@/lib/leads';
@@ -87,9 +87,8 @@ export default function RecentlyDeletedPage() {
   return (
     <div>
       <PageHead>
-        <Link href="/lead-library" className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted">
-          <ArrowLeft className="h-4 w-4" /> Back to Lead Library
-        </Link>
+        {/* Secondary actions as compact icons (name on hover, focus or tap); the page's main action keeps its text. See components/icon-action. */}
+        <IconAction size="md" icon={ArrowLeft} label="Back to Lead Library" href="/lead-library" />
       </PageHead>
 
       <p className="mb-4 max-w-3xl text-[12.5px] text-muted-foreground">

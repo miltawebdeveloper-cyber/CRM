@@ -93,6 +93,7 @@ export function LeadQuickFilters({
   onChange,
   counts,
   leading,
+  trailing,
 }: {
   followUp: FollowUpFilter;
   contact: ContactFilter;
@@ -104,6 +105,12 @@ export function LeadQuickFilters({
   counts?: LeadListSummary['chips'];
   /** Rendered first on the row — the saved-views menu. */
   leading?: ReactNode;
+  /**
+   * Rendered at the far right of the row — the page's own actions (export,
+   * import, add…). They used to take a row of their own above the KPI cards,
+   * mostly empty space; here they share the row the chips leave free.
+   */
+  trailing?: ReactNode;
 }) {
   return (
     <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -124,6 +131,7 @@ export function LeadQuickFilters({
         onChange={(v) => onChange({ contact: v })}
         counts={counts && { never: counts.neverContacted, contacted: counts.contacted }}
       />
+      {trailing && <div className="ml-auto flex items-center gap-2">{trailing}</div>}
     </div>
   );
 }

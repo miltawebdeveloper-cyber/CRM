@@ -13,13 +13,13 @@ import { leadColumns } from '@/components/lead-columns';
 import { assignmentsApi } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { useCanCall } from '@/lib/use-can-call';
-import { PageHead } from '@/components/page-head';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { useTimezoneFilterOptions, countryOfZone, zoneMatchesCountry, UNSET_TIMEZONE_LABEL } from '@/lib/timezone';
 import { ClearFiltersButton, DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, useColumnPrefs } from '@/components/data-table';
 import { type SortState } from '@/lib/use-column-prefs';
 import { LeadExportButtons } from '@/components/lead-export-buttons';
+import { IconAction } from '@/components/icon-action';
 import { type DateFilterValue } from '@/lib/date-filters';
 import { useLeadListFilters } from '@/lib/lead-list-filters';
 import { useSavedViews } from '@/lib/saved-views';
@@ -311,21 +311,6 @@ export default function LeadsPage() {
 
   return (
     <div>
-      <PageHead>
-        {/* The whole filtered list, however long — see lib/use-lead-export. */}
-        <LeadExportButtons query={listQuery} fileBase="leads" disabled={total === 0} />
-        {canManage && (
-          <button
-            onClick={() => { setSyncMsg(null); syncAll.mutate(); }}
-            disabled={syncAll.isPending}
-            title="Push every not-yet-synced lead to QUO/OpenPhone as a contact"
-            className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${syncAll.isPending ? 'animate-spin' : ''}`} />
-            {syncAll.isPending ? 'Syncing…' : 'Sync all to QUO'}
-          </button>
-        )}
-      </PageHead>
       {syncMsg && (
         <div className="mb-3 rounded-md border bg-muted/50 px-3 py-2 text-[12.5px] text-muted-foreground">{syncMsg}</div>
       )}
@@ -336,20 +321,39 @@ export default function LeadsPage() {
           used to show `plannedLeads` for a manager — the territory's monthly
           TARGET, not the number of leads anyone had been given — which made
           Balance and Progress answer a different question than their labels. */}
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+      <KpiGrid>
         {/* No "Total Leads" here: this page lists assigned leads only, so it
             always equalled Assigned Leads. The Library, which lists both, keeps it. */}
         <KpiCard icon={Zap} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={(s?.assignedLeads ?? 0).toLocaleString()} label="Assigned Leads" />
         <KpiCard icon={PhoneCall} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value={(s?.contactedLeads ?? 0).toLocaleString()} label="Contacted" />
         <KpiCard icon={Hourglass} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={(s?.balanceLeads ?? 0).toLocaleString()} label="Balance Leads" />
         <KpiCard icon={Percent} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={`${s?.progressPct ?? 0}%`} label="Progress" />
-      </div>
+      </KpiGrid>
 
       <LeadQuickFilters
         followUp={followUp}
         contact={contact}
         onChange={update}
         counts={s?.chips}
+        // The page's actions ride at the right of this row instead of taking a
+        // row of their own above the cards — see LeadQuickFilters.
+        trailing={
+          <>
+            {/* The whole filtered list, however long — see lib/use-lead-export. */}
+            <LeadExportButtons query={listQuery} fileBase="leads" disabled={total === 0} />
+            {/* Compact like the export icons beside it; the progress and the
+                result still show in the banner at the top of the page. */}
+            {canManage && (
+              <IconAction
+                icon={RefreshCw}
+                label={syncAll.isPending ? 'Syncing to QUO…' : 'Sync all to QUO'}
+                busy={syncAll.isPending}
+                disabled={syncAll.isPending}
+                onClick={() => { setSyncMsg(null); syncAll.mutate(); }}
+              />
+            )}
+          </>
+        }
         leading={
           <SavedViewsMenu
             views={savedViews.views}

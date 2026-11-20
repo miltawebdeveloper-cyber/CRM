@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Import as ImportIcon, Plus, Clock, MapPin, Building2, Globe, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, AlertTriangle, CalendarClock, Percent, Target, Zap, Undo2, Loader2, Trash2 } from 'lucide-react';
@@ -13,13 +12,13 @@ import { leadColumns } from '@/components/lead-columns';
 import { countriesApi } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { useCanCall } from '@/lib/use-can-call';
-import { PageHead } from '@/components/page-head';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { useLeadTimezones, useTimezoneFilterOptions, countryOfZone, zoneMatchesCountry, UNSET_TIMEZONE_LABEL } from '@/lib/timezone';
 import { ClearFiltersButton, DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, useColumnPrefs } from '@/components/data-table';
 import { type SortState } from '@/lib/use-column-prefs';
 import { LeadExportButtons } from '@/components/lead-export-buttons';
+import { IconAction } from '@/components/icon-action';
 import { type DateFilterValue } from '@/lib/date-filters';
 import { useLeadListFilters, type Ownership } from '@/lib/lead-list-filters';
 import { useSavedViews } from '@/lib/saved-views';
@@ -330,38 +329,36 @@ export default function LeadLibraryPage() {
 
   return (
     <div>
-      <PageHead>
-        {/* Where deleted leads go — restorable, or removable for good by an admin. */}
-        <Link href="/lead-library/deleted" className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted">
-          <Trash2 className="h-4 w-4" /> Recently deleted
-        </Link>
-        <Link href="/import" className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted">
-          <ImportIcon className="h-4 w-4" /> Import CSV
-        </Link>
-        {/* The whole filtered list, however long — see lib/use-lead-export. */}
-        <LeadExportButtons query={listQuery} fileBase="lead-library" disabled={total === 0} />
-        {/* Route/nav are already manager-only; the check here is defense in
-            depth, matching every other action on this page. */}
-        {canManage && (
-          <button onClick={() => setShowForm(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground shadow-sm hover:opacity-90">
-            <Plus className="h-4 w-4" /> Add Lead
-          </button>
-        )}
-      </PageHead>
 
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+      <KpiGrid>
         <KpiCard icon={Target} iconBg="var(--tone-blue-bg)" iconColor="var(--tone-blue-fg)" value={(s?.totalLeads ?? 0).toLocaleString()} label="Total Leads" />
         <KpiCard icon={Zap} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={(s?.assignedLeads ?? 0).toLocaleString()} label="Assigned Leads" />
         <KpiCard icon={PhoneCall} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value={(s?.contactedLeads ?? 0).toLocaleString()} label="Contacted" />
         <KpiCard icon={Hourglass} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={(s?.balanceLeads ?? 0).toLocaleString()} label="Balance Leads" />
         <KpiCard icon={Percent} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={`${s?.progressPct ?? 0}%`} label="Progress" />
-      </div>
+      </KpiGrid>
 
       <LeadQuickFilters
         followUp={followUp}
         contact={contact}
         onChange={update}
         counts={s?.chips}
+        // The page's actions ride at the right of this row instead of taking a
+        // row of their own above the cards — see LeadQuickFilters.
+        trailing={
+          <>
+            {/* Compact icon actions — each name shows on hover, focus or tap.
+                See components/icon-action. */}
+            {/* Where deleted leads go — restorable, or removable for good by an admin. */}
+            <IconAction icon={Trash2} label="Recently deleted" href="/lead-library/deleted" />
+            <IconAction icon={ImportIcon} label="Import CSV" href="/import" />
+            {/* The whole filtered list, however long — see lib/use-lead-export. */}
+            <LeadExportButtons query={listQuery} fileBase="lead-library" disabled={total === 0} />
+            {/* Route/nav are already manager-only; the check here is defense in
+                depth, matching every other action on this page. */}
+            {canManage && <IconAction icon={Plus} label="Add Lead" variant="primary" onClick={() => setShowForm(true)} />}
+          </>
+        }
         leading={
           <SavedViewsMenu
             views={savedViews.views}

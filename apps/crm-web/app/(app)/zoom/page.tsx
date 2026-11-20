@@ -7,7 +7,7 @@ import { zoomApi, STATUS_META, type ZoomMeeting, type ZoomMeetingStatus, type Co
 import { leadsApi, type Lead } from '@/lib/leads';
 import { useDebounced } from '@/lib/use-debounced';
 import { PageHead, Avatar } from '@/components/page-head';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { MeetingDetail } from '@/components/zoom/meeting-detail';
 import { dayInLeadZone, describeWallClock, formatInLeadZone, nowInLeadZone, zoneLabel } from '@/lib/timezone';
 
@@ -88,12 +88,12 @@ export default function ZoomPage() {
         </button>
       </PageHead>
 
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+      <KpiGrid min={180}>
         <KpiCard icon={CalendarClock} iconBg="var(--tone-blue-bg)" iconColor="var(--tone-blue-fg)" value={kpis.today} label="Today" />
         <KpiCard icon={Video} iconBg="var(--tone-neutral-bg)" iconColor="var(--tone-neutral-fg)" value={kpis.scheduled} label="Upcoming" />
         <KpiCard icon={PlayCircle} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={kpis.inProgress} label="In Progress" />
         <KpiCard icon={CheckCircle2} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={kpis.completed} label="Completed" />
-      </div>
+      </KpiGrid>
 
       {/* Toolbar */}
       <div className="mb-4 flex flex-wrap items-center gap-2">

@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Shuffle, Users } from 'lucide-react';
 import { assignmentsApi, type AssignmentSummary } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 
 type Strategy = 'equal' | 'state' | 'timezone';
@@ -59,11 +59,11 @@ export default function AssignmentsPage() {
         </button>
       </PageHead>
 
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+      <KpiGrid>
         <KpiCard icon={Users} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={data?.unassigned ?? 0} label="Unassigned Leads" />
         <KpiCard icon={Shuffle} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={totalAssigned.toLocaleString()} label="Assigned Leads" />
         <KpiCard icon={Users} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={data?.callers.length ?? 0} label="Active Callers" />
-      </div>
+      </KpiGrid>
 
       {auto.isSuccess && (
         <div className="mb-4 rounded-md bg-[var(--brand-surface-2)] px-4 py-2.5 text-sm text-[var(--brand-on-surface)]">

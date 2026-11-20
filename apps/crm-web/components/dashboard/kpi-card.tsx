@@ -1,6 +1,7 @@
 'use client';
 
 import { type LucideIcon } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 export interface KpiProps {
   icon: LucideIcon;
@@ -60,4 +61,36 @@ export function KpiCard({ icon: Icon, iconBg, iconColor, value, label }: KpiProp
       </div>
     </div>
   );
+}
+
+/**
+ * The row a page's KPI cards sit in — the one place its spacing is set.
+ *
+ * Every module wrote this container by hand, and they had drifted: the lead
+ * pages had been tightened (12px gaps, 12px below) while the rest kept 16px
+ * gaps and 20px below. One definition keeps them alike.
+ *
+ * `min` is the narrowest a card may get before the row wraps — each page keeps
+ * the width it was designed with (180 or 190). The class strings are spelled
+ * out rather than built, so Tailwind can see them.
+ *
+ * `bottom={false}` drops the margin underneath, for a row that sits inside a
+ * section which spaces itself (the dashboard).
+ */
+export function KpiGrid({
+  children,
+  min = 190,
+  bottom = true,
+  className = '',
+}: {
+  children: ReactNode;
+  min?: 180 | 190;
+  bottom?: boolean;
+  className?: string;
+}) {
+  const columns =
+    min === 180
+      ? '[grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]'
+      : '[grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]';
+  return <div className={`grid gap-3 ${bottom ? 'mb-3' : ''} ${columns} ${className}`}>{children}</div>;
 }

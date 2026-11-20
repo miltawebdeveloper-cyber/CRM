@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Phone, Clock, Percent, Star } from 'lucide-react';
 import { productivityApi, formatDuration, type Period, type CallerProductivity } from '@/lib/crm';
 import { Avatar, PageHead } from '@/components/page-head';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { DateFilter } from '@/components/filter-controls';
 import type { DateFilterValue } from '@/lib/date-filters';
@@ -52,12 +52,12 @@ export default function ProductivityPage() {
         <DateFilter value={dateFilter} onChange={setDateFilter} iconOnly />
       </PageHead>
 
-      <div className={`mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))] transition-opacity ${isFetching ? 'opacity-60' : ''}`}>
+      <KpiGrid className={`transition-opacity ${isFetching ? 'opacity-60' : ''}`}>
         <KpiCard icon={Phone} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={totalCalls} label={`Total Calls (${PERIOD_LABEL[period]})`} />
         <KpiCard icon={Clock} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value={formatDuration(totalTalk)} label="Total Talk Time" />
         <KpiCard icon={Percent} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={totalCalls ? formatDuration(Math.round(totalTalk / totalCalls)) : '0s'} label="Avg Call Time" />
         <KpiCard icon={Star} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={best?.name?.split(' ')[0] ?? '—'} label="Best Performer" />
-      </div>
+      </KpiGrid>
 
       <DataTable
         tableKey="productivity"

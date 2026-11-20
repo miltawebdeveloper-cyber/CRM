@@ -1,11 +1,12 @@
 'use client';
 
+import { IconAction } from '@/components/icon-action';
 import { useState, useRef, useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Building2, FileText, BookOpen, MessageSquare, Bot, Send, Sparkles, RefreshCw, Mic, BookMarked, Target } from 'lucide-react';
 import { aiApi } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 
 const KB = [
   { icon: Building2, t: 'Company Operations', d: 'Services, US markets covered, timezones handled, client industries served', n: 18, bg: 'var(--brand-surface)', color: 'var(--brand-on-surface)' },
@@ -40,16 +41,17 @@ export default function AiTrainingPage() {
   return (
     <div>
       <PageHead>
-        <button className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"><RefreshCw className="h-4 w-4" /> Sync KB</button>
+        {/* Secondary actions as compact icons (name on hover, focus or tap); the page's main action keeps its text. See components/icon-action. */}
+        <IconAction size="md" icon={RefreshCw} label="Sync KB" onClick={() => {}} />
         <button className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground hover:opacity-90"><Sparkles className="h-4 w-4" /> Run Voice Analysis</button>
       </PageHead>
 
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+      <KpiGrid>
         <KpiCard icon={BookMarked} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value="115" label="KB Articles" />
         <KpiCard icon={Sparkles} iconBg="var(--tone-amber-bg-2)" iconColor="var(--tone-amber-fg)" value="1,240" label="AI Answers This Week" trend="18%" trendDir="up" />
         <KpiCard icon={Mic} iconBg="var(--tone-teal-bg-2)" iconColor="var(--tone-teal-fg)" value="86" label="Calls Coached" />
         <KpiCard icon={Target} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value="7.8/10" label="Avg Confidence" />
-      </div>
+      </KpiGrid>
 
       <div className="grid gap-[18px] xl:grid-cols-[7fr_5fr]">
         {/* Knowledge base */}

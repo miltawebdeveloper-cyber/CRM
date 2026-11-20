@@ -1,37 +1,41 @@
 'use client';
 
-import { Upload, X } from 'lucide-react';
+import { FileDown, FileSpreadsheet, Loader2, X } from 'lucide-react';
 import type { LeadListQuery } from '@/lib/leads';
 import { useLeadExport } from '@/lib/use-lead-export';
-
-const BTN =
-  'inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50';
+import { IconAction } from '@/components/icon-action';
 
 /**
  * Export CSV / Export Excel for a lead list — the whole filtered list, however
- * long (see `use-lead-export`). While it runs, the button counts up and a
- * Cancel sits beside it, since a large book takes a while to read.
+ * long (see `use-lead-export`).
+ *
+ * Compact icons like the rest of the page header (see IconAction), each with
+ * its own icon: the two used to share one, which only worked while the text
+ * beside them said which was which. A running export needs words, though, so
+ * while one runs the icons give way to a small status with the count and a
+ * cancel — a large book takes a while to read.
  */
 export function LeadExportButtons({ query, fileBase, disabled }: { query: LeadListQuery; fileBase: string; disabled?: boolean }) {
   const { run, cancel, progress, exporting } = useLeadExport(query, fileBase);
-  const label = progress && progress.total > 0
-    ? `Preparing… ${progress.done.toLocaleString()} of ${progress.total.toLocaleString()}`
-    : 'Preparing…';
+
+  if (exporting) {
+    const counted = progress && progress.total > 0
+      ? `Preparing… ${progress.done.toLocaleString()} of ${progress.total.toLocaleString()}`
+      : 'Preparing…';
+    return (
+      <>
+        <span role="status" aria-live="polite" className="inline-flex h-8 items-center gap-2 rounded-md border bg-card px-3 text-[12px] font-medium text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> {counted}
+        </span>
+        <IconAction icon={X} label="Cancel export" onClick={cancel} />
+      </>
+    );
+  }
 
   return (
     <>
-      <button onClick={() => run('csv')} disabled={disabled || exporting} className={BTN}>
-        <Upload className="h-4 w-4" /> {exporting ? label : 'Export CSV'}
-      </button>
-      {exporting ? (
-        <button onClick={cancel} title="Stop the export" className={BTN}>
-          <X className="h-4 w-4" /> Cancel
-        </button>
-      ) : (
-        <button onClick={() => run('xlsx')} disabled={disabled} className={BTN}>
-          <Upload className="h-4 w-4" /> Export Excel
-        </button>
-      )}
+      <IconAction icon={FileDown} label="Export CSV" onClick={() => run('csv')} disabled={disabled} />
+      <IconAction icon={FileSpreadsheet} label="Export Excel" onClick={() => run('xlsx')} disabled={disabled} />
     </>
   );
 }

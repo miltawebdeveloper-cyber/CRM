@@ -1,11 +1,12 @@
 'use client';
 
+import { IconAction } from '@/components/icon-action';
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Phone, Mic, Users, CheckCircle2, KeyRound, RefreshCw, Play, Download, X, Filter } from 'lucide-react';
 import { configApi, openphoneApi, integrationsApi } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { FilterSelect } from '@/components/filter-controls';
 
@@ -85,15 +86,16 @@ export default function IntegrationsPage() {
   return (
     <div>
       <PageHead>
-        <button className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"><KeyRound className="h-4 w-4" /> API Keys</button>
+        {/* Secondary actions as compact icons (name on hover, focus or tap); the page's main action keeps its text. See components/icon-action. */}
+        <IconAction size="md" icon={KeyRound} label="API Keys" onClick={() => {}} />
       </PageHead>
 
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+      <KpiGrid>
         <KpiCard icon={Phone} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value="1,284" label="Calls Synced (30d)" trend="9%" trendDir="up" />
         <KpiCard icon={Mic} iconBg="var(--tone-amber-bg-2)" iconColor="var(--tone-amber-fg)" value="1,201" label="Recordings Stored" />
         <KpiCard icon={Users} iconBg="var(--tone-teal-bg-2)" iconColor="var(--tone-teal-fg)" value="2,940" label="Contacts Synced" />
         <KpiCard icon={CheckCircle2} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={activeConnections} label="Active Connections" />
-      </div>
+      </KpiGrid>
 
       <div className="mb-[18px] flex gap-1 overflow-x-auto border-b">
         {TABS.map((t) => (

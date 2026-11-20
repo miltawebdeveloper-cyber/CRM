@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { GitBranch, DollarSign, Percent, Clock, MapPin, Building2 } from 'lucide-react';
 import { leadsApi, type Lead } from '@/lib/leads';
 import { PageHead, Avatar } from '@/components/page-head';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { Segmented } from '@/components/segmented';
 import { StatusPill } from '@/components/status-pill';
 import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
@@ -90,12 +90,12 @@ export default function PipelinePage() {
         <Segmented options={VIEWS} value={view} onChange={setView} />
       </PageHead>
 
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+      <KpiGrid>
         <KpiCard icon={GitBranch} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={openDeals} label="Open Deals" />
         <KpiCard icon={DollarSign} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value="$284K" label="Weighted Value" />
         <KpiCard icon={Percent} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value="22%" label="Win Rate" />
         <KpiCard icon={Clock} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value="14 days" label="Avg Cycle" />
-      </div>
+      </KpiGrid>
 
       {view === 'board' ? (
         <div className="grid auto-cols-[minmax(220px,1fr)] grid-flow-col gap-[14px] overflow-x-auto pb-2">

@@ -6,7 +6,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianG
 import { PhoneIncoming, PhoneOutgoing, PhoneMissed, Clock, MessageSquare, Phone } from 'lucide-react';
 import { communicationsApi, formatDuration } from '@/lib/crm';
 import { PageHead } from '@/components/page-head';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { DateFilter } from '@/components/filter-controls';
 import type { DateFilterValue } from '@/lib/date-filters';
 
@@ -46,7 +46,7 @@ export default function CommunicationsPage() {
         </div>
       )}
 
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+      <KpiGrid min={180}>
         <KpiCard icon={Phone} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={c?.total ?? 0} label="Total Calls" />
         <KpiCard icon={PhoneIncoming} iconBg="var(--tone-blue-bg)" iconColor="var(--tone-blue-fg)" value={c?.inbound ?? 0} label="Inbound" />
         <KpiCard icon={PhoneOutgoing} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={c?.outbound ?? 0} label="Outbound" />
@@ -55,7 +55,7 @@ export default function CommunicationsPage() {
         <KpiCard icon={Clock} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={formatDuration(c?.totalTalkSecs ?? 0)} label="Total Talk Time" />
         <KpiCard icon={MessageSquare} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={m?.total ?? 0} label="SMS Total" />
         <KpiCard icon={MessageSquare} iconBg="var(--tone-teal-bg-2)" iconColor="var(--tone-teal-fg)" value={`${m?.inbound ?? 0} / ${m?.outbound ?? 0}`} label="SMS In / Out" />
-      </div>
+      </KpiGrid>
 
       <div className="rounded-2xl border bg-card p-[18px] shadow-sm">
         <h3 className="mb-4 font-display text-[14px] font-semibold">Activity over time</h3>

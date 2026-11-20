@@ -1,5 +1,6 @@
 'use client';
 
+import { IconAction } from '@/components/icon-action';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -9,7 +10,7 @@ import { callsApi, assignmentsApi, type Followup } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { useCanCall } from '@/lib/use-can-call';
 import { PageHead, Avatar } from '@/components/page-head';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
@@ -211,11 +212,12 @@ export default function FollowupsPage() {
   return (
     <div>
       <PageHead>
-        <Link href="/calendar" className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted"><Calendar className="h-4 w-4" /> Calendar</Link>
+        {/* Secondary actions as compact icons (name on hover, focus or tap); the page's main action keeps its text. See components/icon-action. */}
+        <IconAction size="md" icon={Calendar} label="Calendar" href="/calendar" />
         <Link href="/calling" className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground hover:opacity-90"><Plus className="h-4 w-4" /> Schedule</Link>
       </PageHead>
 
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+      <KpiGrid>
         {/* "Due Now" is the one a rep should act on this minute — the hour-long
             window between the scheduled time and the callback counting as
             missed. It had no card, so it was invisible until it was already
@@ -225,7 +227,7 @@ export default function FollowupsPage() {
         <KpiCard icon={RefreshCw} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={thisWeek} label="This Week" />
         <KpiCard icon={CheckCircle2} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={fus.length} label="Total Scheduled" />
         <KpiCard icon={AlertTriangle} iconBg="var(--tone-red-bg)" iconColor="var(--tone-red-fg-2)" value={overdue} label="Overdue" />
-      </div>
+      </KpiGrid>
 
       <DataTable
         tableKey="followups"

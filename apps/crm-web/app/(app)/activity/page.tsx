@@ -1,15 +1,16 @@
 'use client';
 
+import { IconAction } from '@/components/icon-action';
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Phone, Users, NotebookPen, CheckCircle2, Upload } from 'lucide-react';
+import { Phone, Users, NotebookPen, CheckCircle2, FileDown } from 'lucide-react';
 import { activitiesApi, type Activity } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
 import { OutcomePill } from '@/components/outcome-pill';
 import { useOutcomeLabels } from '@/lib/use-outcome-label';
 import { DateFilter, SearchInput } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { downloadCsv } from '@/lib/export';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { leadOrViewer, zoneNote } from '@/lib/timezone';
@@ -68,7 +69,11 @@ export default function ActivityPage() {
       <PageHead>
         <SearchInput value={q} onChange={setQ} placeholder="Search lead, user, outcome…" className="min-w-[220px]" />
         <DateFilter value={dateRange} onChange={setDateRange} iconOnly />
-        <button
+        {/* Secondary actions as compact icons (name on hover, focus or tap); the page's main action keeps its text. See components/icon-action. */}
+        <IconAction
+          size="md"
+          icon={FileDown}
+          label="Export CSV"
           onClick={() =>
             downloadCsv(
               'activity-log',
@@ -79,19 +84,18 @@ export default function ActivityPage() {
             )
           }
           disabled={activities.length === 0}
-          className="inline-flex items-center gap-2 rounded-md border bg-card px-[15px] py-[9px] text-[12.5px] font-semibold hover:bg-muted disabled:opacity-50"
-        ><Upload className="h-4 w-4" /> Export</button>
+        />
       </PageHead>
 
       {/* Summary cards come from the shared KpiCard, like every other module. This
           page used to hand-roll the same markup, which meant it silently missed the
           hover lift and entrance animation and would drift further with each tweak
           to the real card. */}
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+      <KpiGrid>
         {KPIS.map((k, i) => (
           <KpiCard key={k.lab} index={i} icon={k.icon} iconBg={k.bg} iconColor={k.color} value={k.val} label={k.lab} />
         ))}
-      </div>
+      </KpiGrid>
 
       <DataTable
         tableKey="activity"

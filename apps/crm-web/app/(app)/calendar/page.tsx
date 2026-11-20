@@ -7,7 +7,7 @@ import { calendarApi, assignmentsApi, type CalendarEvent, type ActivityType } fr
 import { api } from '@/lib/api';
 import { PageHead, Avatar } from '@/components/page-head';
 import { Segmented } from '@/components/segmented';
-import { KpiCard } from '@/components/dashboard/kpi-card';
+import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { DateFilter } from '@/components/date-picker';
 import { FilterSelect } from '@/components/filter-controls';
 import { CallbackStatusPill } from '@/components/callback-status-pill';
@@ -161,12 +161,12 @@ export default function CalendarPage() {
       </PageHead>
 
       {/* Summary — counts for the selected window and employee scope. */}
-      <div className="mb-5 grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+      <KpiGrid min={180}>
         <KpiCard index={0} icon={Phone} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={s?.calls ?? 0} label="Scheduled Calls" />
         <KpiCard index={1} icon={PhoneCall} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value={s?.callbacks ?? 0} label="Callback Calls" />
         <KpiCard index={2} icon={Video} iconBg="#e7f0fb" iconColor="var(--tone-blue-fg-2)" value={s?.zooms ?? 0} label="Zoom Meetings" />
         <KpiCard index={3} icon={CalendarDays} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value={s?.total ?? 0} label="Total Scheduled" />
-      </div>
+      </KpiGrid>
 
       <div className="rounded-2xl border bg-card shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-[18px] py-4">
