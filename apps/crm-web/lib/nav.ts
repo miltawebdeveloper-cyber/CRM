@@ -20,6 +20,7 @@ import {
   Settings,
   MessageSquare,
   Video,
+  Trash2,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -62,6 +63,9 @@ export const NAV: NavGroup[] = [
     heading: 'Pipeline',
     items: [
       { label: 'Lead Library', href: '/lead-library', icon: Library, sub: 'Master lead database', roles: MANAGERS },
+      // Reached from the Library's header, not the sidebar. Listed so the page is
+      // titled as itself and keeps the Library's manager-only rule.
+      { label: 'Recently Deleted', href: '/lead-library/deleted', icon: Trash2, sub: 'Restore deleted leads, or remove them for good', roles: MANAGERS, hidden: true },
       { label: 'Lead Management', href: '/leads', icon: Target, sub: 'Assign & manage assigned leads' },
       { label: 'Duplicate Leads', href: '/duplicates', icon: Copy, sub: 'Find and clear repeated records', roles: MANAGERS },
       // Renamed from "Closed Leads": a won lead isn't finished, it moves into

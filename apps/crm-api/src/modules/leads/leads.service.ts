@@ -37,7 +37,7 @@ const onLeadClock = (raw: string | undefined, tz: string | null): Date | undefin
 const dayFloor = (v: string) => (/^\d{4}-\d{2}-\d{2}$/.test(v.trim()) ? businessDayStart(v.trim()) : new Date(v));
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
-import { CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto.js';
+import { ArchivedLeadsQueryDto, CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto.js';
 import { closureCreateFields, closureFields } from './lead-closure.js';
 import { buildMatchKeys, decisionKey, emailDomain, longestWord, type LeadMatchOptions, type MatchableRecord, type MatchSignal } from './lead-dedupe.js';
 import { LeadIdService } from './lead-id.service.js';
@@ -2428,6 +2428,17 @@ export class LeadsService {
               .join(', ')}${found.length > 20 ? ` +${found.length - 20} more` : ''}`,
           },
         });
+        // And one per lead. The batch row says what happened; these say it to
+        // each lead — they are what Recently deleted reads "deleted by" from,
+        // and what the lead's own history shows if it is restored.
+        await tx.activity.createMany({
+          data: found.map((leadId) => ({
+            leadId,
+            userId: user.id,
+            action: 'lead_archived',
+            remarks: 'Deleted — can be restored from the Lead Library\'s Recently deleted',
+          })),
+        });
       }
     });
 
@@ -2472,15 +2483,78 @@ export class LeadsService {
       }
     });
 
+    if (user) {
+      await this.prisma.activity.createMany({
+        data: found.map((leadId) => ({ leadId, userId: user.id, action: 'lead_restored', remarks: 'Restored from Recently deleted' })),
+      });
+    }
     return { restored: found.length };
   }
 
-  async removeMany(ids: string[], user?: { id: string; role: Role }) {
+  /**
+   * Archived leads, newest deletion first — the Lead Library's Recently
+   * deleted view.
+   *
+   * Archiving only stamps `deletedAt`, and every other read filters on it, so
+   * until this view existed an archived lead was out of reach the moment the
+   * Undo bar was dismissed. "Deleted by" comes from the per-lead
+   * `lead_archived` entry; a lead archived before those were written shows
+   * none.
+   */
+  async listArchived(query: ArchivedLeadsQueryDto) {
+    const term = query.q?.trim();
+    const where: Prisma.LeadWhereInput = {
+      deletedAt: { not: null },
+      ...(term
+        ? {
+            OR: [
+              { businessName: { contains: term, mode: 'insensitive' } },
+              { leadId: { contains: term, mode: 'insensitive' } },
+              { email: { contains: term, mode: 'insensitive' } },
+              { phone: { contains: term } },
+            ],
+          }
+        : {}),
+    };
+    const pageSize = query.pageSize ?? 100;
+    const page = Math.max(1, query.page ?? 1);
+    const [total, rows] = await this.prisma.$transaction([
+      this.prisma.lead.count({ where }),
+      this.prisma.lead.findMany({
+        where,
+        orderBy: [{ deletedAt: 'desc' }, { importSeq: 'asc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: {
+          id: true, leadId: true, businessName: true, phone: true, email: true, state: true, city: true,
+          deletedAt: true, assignedTo: { select: { name: true } },
+        },
+      }),
+    ]);
+    const archivedBy = new Map<string, string>();
+    if (rows.length) {
+      const acts = await this.prisma.activity.findMany({
+        where: { leadId: { in: rows.map((r) => r.id) }, action: 'lead_archived' },
+        orderBy: { createdAt: 'desc' },
+        select: { leadId: true, user: { select: { name: true } } },
+      });
+      for (const a of acts) if (a.leadId && !archivedBy.has(a.leadId)) archivedBy.set(a.leadId, a.user.name);
+    }
+    return { rows: rows.map((r) => ({ ...r, deletedBy: archivedBy.get(r.id) ?? null })), total, page, pageSize };
+  }
+
+  /**
+   * `archived` is Recently deleted's "Delete permanently": it reaches ONLY
+   * archived rows, so the route behind it can never hard-delete a live lead
+   * however its ids were chosen. Without it, this is the original live-lead
+   * delete the import rollback uses.
+   */
+  async removeMany(ids: string[], user?: { id: string; role: Role }, opts: { archived?: boolean } = {}) {
     if (ids.length === 0) return { deleted: 0 };
     const leads = await this.prisma.lead.findMany({
       where: {
         id: { in: ids },
-        deletedAt: null,
+        deletedAt: opts.archived ? { not: null } : null,
         ...(user?.role === Role.employee ? { assignedToId: user.id } : {}),
       },
       select: { id: true, leadId: true, businessName: true },
@@ -2502,7 +2576,7 @@ export class LeadsService {
             action: 'lead_deleted',
             oldValue: null,
             newValue: null,
-            remarks: `Permanently deleted ${found.length} lead(s) and all associated records: ${leads
+            remarks: `Permanently deleted ${found.length} ${opts.archived ? 'archived ' : ''}lead(s) and all associated records: ${leads
               .slice(0, 20)
               .map((l) => l.leadId)
               .join(', ')}${found.length > 20 ? ` +${found.length - 20} more` : ''}`,

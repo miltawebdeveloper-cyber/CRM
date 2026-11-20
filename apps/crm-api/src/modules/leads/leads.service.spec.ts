@@ -824,3 +824,63 @@ describe('LeadsService.update — follow-up edits move the callback', () => {
     expect(h.rungUpdate).not.toHaveBeenCalled();
   });
 });
+
+/** Recently deleted: archive and restore are logged per lead, the list reads
+ *  archived rows only, and permanent delete can't reach a live lead. */
+describe('LeadsService — Recently deleted', () => {
+  const MGR = { id: 'mgr-1', role: 'admin' } as never;
+
+  function harness(leads: Array<{ id: string; leadId: string }> = [{ id: 'l1', leadId: 'L-2026-1' }, { id: 'l2', leadId: 'L-2026-2' }]) {
+    const findMany = jest.fn(async (_a: unknown) => leads);
+    const createMany = jest.fn(async (_a: unknown) => ({ count: leads.length }));
+    const tx = {
+      lead: { updateMany: jest.fn(async () => ({ count: leads.length })), deleteMany: jest.fn(async () => ({ count: leads.length })) },
+      activity: { create: jest.fn(async () => ({})), createMany },
+      workReassignment: { deleteMany: jest.fn(async () => ({ count: 0 })) },
+    };
+    const prisma = {
+      lead: { findMany, count: jest.fn(async () => leads.length) },
+      activity: { createMany, findMany: jest.fn(async () => [
+        { leadId: 'l1', user: { name: 'Ann (latest)' } },
+        { leadId: 'l1', user: { name: 'Bob (older)' } },
+      ]) },
+      $transaction: jest.fn(async (arg: unknown) =>
+        typeof arg === 'function' ? (arg as (t: typeof tx) => Promise<unknown>)(tx) : Promise.all(arg as Promise<unknown>[]),
+      ),
+    } as unknown as PrismaService;
+    return { service: new LeadsService(prisma, {} as NotificationsService, {} as LeadIdService), findMany, createMany };
+  }
+  const whereOf = (fn: ReturnType<typeof jest.fn>, i = 0) => (fn.mock.calls[i][0] as { where: Record<string, unknown> }).where;
+
+  it('logs an archive against each lead, so "deleted by" can be shown', async () => {
+    const h = harness();
+    await h.service.archiveMany(['l1', 'l2'], MGR);
+    const rows = (h.createMany.mock.calls[0][0] as { data: Array<{ leadId: string; action: string }> }).data;
+    expect(rows.map((r) => [r.leadId, r.action])).toEqual([['l1', 'lead_archived'], ['l2', 'lead_archived']]);
+  });
+
+  it('logs a restore against each lead too', async () => {
+    const h = harness();
+    await h.service.restoreMany(['l1', 'l2'], MGR);
+    const rows = (h.createMany.mock.calls[0][0] as { data: Array<{ action: string }> }).data;
+    expect(rows.every((r) => r.action === 'lead_restored')).toBe(true);
+  });
+
+  it('lists archived leads only, newest deletion first, with who deleted them', async () => {
+    const h = harness([{ id: 'l1', leadId: 'L-2026-1' }]);
+    const res = await h.service.listArchived({ q: 'acme' } as never);
+    const where = whereOf(h.findMany);
+    expect(where.deletedAt).toEqual({ not: null });
+    expect(where.OR).toBeDefined();
+    expect((h.findMany.mock.calls[0][0] as { orderBy: unknown[] }).orderBy[0]).toEqual({ deletedAt: 'desc' });
+    expect(res.rows[0].deletedBy).toBe('Ann (latest)');
+  });
+
+  it("permanent delete from Recently deleted reaches archived rows only; the original delete, live rows only", async () => {
+    const h = harness();
+    await h.service.removeMany(['l1'], MGR, { archived: true });
+    expect(whereOf(h.findMany, 0).deletedAt).toEqual({ not: null });
+    await h.service.removeMany(['l1'], MGR);
+    expect(whereOf(h.findMany, 1).deletedAt).toBeNull();
+  });
+});

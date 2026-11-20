@@ -241,6 +241,29 @@ export class BulkDeleteLeadsDto {
   ids: string[];
 }
 
+/** The Lead Library's Recently deleted view — archived leads, newest first. */
+export class ArchivedLeadsQueryDto {
+  @ApiPropertyOptional({ description: 'Company, Lead ID, phone or email contains' })
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @ApiPropertyOptional({ description: 'Page number, 1-based (default 1)' })
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiPropertyOptional({ description: 'Rows per page (default 100, max 500)' })
+  @IsOptional()
+  @Transform(({ value }) => (value === undefined || value === '' ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  @Max(500)
+  pageSize?: number;
+}
+
 export class ImportLeadsDto {
   @ApiProperty({ type: [CreateLeadDto], description: 'Parsed rows from the uploaded Excel/CSV' })
   @IsArray()

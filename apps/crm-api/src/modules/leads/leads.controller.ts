@@ -4,7 +4,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
 import { LeadsService } from './leads.service.js';
 import { QuoService } from '../quo/quo.service.js';
-import { BulkDeleteLeadsDto, CheckDuplicateDto, CheckImportDto, CreateLeadDto, DuplicateGroupsQueryDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto.js';
+import { ArchivedLeadsQueryDto, BulkDeleteLeadsDto, CheckDuplicateDto, CheckImportDto, CreateLeadDto, DuplicateGroupsQueryDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 
@@ -116,6 +116,32 @@ export class LeadsController {
   @Get('duplicates')
   duplicates(@Query() query: DuplicateGroupsQueryDto) {
     return this.leads.findDuplicateGroups(query);
+  }
+
+  /**
+   * Archived leads — the Lead Library's Recently deleted view. Restoring goes
+   * through `bulk-restore`; removing for good through `archived/purge`.
+   *
+   * Declared before `:id` for the same reason as `filter-options` above.
+   */
+  @Roles(Role.admin, Role.team_leader)
+  @Get('archived')
+  archived(@Query() query: ArchivedLeadsQueryDto) {
+    return this.leads.listArchived(query);
+  }
+
+  /**
+   * Permanently delete ARCHIVED leads — the one irreversible delete left in the
+   * app, now that the Library's bulk delete archives. Admin only: a team leader
+   * can delete and restore, but destroying a lead and its whole history is the
+   * admin's call. Live leads are out of its reach by construction; see
+   * `removeMany`'s `archived` mode.
+   */
+  @Roles(Role.admin)
+  @Post('archived/purge')
+  @HttpCode(200)
+  purgeArchived(@Body() dto: BulkDeleteLeadsDto, @CurrentUser() user: AuthUser) {
+    return this.leads.removeMany(dto.ids, user, { archived: true });
   }
 
   /**
