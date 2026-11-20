@@ -225,6 +225,72 @@ export class AssignmentsService {
   }
 
   /**
+   * Return leads to the unassigned pool — Lead Management's bulk Unassign.
+   *
+   * Before this the only way to take a lead off someone without handing it to
+   * somebody else was the lead's own page, one lead at a time.
+   *
+   * Each lead loses its owner and its active assignment is closed, so it leaves
+   * the rep's queue, Lead Management and tomorrow's carry-forward, and shows in
+   * the Lead Library as Unassigned with no Scheduled Date. Nothing else about the
+   * lead moves: calls, notes, outcome and created date stay as they were, and
+   * the assignment rows stay in its history.
+   *
+   * Not subject to the once-a-day rule. That rule is about work being handed to
+   * someone twice in a day; this hands it to nobody. Assigning one of these
+   * leads again later today still asks for confirmation, because the history
+   * row from this morning is still there.
+   *
+   * The write is guarded on the owner read just before it, per owner: a lead
+   * reassigned in between belongs to its new owner now, and the request was
+   * about the old one, so it is left alone and reported as skipped.
+   */
+  async unassign(leadIds: string[], unassignedById: string) {
+    const ids = [...new Set(leadIds)];
+    const owned = await this.prisma.lead.findMany({
+      where: { id: { in: ids }, deletedAt: null, assignedToId: { not: null } },
+      select: { id: true, assignedToId: true, callStatus: true, assignedTo: { select: { name: true } } },
+    });
+    if (owned.length === 0) return { unassigned: 0, skipped: ids.length };
+
+    const byOwner = new Map<string, string[]>();
+    for (const l of owned) byOwner.set(l.assignedToId!, [...(byOwner.get(l.assignedToId!) ?? []), l.id]);
+
+    const freed = await this.prisma.$transaction(async (tx) => {
+      for (const [owner, leadIdsOfOwner] of byOwner) {
+        await tx.lead.updateMany({ where: { id: { in: leadIdsOfOwner }, assignedToId: owner }, data: { assignedToId: null } });
+      }
+      const nowFree = await tx.lead.findMany({
+        where: { id: { in: owned.map((l) => l.id) }, assignedToId: null },
+        select: { id: true },
+      });
+      const freeIds = nowFree.map((l) => l.id);
+      if (freeIds.length === 0) return freeIds;
+
+      await tx.assignment.updateMany({ where: { leadId: { in: freeIds }, isActive: true }, data: { isActive: false } });
+      const prior = new Map(owned.map((l) => [l.id, l]));
+      await tx.activity.createMany({
+        data: freeIds.map((leadId) => {
+          const p = prior.get(leadId)!;
+          return {
+            leadId,
+            userId: unassignedById,
+            action: 'lead_unassigned',
+            oldValue: p.assignedToId,
+            newValue: null,
+            remarks: `Unassigned from ${p.assignedTo?.name ?? 'its owner'} — returned to the Lead Library`,
+            callStatus: p.callStatus ?? null,
+            assignedToId: null,
+          };
+        }),
+      });
+      return freeIds;
+    });
+
+    return { unassigned: freed.length, skipped: ids.length - freed.length };
+  }
+
+  /**
    * Single-caller assignment. `strict` (the default) refuses outright when any
    * lead is already owned elsewhere, so an accidental bulk assign fails loudly
    * instead of quietly doing half the job; `skipAssigned` assigns the free ones

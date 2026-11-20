@@ -7,7 +7,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Phone, MessageSquare, Info, Pencil } from 'lucide-react';
 import { leadsApi, movementLabel, type UpdateLeadInput } from '@/lib/leads';
-import { communicationsApi, countriesApi } from '@/lib/crm';
+import { assignmentsApi, communicationsApi, countriesApi, sameDayConflicts, type SameDayConflict } from '@/lib/crm';
+import { leadEditChanges } from '@/lib/lead-edit';
+import { pushToast } from '@/lib/toast';
+import { ReassignConfirm } from '@/components/reassign-confirm';
 import { useCanCall } from '@/lib/use-can-call';
 import { QuoStatusBadge } from '@/components/quo-status-badge';
 import { ZoomTimeline } from '@/components/zoom-timeline';
@@ -16,7 +19,7 @@ import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { api } from '@/lib/api';
 import { invalidateLeadComment } from '@/lib/sync';
 import { formatDateTime, formatTime } from '@/lib/display-settings';
-import { leadDate, leadDateTime } from '@/lib/timezone';
+import { leadDate, leadDateTime, wallClockInLeadZone } from '@/lib/timezone';
 import { countryOfZone, timezoneLabel, useLeadTimezones, zoneMatchesCountry } from '@/lib/timezone';
 
 const SMS_TEMPLATES: { label: string; text: (name: string) => string }[] = [
@@ -58,18 +61,32 @@ export default function LeadDetailPage() {
   // ── Lead edit (managers only) ──
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<UpdateLeadInput>({});
+  // What the form opened with — the save sends only what differs from it. See
+  // lib/lead-edit for why sending the whole form back was damaging.
+  const [initial, setInitial] = useState<UpdateLeadInput>({});
   const leadTzOpts = useLeadTimezones(form.country || null);
+  // Who the lead can be handed to — the employees the assign dialog offers.
+  const { data: assignSummary } = useQuery({ queryKey: ['assignments-summary'], queryFn: assignmentsApi.summary, enabled: canEdit && editing });
+  // The once-a-day rule: a lead already handed over today needs confirming
+  // before it moves again. The server says which, this asks.
+  const [sameDay, setSameDay] = useState<SameDayConflict[] | null>(null);
   const edit = useMutation({
     // A lead with no zone seeds `timezone: ''`, which the API's `@IsEnum(Timezone)`
     // rejects outright — so saving ANY edit to a zone-less lead used to fail with
     // a validation error that named a field the manager hadn't touched. Omit the
     // key instead: `@IsOptional()` then leaves the stored zone alone.
-    mutationFn: () => {
-      const { timezone, ...rest } = form;
-      return leadsApi.update(id, timezone ? { ...rest, timezone } : rest);
+    // Only what changed (lib/lead-edit), which also leaves a blank zone out.
+    mutationFn: (confirmSameDay: boolean) =>
+      leadsApi.update(id, { ...leadEditChanges(initial, form), ...(confirmSameDay ? { confirmSameDayReassign: true } : {}) }),
+    // Errors are handled below: a same-day refusal is a question, not a failure.
+    meta: { successMessage: 'Changes saved', suppressErrorToast: true },
+    onError: (err) => {
+      const conflicts = sameDayConflicts(err);
+      if (conflicts) return setSameDay(conflicts);
+      pushToast('error', (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to save changes.');
     },
-    meta: { successMessage: 'Changes saved' },
     onSuccess: () => {
+      setSameDay(null);
       // The form carries a Comments field, and saving it APPENDS to the lead's
       // shared trail server-side — so this refreshes every module that shows
       // comments, the Calling Panel included, rather than just this page. Covers
@@ -131,7 +148,12 @@ export default function LeadDetailPage() {
 
   // Seed the edit form from the current lead, then open the inline editor.
   const startEdit = () => {
-    setForm({
+    // Dates are pre-filled as the lead's wall clock, to the minute — the value
+    // the API reads back on that same clock. They used to be cut to their UTC
+    // calendar day, which both dropped the time and, for a US evening, named
+    // the wrong day.
+    const onClock = (v: string | null | undefined) => (v ? wallClockInLeadZone(v, lead.timezone) : '');
+    const seed: UpdateLeadInput = {
       businessName: lead.businessName,
       phone: lead.phone,
       email: lead.email ?? '',
@@ -144,8 +166,10 @@ export default function LeadDetailPage() {
       title: lead.title ?? '',
       leadCategory: lead.leadCategory ?? '',
       comments: lead.comments ?? '',
-      nextFollowUpDate: lead.nextFollowUpDate ? lead.nextFollowUpDate.slice(0, 10) : '',
-      caller: lead.assignedTo?.name ?? '',
+      nextFollowUpDate: onClock(lead.nextFollowUpDate),
+      // The owner's email, not their name: it is unique, and it is what the
+      // Assigned To list below uses as each option's value.
+      caller: lead.assignedTo?.email ?? '',
       leadGenerationId: lead.leadGenerationId ?? '',
       leadSource: lead.leadSource ?? '',
       contactName2: lead.contactName2 ?? '',
@@ -157,12 +181,14 @@ export default function LeadDetailPage() {
       foundedYear: lead.foundedYear ?? '',
       address: lead.address ?? '',
       callStatus: lead.callStatus ?? '',
-      firstContact: lead.firstContact ? lead.firstContact.slice(0, 10) : '',
-      lastContact: lead.lastContact ? lead.lastContact.slice(0, 10) : '',
+      firstContact: onClock(lead.firstContact),
+      lastContact: onClock(lead.lastContact),
       followupCount: lead.followupCount ?? undefined,
-      meetingDate: lead.meetingDate ? lead.meetingDate.slice(0, 10) : '',
+      meetingDate: onClock(lead.meetingDate),
       lostReason: lead.lostReason ?? '',
-    });
+    };
+    setForm(seed);
+    setInitial(seed);
     setEditing(true);
   };
   const set = (k: keyof UpdateLeadInput, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -285,16 +311,27 @@ export default function LeadDetailPage() {
               {field('Address', lead.address)}
               {field('Assigned To', lead.assignedTo?.name)}
               {field('Call Status', lead.callStatus)}
-              {field('First Contact', lead.firstContact ? leadDate(lead.firstContact, lead.timezone) : null)}
-              {field('Last Contact', lead.lastContact ? leadDate(lead.lastContact, lead.timezone) : null)}
-              {field('Next Follow-up', lead.nextFollowUpDate ? leadDate(lead.nextFollowUpDate, lead.timezone) : null)}
+              {field('First Contact', lead.firstContact ? leadDateTime(lead.firstContact, lead.timezone) : null)}
+              {field('Last Contact', lead.lastContact ? leadDateTime(lead.lastContact, lead.timezone) : null)}
+              {field('Next Follow-up', lead.nextFollowUpDate ? leadDateTime(lead.nextFollowUpDate, lead.timezone) : null)}
               {field('Follow-up Count', lead.followupCount != null ? String(lead.followupCount) : null)}
-              {field('Meeting Date', lead.meetingDate ? leadDate(lead.meetingDate, lead.timezone) : null)}
+              {field('Meeting Date', lead.meetingDate ? leadDateTime(lead.meetingDate, lead.timezone) : null)}
               {field('Lost Reason', lead.lostReason)}
               {field('Status', <span className="capitalize">{lead.status.replace('_', ' ')}</span>)}
             </dl>
           ) : (
-            <form onSubmit={(e) => { e.preventDefault(); edit.mutate(); }} className="space-y-3">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (Object.keys(leadEditChanges(initial, form)).length === 0) {
+                  setEditing(false);
+                  pushToast('info', 'No changes to save.');
+                  return;
+                }
+                edit.mutate(false);
+              }}
+              className="space-y-3"
+            >
               <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Lead Generation ID</span>
                 <input className={editInput} value={form.leadGenerationId ?? ''} onChange={(e) => set('leadGenerationId', e.target.value)} /></label>
               <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Lead Source</span>
@@ -356,8 +393,20 @@ export default function LeadDetailPage() {
                     {leadTzOpts.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select></label>
               </div>
-              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Caller (name / email)</span>
-                <input className={editInput} value={form.caller ?? ''} onChange={(e) => set('caller', e.target.value)} placeholder="Reassign to a user…" /></label>
+              {/* A list, not free text: a typo used to fail only when the server
+                  couldn't match it, and a name shared by two users could match
+                  the wrong one. The current owner stays listed even when they
+                  are not an employee (a team leader holding a lead, say). */}
+              <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Assigned To</span>
+                <select className={editInput} value={form.caller ?? ''} onChange={(e) => set('caller', e.target.value)}>
+                  <option value="">— Unassigned —</option>
+                  {lead.assignedTo && !(assignSummary?.callers ?? []).some((c) => c.email === lead.assignedTo!.email) && (
+                    <option value={lead.assignedTo.email}>{lead.assignedTo.name}</option>
+                  )}
+                  {(assignSummary?.callers ?? []).map((c) => (
+                    <option key={c.id} value={c.email}>{c.name} · {c.leadCount.toLocaleString()} lead{c.leadCount === 1 ? '' : 's'}</option>
+                  ))}
+                </select></label>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Industry</span>
                   <input className={editInput} value={form.industry ?? ''} onChange={(e) => set('industry', e.target.value)} /></label>
@@ -372,19 +421,20 @@ export default function LeadDetailPage() {
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">First Contact</span>
-                  <input type="date" className={editInput} value={form.firstContact ?? ''} onChange={(e) => set('firstContact', e.target.value)} /></label>
+                  <input type="datetime-local" className={editInput} value={form.firstContact ?? ''} onChange={(e) => set('firstContact', e.target.value)} /></label>
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Last Contact</span>
-                  <input type="date" className={editInput} value={form.lastContact ?? ''} onChange={(e) => set('lastContact', e.target.value)} /></label>
+                  <input type="datetime-local" className={editInput} value={form.lastContact ?? ''} onChange={(e) => set('lastContact', e.target.value)} /></label>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Next Follow-up</span>
-                  <input type="date" className={editInput} value={form.nextFollowUpDate ?? ''} onChange={(e) => set('nextFollowUpDate', e.target.value)} /></label>
+                  <input type="datetime-local" className={editInput} value={form.nextFollowUpDate ?? ''} onChange={(e) => set('nextFollowUpDate', e.target.value)} />
+                  <span className="block text-[10.5px] text-muted-foreground">Books the callback — reminders follow it. Clear it to cancel.</span></label>
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Follow-up Count</span>
                   <input type="number" className={editInput} value={form.followupCount ?? ''} onChange={(e) => set('followupCount', e.target.value)} /></label>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Meeting Date</span>
-                  <input type="date" className={editInput} value={form.meetingDate ?? ''} onChange={(e) => set('meetingDate', e.target.value)} /></label>
+                  <input type="datetime-local" className={editInput} value={form.meetingDate ?? ''} onChange={(e) => set('meetingDate', e.target.value)} /></label>
                 <label className="block space-y-1 text-xs"><span className="text-muted-foreground">Lost Reason</span>
                   <input className={editInput} value={form.lostReason ?? ''} onChange={(e) => set('lostReason', e.target.value)} /></label>
               </div>
@@ -534,6 +584,14 @@ export default function LeadDetailPage() {
       {/* Full audit trail — opened from the Info (ⓘ) action; Admin & Team Lead only */}
       {canSeeActivity && showActivity && (
         <LeadActivityDrawer leadId={id} leadName={lead.businessName} onClose={() => setShowActivity(false)} />
+      )}
+      {sameDay && (
+        <ReassignConfirm
+          conflicts={sameDay}
+          busy={edit.isPending}
+          onConfirm={() => edit.mutate(true)}
+          onCancel={() => setSameDay(null)}
+        />
       )}
     </div>
   );

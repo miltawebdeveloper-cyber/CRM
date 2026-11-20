@@ -534,3 +534,293 @@ describe('LeadsService — the creation date a lead arrives with', () => {
     expect(create.mock.calls[0][0].data).not.toHaveProperty('createdAt');
   });
 });
+
+/**
+ * The Status filter used to be overwritten by the module split: `status:
+ * query.status` was spread first and `status: { not: closed }` second, so
+ * picking "Contacted" on either lead list returned every open lead.
+ */
+describe('LeadsService.findAll — the Status filter survives the module split', () => {
+  function harness() {
+    const findMany = jest.fn(async (_a: unknown) => []);
+    const count = jest.fn(async (_a: unknown) => 0);
+    const prisma = {
+      lead: { findMany, count },
+      $transaction: jest.fn(async (ops: unknown[]) => Promise.all(ops as Promise<unknown>[])),
+    } as unknown as PrismaService;
+    return { service: new LeadsService(prisma, {} as NotificationsService, {} as LeadIdService), findMany };
+  }
+  const whereOf = (findMany: ReturnType<typeof jest.fn>) =>
+    (findMany.mock.calls[0][0] as { where: Record<string, unknown> }).where;
+
+  it('keeps both the chosen status and the open-leads constraint', async () => {
+    const { service, findMany } = harness();
+    await service.findAll({ closed: false, status: 'contacted' } as never);
+    const where = whereOf(findMany);
+    expect(where.status).toEqual({ not: 'closed' });
+    expect(where.AND).toEqual([{ status: 'contacted' }]);
+  });
+
+  it('leaves the open-leads constraint as it was when no status is picked', async () => {
+    const { service, findMany } = harness();
+    await service.findAll({ closed: false } as never);
+    const where = whereOf(findMany);
+    expect(where.status).toEqual({ not: 'closed' });
+    expect(where).not.toHaveProperty('AND');
+  });
+});
+
+/**
+ * The cards above Lead Library / Lead Management count the grid's own set.
+ */
+describe('LeadsService.listSummary — the cards follow the grid', () => {
+  function harness(counts: [number, number, number]) {
+    const queue = [...counts];
+    const count = jest.fn(async (_a: unknown) => queue.shift() ?? 0);
+    const prisma = {
+      lead: { count },
+      $transaction: jest.fn(async (ops: unknown[]) => Promise.all(ops as Promise<unknown>[])),
+    } as unknown as PrismaService;
+    return { service: new LeadsService(prisma, {} as NotificationsService, {} as LeadIdService), count };
+  }
+  const whereAt = (count: ReturnType<typeof jest.fn>, i: number) =>
+    (count.mock.calls[i][0] as { where: Record<string, unknown> }).where;
+
+  it('derives Balance and Progress from Assigned and Contacted', async () => {
+    const { service } = harness([120, 80, 20]);
+    const s = await service.listSummary({ closed: false } as never, { id: 'admin-1', role: 'admin' } as never);
+    expect(s).toMatchObject({ totalLeads: 120, assignedLeads: 80, contactedLeads: 20, balanceLeads: 60, progressPct: 25 });
+  });
+
+  it('applies the grid filters to every card', async () => {
+    const { service, count } = harness([0, 0, 0]);
+    await service.listSummary({ closed: false, state: 'TX', city: 'Austin' } as never, { id: 'admin-1', role: 'admin' } as never);
+    const total = whereAt(count, 0);
+    expect(total.state).toBe('TX');
+    expect(total.city).toBe('Austin');
+    // Assigned and Contacted wrap the very same clause rather than rebuilding it.
+    expect((whereAt(count, 1).AND as unknown[])[0]).toBe(total);
+  });
+
+  it("never widens an employee's cards past their own leads", async () => {
+    const { service, count } = harness([0, 0, 0]);
+    await service.listSummary({ closed: false } as never, { id: 'emp-1', role: 'employee' } as never);
+    const total = whereAt(count, 0);
+    expect(total.assignedToId).toBe('emp-1');
+    // ANDed, not spread — a spread `assignedToId: { not: null }` would replace it.
+    expect(whereAt(count, 1).AND).toEqual([total, { assignedToId: { not: null } }]);
+  });
+});
+
+/**
+ * The quick filters — Follow-up today / Overdue, Contacted / Never contacted —
+ * and the multi-pick outcome filter.
+ */
+describe('LeadsService.findAll — quick filters', () => {
+  function harness(outcomes: Array<{ slug: string; name: string }> = []) {
+    const findMany = jest.fn(async (_a: unknown) => []);
+    const count = jest.fn(async (_a: unknown) => 0);
+    const outcomeFind = jest.fn(async (a: { where: { OR: [{ slug: string }] } }) =>
+      outcomes.find((o) => o.slug === a.where.OR[0].slug) ?? null,
+    );
+    const prisma = {
+      lead: { findMany, count },
+      outcome: { findFirst: outcomeFind },
+      $transaction: jest.fn(async (ops: unknown[]) => Promise.all(ops as Promise<unknown>[])),
+    } as unknown as PrismaService;
+    return { service: new LeadsService(prisma, {} as NotificationsService, {} as LeadIdService), findMany };
+  }
+  const whereOf = (findMany: ReturnType<typeof jest.fn>) =>
+    (findMany.mock.calls[0][0] as { where: Record<string, unknown> }).where;
+  const andOf = (findMany: ReturnType<typeof jest.fn>) => (whereOf(findMany).AND ?? []) as Array<Record<string, unknown>>;
+
+  it('Overdue means more than the callbacks grace period past the Next Follow-up', async () => {
+    const { service, findMany } = harness();
+    const before = Date.now();
+    await service.findAll({ closed: false, followUp: 'overdue' } as never);
+    const clause = andOf(findMany)[0] as { nextFollowUpDate: { lt: Date } };
+    const cutoff = clause.nextFollowUpDate.lt.getTime();
+    expect(cutoff).toBeLessThanOrEqual(before - 60 * 60 * 1000 + 50);
+    expect(cutoff).toBeGreaterThan(before - 60 * 60 * 1000 - 5000);
+  });
+
+  it("Follow-up today is measured on each lead's own day, zone-less leads included", async () => {
+    const { service, findMany } = harness();
+    await service.findAll({ closed: false, followUp: 'today' } as never);
+    const branches = (andOf(findMany)[0] as { OR: Array<Record<string, unknown>> }).OR;
+    // One branch per zone, plus the fallback for no zone / an unknown zone.
+    const est = branches.find((b) => b.timezone === 'EST') as { nextFollowUpDate: { gte: Date; lt: Date } };
+    expect(est).toBeDefined();
+    const span = est.nextFollowUpDate.lt.getTime() - est.nextFollowUpDate.gte.getTime();
+    expect([23, 24, 25].map((h) => h * 3600_000)).toContain(span);
+    const fallback = branches[branches.length - 1] as { OR: unknown[] };
+    expect(fallback.OR).toEqual(expect.arrayContaining([{ timezone: null }]));
+  });
+
+  it('Never contacted is the exact complement of the Contacted card', async () => {
+    const { service, findMany } = harness();
+    await service.findAll({ closed: false, contact: 'never' } as never);
+    const clause = andOf(findMany)[0] as { NOT: { OR: unknown[] } };
+    expect(clause.NOT.OR).toHaveLength(2);
+  });
+
+  it('keeps the search and a quick filter both in force', async () => {
+    const { service, findMany } = harness();
+    await service.findAll({ closed: false, q: 'acme', contact: 'contacted' } as never);
+    const where = whereOf(findMany);
+    // The search is an OR on the top level; the contacted OR sits in AND.
+    expect(where.OR).toBeDefined();
+    expect((andOf(findMany)[0] as { OR: unknown[] }).OR).toHaveLength(2);
+  });
+
+  it('matches any of several outcomes, each with its legacy display name', async () => {
+    const { service, findMany } = harness([
+      { slug: 'no_answer', name: 'No Answer' },
+      { slug: 'busy', name: 'Busy' },
+    ]);
+    await service.findAll({ closed: false, callStatus: 'no_answer, busy' } as never);
+    const filter = whereOf(findMany).callStatus as { in: string[] };
+    expect(filter.in.sort()).toEqual(['Busy', 'No Answer', 'busy', 'no_answer']);
+  });
+});
+
+/** The numbers on the quick-filter chips. */
+describe('LeadsService.listSummary — chip counts', () => {
+  function harness() {
+    const count = jest.fn(async (_a: unknown) => 0);
+    const prisma = {
+      lead: { count },
+      $transaction: jest.fn(async (ops: unknown[]) => Promise.all(ops as Promise<unknown>[])),
+    } as unknown as PrismaService;
+    return { service: new LeadsService(prisma, {} as NotificationsService, {} as LeadIdService), count };
+  }
+  const andAt = (count: ReturnType<typeof jest.fn>, i: number) =>
+    (count.mock.calls[i][0] as { where: { AND: Array<Record<string, unknown>> } }).where.AND;
+
+  it("counts each chip with the other group's filter in force, not its own", async () => {
+    const { service, count } = harness();
+    const admin = { id: 'a', role: 'admin' } as never;
+    const s = await service.listSummary({ closed: false, contact: 'never', followUp: 'today' } as never, admin);
+    expect(s.chips).toEqual({ followUpToday: 0, followUpOverdue: 0, neverContacted: 0, contacted: 0 });
+
+    // The base the chips build on carries neither quick filter.
+    const base = andAt(count, 3)[0] as { AND?: Array<Record<string, unknown>> };
+    expect(JSON.stringify(base)).not.toContain('nextFollowUpDate');
+    expect(JSON.stringify(base)).not.toContain('NOT');
+    // Overdue (call 4): its own follow-up clause, plus the active "never contacted".
+    const overdue = andAt(count, 4);
+    expect(overdue[1]).toHaveProperty('nextFollowUpDate');
+    expect(overdue[2]).toHaveProperty('NOT');
+    // Contacted (call 6): the active "today" follow-up, plus its own contact clause.
+    const contacted = andAt(count, 6);
+    expect(contacted[1]).toHaveProperty('OR');
+    expect(contacted[2]).not.toHaveProperty('NOT');
+  });
+});
+
+/** Dates typed into the New Lead form are on the lead's clock. */
+describe('LeadsService.create — contact dates on the lead\'s clock', () => {
+  it('reads a bare date-and-time in the lead\'s zone, and a bare date as its midnight', async () => {
+    const create = jest.fn(async (args: { data: Record<string, unknown> }) => ({ id: 'lead-1', leadId: 'L-2026-1', status: 'new', ...args.data }));
+    const prisma = {
+      lead: { create, findFirst: jest.fn(async () => null), findMany: jest.fn(async () => []) },
+    } as unknown as PrismaService;
+    const leadIds = {
+      create: jest.fn(async (build: (id: string) => Record<string, unknown>) => create({ data: build('L-2026-1') })),
+    } as unknown as LeadIdService;
+    const service = new LeadsService(prisma, {} as NotificationsService, leadIds);
+
+    await service.create({
+      businessName: 'Acme', phone: '3055550100', state: 'FL', city: 'Miami', timezone: 'EST', allowDuplicate: true,
+      nextFollowUpDate: '2026-11-20T14:30', meetingDate: '2026-11-21', firstContact: '2026-11-19T09:00:00.000Z',
+    } as never);
+    const data = create.mock.calls[0][0].data as Record<string, Date>;
+    // 2:30 pm Eastern in November (UTC-5) is 19:30 UTC.
+    expect(data.nextFollowUpDate.toISOString()).toBe('2026-11-20T19:30:00.000Z');
+    expect(data.meetingDate.toISOString()).toBe('2026-11-21T05:00:00.000Z');
+    // A value with its own offset is taken as given.
+    expect(data.firstContact.toISOString()).toBe('2026-11-19T09:00:00.000Z');
+  });
+});
+
+/**
+ * Editing Next Follow-up on the lead's page books, moves or cancels the
+ * callback with it, on the lead's clock — and the other dates are read on that
+ * clock too.
+ */
+describe('LeadsService.update — follow-up edits move the callback', () => {
+  const FUTURE = new Date(Date.now() + 3 * 24 * 3600_000);
+  const day = FUTURE.toISOString().slice(0, 10);
+
+  function harness(overrides: Record<string, unknown> = {}, openRung: { id: string } | null = { id: 'rung-2' }) {
+    const LEAD = {
+      id: 'lead-1', leadId: 'L-2026-1', comments: null, assignedToId: 'user-1', assignedTo: { id: 'user-1', name: 'Ann' },
+      status: 'new', timezone: 'EST', nextFollowUpDate: null, callbackAt: null, firstContact: null, ...overrides,
+    };
+    const leadUpdate = jest.fn(async (a: { data: Record<string, unknown> }) => ({ ...LEAD, ...a.data }));
+    const rungFind = jest.fn(async (a: { where: { completedAt?: null } }) => ('completedAt' in a.where ? openRung : { seq: 4 }));
+    const rungUpdate = jest.fn(async (_a: unknown) => ({}));
+    const rungCreate = jest.fn(async (_a: unknown) => ({}));
+    const rungDelete = jest.fn(async (_a: unknown) => ({}));
+    const activityCreate = jest.fn(async (_a: unknown) => ({}));
+    const prisma = {
+      lead: { findFirst: jest.fn(async () => LEAD), update: leadUpdate, findUnique: jest.fn(async () => ({ callStatus: null, assignedToId: 'user-1' })) },
+      leadFollowup: { findFirst: rungFind, update: rungUpdate, create: rungCreate, delete: rungDelete },
+      note: { create: jest.fn(async () => ({})) },
+      activity: { create: activityCreate },
+      $transaction: jest.fn(async (ops: unknown[]) => Promise.all(ops as Promise<unknown>[])),
+    } as unknown as PrismaService;
+    return { service: new LeadsService(prisma, {} as NotificationsService, {} as LeadIdService), leadUpdate, rungUpdate, rungCreate, rungDelete, activityCreate };
+  }
+  const ADMIN = { id: 'mgr-1', role: 'admin' } as never;
+  const dataOf = (fn: ReturnType<typeof jest.fn>) => (fn.mock.calls[0][0] as { data: Record<string, unknown> }).data;
+
+  it('books the callback at the same instant, on the lead\'s clock, and moves the open rung', async () => {
+    const h = harness();
+    await h.service.update('lead-1', { nextFollowUpDate: `${day}T14:30` } as never, ADMIN);
+    const data = dataOf(h.leadUpdate);
+    const at = data.nextFollowUpDate as Date;
+    // Eastern is UTC-5 or UTC-4 depending on the date; either way 14:30 there is 18:30 or 19:30 UTC.
+    expect(['18:30', '19:30']).toContain(at.toISOString().slice(11, 16));
+    expect(data.callbackAt).toEqual(at);
+    expect(data.callbackCompletedAt).toBeNull();
+    expect(data.callbackDismissedAt).toBeNull();
+    expect(h.rungUpdate).toHaveBeenCalledWith({ where: { id: 'rung-2' }, data: { scheduledAt: at, assignedToId: 'user-1' } });
+    expect(h.activityCreate.mock.calls.some((c) => (c[0] as { data: { action: string } }).data.action === 'callback_scheduled')).toBe(true);
+  });
+
+  it('opens the next rung when none is open', async () => {
+    const h = harness({}, null);
+    await h.service.update('lead-1', { nextFollowUpDate: `${day}T09:00` } as never, ADMIN);
+    expect(h.rungCreate).toHaveBeenCalledWith({ data: expect.objectContaining({ leadId: 'lead-1', seq: 5, assignedToId: 'user-1' }) });
+  });
+
+  it('cancels the callback, and drops the never-worked open rung, when the follow-up is cleared', async () => {
+    const h = harness({ nextFollowUpDate: FUTURE, callbackAt: FUTURE });
+    await h.service.update('lead-1', { nextFollowUpDate: '' } as never, ADMIN);
+    const data = dataOf(h.leadUpdate);
+    expect(data.nextFollowUpDate).toBeNull();
+    expect(data.callbackAt).toBeNull();
+    expect(h.rungDelete).toHaveBeenCalledWith({ where: { id: 'rung-2' } });
+  });
+
+  it('refuses a new follow-up that has already passed, or on a lead with no zone', async () => {
+    await expect(harness().service.update('lead-1', { nextFollowUpDate: '2020-01-01T09:00' } as never, ADMIN)).rejects.toThrow(/already passed/);
+    await expect(harness({ timezone: null }).service.update('lead-1', { nextFollowUpDate: `${day}T09:00` } as never, ADMIN)).rejects.toThrow(/no time zone/);
+  });
+
+  it('never refuses the stored time sent back unchanged, even once it is past', async () => {
+    const past = new Date('2020-01-01T14:00:00.000Z');
+    const h = harness({ nextFollowUpDate: past, callbackAt: past });
+    await h.service.update('lead-1', { nextFollowUpDate: past.toISOString() } as never, ADMIN);
+    expect(h.leadUpdate).not.toHaveBeenCalled();
+  });
+
+  it('reads the other dates on the lead\'s clock too', async () => {
+    const h = harness();
+    await h.service.update('lead-1', { firstContact: '2026-11-19T09:00' } as never, ADMIN);
+    // 9 am Eastern on 19 November (UTC-5).
+    expect((dataOf(h.leadUpdate).firstContact as Date).toISOString()).toBe('2026-11-19T14:00:00.000Z');
+    expect(h.rungUpdate).not.toHaveBeenCalled();
+  });
+});

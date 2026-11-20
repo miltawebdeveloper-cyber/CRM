@@ -94,6 +94,18 @@ export class LeadsController {
   }
 
   /**
+   * The KPI cards above a lead list, counted over the same filters and role
+   * scope as `GET /leads` — so the cards describe the rows below them rather
+   * than the whole book. Paging and sort parameters are accepted and ignored.
+   *
+   * Declared before `:id` for the same reason as `filter-options`.
+   */
+  @Get('summary')
+  summary(@Query() query: ListLeadsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.leads.listSummary(query, user);
+  }
+
+  /**
    * Duplicate groups among the leads already saved — the Duplicate Leads screen.
    * Read-only; removing anything goes through `bulk-delete` like every other
    * deletion, so a purge is audited the same way and obeys the same rules.

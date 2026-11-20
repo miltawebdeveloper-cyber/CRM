@@ -1,4 +1,4 @@
-import { ArrayNotEmpty, IsArray, IsBoolean, IsEnum, IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsBoolean, IsEnum, IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsTimezoneCode } from '../../../common/validators/is-timezone-code.validator.js';
@@ -54,6 +54,18 @@ export class ManualAssignDto extends AssignOwnershipFlags {
   @IsOptional()
   @IsString()
   batchName?: string;
+}
+
+/** Leads to return to the unassigned pool — Lead Management's bulk Unassign. */
+export class UnassignDto {
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @ArrayNotEmpty()
+  // The grid's own ceiling (an export, a range) — a request this size is a
+  // deliberate sweep, and anything larger is a mistake worth refusing.
+  @ArrayMaxSize(5000)
+  @IsUUID('4', { each: true })
+  leadIds: string[];
 }
 
 /** One employee's slice of a manual batch allocation. */

@@ -5,12 +5,30 @@ import {
   businessDayEnd,
   businessDayStart,
   dayInZone,
+  formatInZone,
+  parseFutureInZone,
   parseInZone,
   startOfBusinessDay,
+  startOfDayInZone,
   timezoneWhere,
   tzLabel,
   zoneMatchesCountry,
 } from '../../common/timezone.js';
+import { DUE_WINDOW_MS } from '../callbacks/callback-status.js';
+
+/**
+ * A date or date-and-time typed for a lead, as an instant on the LEAD'S clock.
+ *
+ * A bare `2026-07-01` is midnight there; a bare `2026-07-01T14:30` (what a
+ * datetime input sends) is 2:30 pm there; a value carrying its own offset is
+ * taken as given. Unparseable input is dropped rather than stored as an
+ * Invalid Date.
+ */
+const onLeadClock = (raw: string | undefined, tz: string | null): Date | undefined => {
+  const v = raw?.trim();
+  if (!v) return undefined;
+  return parseInZone(/^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T00:00` : v, tz) ?? undefined;
+};
 
 /**
  * Lower bound of a date filter. A bare `yyyy-mm-dd` (what the date pickers send)
@@ -24,6 +42,7 @@ import { closureCreateFields, closureFields } from './lead-closure.js';
 import { buildMatchKeys, decisionKey, emailDomain, longestWord, type LeadMatchOptions, type MatchableRecord, type MatchSignal } from './lead-dedupe.js';
 import { LeadIdService } from './lead-id.service.js';
 import { assertLeadAccess } from '../../common/lead-access.js';
+import { CONTACTED_LEAD_WHERE } from '../../common/lead-contacted.js';
 
 /**
  * Shown when a same-day reassignment is refused for want of confirmation.
@@ -398,6 +417,11 @@ export class LeadsService {
 
   /** Map the optional lead-sheet fields from a DTO to Prisma data. */
   private sheetFields(dto: CreateLeadDto) {
+    // The four contact dates are moments on the LEAD'S clock, the same as
+    // Created Date (`originalCreatedAt`) and a booked callback. `new Date()`
+    // read a bare value on the server's — IST — so "2 pm" typed into the New
+    // Lead form for a Florida lead was stored 9.5 hours early.
+    const tz = dto.timezone ?? null;
     return {
       contactName: dto.contactName,
       industry: dto.industry,
@@ -405,12 +429,12 @@ export class LeadsService {
       employeeCode: dto.employeeCode,
       comments: dto.comments,
       leadCategory: dto.leadCategory,
-      nextFollowUpDate: dto.nextFollowUpDate ? new Date(dto.nextFollowUpDate) : undefined,
+      nextFollowUpDate: onLeadClock(dto.nextFollowUpDate, tz),
       callStatus: dto.callStatus,
-      firstContact: dto.firstContact ? new Date(dto.firstContact) : undefined,
-      lastContact: dto.lastContact ? new Date(dto.lastContact) : undefined,
+      firstContact: onLeadClock(dto.firstContact, tz),
+      lastContact: onLeadClock(dto.lastContact, tz),
       followupCount: dto.followupCount,
-      meetingDate: dto.meetingDate ? new Date(dto.meetingDate) : undefined,
+      meetingDate: onLeadClock(dto.meetingDate, tz),
       lostReason: dto.lostReason,
       leadGenerationId: dto.leadGenerationId,
       leadSource: dto.leadSource,
@@ -1015,6 +1039,25 @@ export class LeadsService {
         }
         updated++;
       } else {
+        // A Lead ID held by an ARCHIVED lead. The lookup above only sees live
+        // leads, so this row would otherwise go on to create one — and the Lead
+        // ID index is unique across archived rows too, so that create would throw
+        // and end the whole import part-way. Refused per row instead, saying why
+        // and what to do about it.
+        if (row.leadId) {
+          const archived = await this.prisma.lead.findFirst({
+            where: { leadId: row.leadId, deletedAt: { not: null } },
+            select: { id: true },
+          });
+          if (archived) {
+            skipped++;
+            errors.push({
+              row: n,
+              reason: `Lead ID ${row.leadId} belongs to a deleted lead. Remove the Lead ID from this row to import it as a new lead.`,
+            });
+            continue;
+          }
+        }
         // No required columns: missing core fields default to empty (fill later).
         const created = await this.createLead(
           (leadId) =>
@@ -1399,7 +1442,19 @@ export class LeadsService {
     };
   }
 
-  async findAll(query: ListLeadsQueryDto, user?: { id: string; role: Role }) {
+  /**
+   * The WHERE behind a lead list — every filter the Lead Library, Lead
+   * Management and Closed Leads grids send, plus the caller's role scope.
+   *
+   * Its own method so the list and the KPI cards above it (`listSummary`) count
+   * the same set of leads. The cards used to come from the dashboard summary,
+   * which knows only the date range, so narrowing the grid to one state left the
+   * cards still counting the whole book.
+   */
+  private async listWhere(
+    query: ListLeadsQueryDto,
+    user?: { id: string; role: Role },
+  ): Promise<{ where: Prisma.LeadWhereInput; ranged: boolean }> {
     // Closed Leads (`closed: true`) and Lead Management (`closed: false`) are
     // the same list split by status; omitting the flag returns both.
     const closedFilter =
@@ -1522,8 +1577,18 @@ export class LeadsService {
     // (`call_back`); leads imported before the outcome list existed carry the
     // display NAME ("Call Back"). Both match, exactly as the browser filter did
     // — dropping the alias would silently stop matching every imported lead.
-    const outcomeFilter = query.callStatus
-      ? { callStatus: { in: await this.callStatusAliases(query.callStatus), mode: 'insensitive' as const } }
+    //
+    // Several outcomes may be asked for at once (comma-separated, matching any
+    // of them) — "No Answer, Busy and Voicemail" is one question for a rep
+    // planning a retry pass, not three.
+    const outcomes = [...new Set((query.callStatus ?? '').split(',').map((s) => s.trim()).filter(Boolean))];
+    const outcomeFilter = outcomes.length
+      ? {
+          callStatus: {
+            in: [...new Set((await Promise.all(outcomes.map((o) => this.callStatusAliases(o)))).flat())],
+            mode: 'insensitive' as const,
+          },
+        }
       : {};
     const assignedFilter =
       query.assigned === 'assigned' ? { assignedToId: { not: null } } : query.assigned === 'unassigned' ? { assignedToId: null } : {};
@@ -1586,13 +1651,30 @@ export class LeadsService {
           : { assignedToId: query.employeeId }
         : {};
 
+    /**
+     * Conditions that would collide with a key already on `where`, so they go
+     * in an AND list instead of being spread:
+     *
+     *  • the Status filter — the module split also sets `status`, and spread
+     *    second it replaced the filter (picking a status returned every open
+     *    lead);
+     *  • the quick filters — "Follow-up today" and "Contacted" are each an
+     *    `OR`, and so is the search; spread, whichever came last would win.
+     */
+    const andClauses: Prisma.LeadWhereInput[] = [];
+    if (query.status) andClauses.push({ status: query.status });
+    const followUp = this.followUpWhere(query.followUp);
+    if (followUp) andClauses.push(followUp);
+    if (query.contact === 'contacted') andClauses.push(CONTACTED_LEAD_WHERE);
+    else if (query.contact === 'never') andClauses.push({ NOT: CONTACTED_LEAD_WHERE });
+
     const where: Prisma.LeadWhereInput = {
       deletedAt: null,
-      status: query.status,
       state: query.state,
       ...closedAtFilter,
       ...closedByFilter,
       ...closedFilter,
+      ...(andClauses.length ? { AND: andClauses } : {}),
       ...scope,
       ...mineScope,
       ...employeeFilter,
@@ -1605,6 +1687,45 @@ export class LeadsService {
       ...assignedFilter,
       ...dateFilter,
     };
+    return { where, ranged };
+  }
+
+  /**
+   * The Follow-up quick filters, read off `nextFollowUpDate` — the Next
+   * Follow-up column the grid shows. A booked callback writes it from the same
+   * value as `callbackAt`, completing the call clears it, and the rollover moves
+   * both together, so this is the date the rep sees and the one they act on.
+   *
+   *  • `overdue` — more than an hour past, the callbacks module's grace period,
+   *    so a lead never reads "Overdue" here while the panel still says "Due now".
+   *  • `today` — dated today ON THE LEAD'S CLOCK. "Today" is a different 24
+   *    hours for an Eastern lead and a Pacific one, so it is one branch per zone,
+   *    each with that zone's own midnight-to-midnight. A lead with no zone, or a
+   *    zone since removed from the list, is measured on the default zone — the
+   *    same fallback `startOfDayInZone` and every other zone read here uses.
+   */
+  private followUpWhere(kind?: 'today' | 'overdue', now: Date = new Date()): Prisma.LeadWhereInput | null {
+    if (kind === 'overdue') return { nextFollowUpDate: { lt: new Date(now.getTime() - DUE_WINDOW_MS) } };
+    if (kind !== 'today') return null;
+    const dayOf = (tz: string | null) => {
+      const start = startOfDayInZone(tz, now);
+      // 30h past midnight is always inside the next day, even on the 25-hour
+      // day the clocks go back — so this lands on the NEXT midnight either way.
+      return { gte: start, lt: startOfDayInZone(tz, new Date(start.getTime() + 30 * 3600_000)) };
+    };
+    const codes = allTimezoneCodes();
+    return {
+      OR: [
+        ...codes.map((code) => ({ timezone: code, nextFollowUpDate: dayOf(code) })),
+        // `notIn` never matches NULL in SQL, so the zone-less leads are named
+        // separately; both fall back to the default zone.
+        { OR: [{ timezone: null }, { timezone: { notIn: codes } }], nextFollowUpDate: dayOf(null) },
+      ],
+    };
+  }
+
+  async findAll(query: ListLeadsQueryDto, user?: { id: string; role: Role }) {
+    const { where, ranged } = await this.listWhere(query, user);
 
     // ── Default ordering: the order the leads arrived in ──
     //
@@ -1690,6 +1811,63 @@ export class LeadsService {
       total,
       page,
       pageSize,
+    };
+  }
+
+  /**
+   * The KPI cards above Lead Library and Lead Management, counted over exactly
+   * the leads the grid below them is showing — same filters, same role scope,
+   * same date field — so the cards and the table can never disagree.
+   *
+   * The card definitions are the dashboard's: Assigned is the share of the set
+   * with an owner, Contacted is measured within Assigned (see
+   * `CONTACTED_LEAD_WHERE`), Balance is the remainder and Progress the ratio.
+   *
+   * Every extra condition is ANDed, never spread: an employee's `where` already
+   * carries `assignedToId: <them>`, which a spread `assignedToId: { not: null }`
+   * would replace — widening their cards to the whole organisation — and the
+   * search filter's `OR` would be replaced by the contacted `OR` the same way.
+   */
+  async listSummary(query: ListLeadsQueryDto, user?: { id: string; role: Role }) {
+    const { where } = await this.listWhere(query, user);
+    const assignedWhere: Prisma.LeadWhereInput = { AND: [where, { assignedToId: { not: null } }] };
+
+    /**
+     * The numbers on the quick-filter chips: how many leads each chip would
+     * show if clicked, given everything else currently on screen.
+     *
+     * So each chip is counted with every OTHER filter in force but its own
+     * group swapped for it — "Overdue (5)" means five, whether or not "Due
+     * today" is the chip currently on, and it still respects "Never contacted"
+     * if that is on. Counting against the visible list instead would show 0 on
+     * every chip but the active one.
+     */
+    const { where: base } = await this.listWhere({ ...query, followUp: undefined, contact: undefined } as ListLeadsQueryDto, user);
+    const contactClause = (c?: 'contacted' | 'never') =>
+      c === 'contacted' ? CONTACTED_LEAD_WHERE : c === 'never' ? { NOT: CONTACTED_LEAD_WHERE } : null;
+    const chipWhere = (...clauses: (Prisma.LeadWhereInput | null)[]): Prisma.LeadWhereInput => ({
+      AND: [base, ...clauses.filter((c): c is Prisma.LeadWhereInput => !!c)],
+    });
+
+    const [totalLeads, assignedLeads, contactedLeads, followUpToday, followUpOverdue, neverContacted, contacted] =
+      await this.prisma.$transaction([
+        this.prisma.lead.count({ where }),
+        this.prisma.lead.count({ where: assignedWhere }),
+        this.prisma.lead.count({ where: { AND: [assignedWhere, CONTACTED_LEAD_WHERE] } }),
+        this.prisma.lead.count({ where: chipWhere(this.followUpWhere('today'), contactClause(query.contact)) }),
+        this.prisma.lead.count({ where: chipWhere(this.followUpWhere('overdue'), contactClause(query.contact)) }),
+        this.prisma.lead.count({ where: chipWhere(this.followUpWhere(query.followUp), contactClause('never')) }),
+        this.prisma.lead.count({ where: chipWhere(this.followUpWhere(query.followUp), contactClause('contacted')) }),
+      ]);
+    const balanceLeads = Math.max(assignedLeads - contactedLeads, 0);
+    const progressPct = assignedLeads > 0 ? Number(((contactedLeads / assignedLeads) * 100).toFixed(2)) : 0;
+    return {
+      totalLeads,
+      assignedLeads,
+      contactedLeads,
+      balanceLeads,
+      progressPct,
+      chips: { followUpToday, followUpOverdue, neverContacted, contacted },
     };
   }
 
@@ -1930,16 +2108,57 @@ export class LeadsService {
       Object.assign(data, closureFields(dto.status, existing.status, user.id));
       logs.push({ action: 'status_changed', field: 'Status', oldValue: existing.status, newValue: dto.status });
     }
+    // The clock the dates below are typed on: the zone this same save sets, if
+    // it sets one, otherwise the lead's own. They used to go through
+    // `new Date()`, which read a bare value on the server's (IST) clock.
+    const zone = dto.timezone !== undefined ? dto.timezone || null : existing.timezone;
+    const readDate = (raw: string, what: string): Date | null => {
+      if (!raw.trim()) return null;
+      const at = onLeadClock(raw, zone);
+      if (!at) throw new BadRequestException(`That ${what} date could not be read.`);
+      return at;
+    };
+
+    /**
+     * Next Follow-up IS the booked callback — the calling flow writes both from
+     * one value (see `applyDisposition`). Editing one here used to leave the
+     * other behind, so the grid said one time while the reminders, the queue and
+     * the Follow-Ups page worked to another. A changed value now moves the
+     * callback with it; a cleared one cancels it.
+     *
+     * A new time meets a callback's rules — the lead needs a zone, and the time
+     * must not have passed (`parseFutureInZone`). Only a CHANGED value is
+     * checked, so a save that sends the stored time back is never refused.
+     */
+    let followUpMoved: { at: Date | null } | null = null;
     if (dto.nextFollowUpDate !== undefined) {
-      const next = dto.nextFollowUpDate ? new Date(dto.nextFollowUpDate) : null;
-      const prevMs = existing.nextFollowUpDate?.getTime() ?? null;
-      if ((next?.getTime() ?? null) !== prevMs) {
+      const raw = dto.nextFollowUpDate.trim();
+      const next = readDate(raw, 'follow-up');
+      if ((next?.getTime() ?? null) !== (existing.nextFollowUpDate?.getTime() ?? null)) {
+        if (next) parseFutureInZone(/^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T00:00` : raw, zone, 'follow-up');
         data.nextFollowUpDate = next;
+        Object.assign(
+          data,
+          next
+            ? {
+                callbackAt: next,
+                callbackCompletedAt: null,
+                // A new appointment: fresh reminders, and a popup that isn't
+                // still silenced by the old one's snooze or dismissal.
+                callbackReminderDayBeforeAt: null,
+                callbackReminderDueAt: null,
+                callbackReminderMissedAt: null,
+                callbackSnoozedUntil: null,
+                callbackDismissedAt: null,
+              }
+            : { callbackAt: null, callbackSnoozedUntil: null, callbackDismissedAt: null },
+        );
+        followUpMoved = { at: next };
         logs.push({ action: 'lead_updated', field: 'Next follow-up', oldValue: existing.nextFollowUpDate?.toISOString() ?? null, newValue: next?.toISOString() ?? null });
       }
     }
     if (dto.firstContact !== undefined) {
-      const next = dto.firstContact ? new Date(dto.firstContact) : null;
+      const next = readDate(dto.firstContact, 'first contact');
       const prevMs = existing.firstContact?.getTime() ?? null;
       if ((next?.getTime() ?? null) !== prevMs) {
         data.firstContact = next;
@@ -1947,7 +2166,7 @@ export class LeadsService {
       }
     }
     if (dto.lastContact !== undefined) {
-      const next = dto.lastContact ? new Date(dto.lastContact) : null;
+      const next = readDate(dto.lastContact, 'last contact');
       const prevMs = existing.lastContact?.getTime() ?? null;
       if ((next?.getTime() ?? null) !== prevMs) {
         data.lastContact = next;
@@ -1955,7 +2174,7 @@ export class LeadsService {
       }
     }
     if (dto.meetingDate !== undefined) {
-      const next = dto.meetingDate ? new Date(dto.meetingDate) : null;
+      const next = readDate(dto.meetingDate, 'meeting');
       const prevMs = existing.meetingDate?.getTime() ?? null;
       if ((next?.getTime() ?? null) !== prevMs) {
         data.meetingDate = next;
@@ -1973,6 +2192,7 @@ export class LeadsService {
 
     // Reassignment: resolve the free-text caller (name/email) to a user.
     let reassignedTo: string | null = null;
+    let unassigned = false;
     let sameDayConfirmed = false;
     if (dto.caller !== undefined) {
       const assignedToId = (await this.resolveCaller(dto.caller)) ?? null;
@@ -1990,6 +2210,7 @@ export class LeadsService {
         }
         data.assignedTo = assignedToId ? { connect: { id: assignedToId } } : { disconnect: true };
         reassignedTo = assignedToId;
+        unassigned = !assignedToId;
         logs.push({ action: 'lead_reassigned', field: 'Assigned to', oldValue: existing.assignedTo?.name ?? null, newValue: assignedToId ? dto.caller?.trim() ?? null : null });
       }
     }
@@ -2002,12 +2223,31 @@ export class LeadsService {
 
     if (Object.keys(data).length === 0) return existing; // nothing else changed
 
-    const updated = await this.prisma.lead.update({
+    // The follow-up sequence moves with the callback, in the same transaction
+    // as the lead, so the ladder can never name a time the lead doesn't.
+    const owner = reassignedTo ?? (unassigned ? null : existing.assignedToId ?? null);
+    const rungOps = followUpMoved ? await this.followUpRungOps(id, followUpMoved.at, owner) : [];
+    const leadUpdate = this.prisma.lead.update({
       where: { id },
       data,
       include: { assignedTo: { select: { id: true, name: true, email: true } } },
     });
+    const updated = rungOps.length
+      ? ((await this.prisma.$transaction([leadUpdate, ...rungOps]))[0] as Awaited<typeof leadUpdate>)
+      : await leadUpdate;
     for (const l of logs) await this.log(id, user.id, l.action, l.oldValue, l.newValue, l.field);
+    if (followUpMoved) {
+      await this.log(
+        id,
+        user.id,
+        followUpMoved.at ? 'callback_scheduled' : 'callback_cancelled',
+        existing.callbackAt?.toISOString() ?? null,
+        followUpMoved.at?.toISOString() ?? null,
+        followUpMoved.at
+          ? `Follow-up booked for ${formatInZone(followUpMoved.at, zone)} from the lead's page`
+          : 'Follow-up cleared on the lead\'s page — booked callback cancelled',
+      );
+    }
     // Stamp the handover, carrying the owner it came FROM — read before the
     // update, since the lead now names the new one.
     if (reassignedTo) {
@@ -2015,9 +2255,35 @@ export class LeadsService {
         previousCallerId: existing.assignedToId ?? null,
         remarks: sameDayConfirmed ? 'Same-day reassignment, confirmed by the assigner' : undefined,
       });
+    } else if (unassigned) {
+      // Cleared owner: close the active assignment too, as the bulk Unassign
+      // does. Left open, the lead kept the old owner's Scheduled Date and still
+      // matched "By Scheduled Date" filters while belonging to nobody.
+      await this.prisma.assignment.updateMany({ where: { leadId: id, isActive: true }, data: { isActive: false } });
     }
 
     return updated;
+  }
+
+  /**
+   * The follow-up sequence's side of a callback moved by hand.
+   *
+   * A manual edit is a reschedule, not a contact — the calling flow's
+   * "revising" case. So the OPEN rung is re-pointed at the new time rather than
+   * a new one burnt; with none open, the appointment becomes the next rung so it
+   * lives somewhere; and clearing the follow-up removes the open rung, which
+   * was never worked and so records nothing worth keeping.
+   */
+  private async followUpRungOps(leadId: string, at: Date | null, assignedToId: string | null) {
+    const open = await this.prisma.leadFollowup.findFirst({
+      where: { leadId, completedAt: null },
+      orderBy: { seq: 'desc' },
+      select: { id: true },
+    });
+    if (!at) return open ? [this.prisma.leadFollowup.delete({ where: { id: open.id } })] : [];
+    if (open) return [this.prisma.leadFollowup.update({ where: { id: open.id }, data: { scheduledAt: at, assignedToId } })];
+    const last = await this.prisma.leadFollowup.findFirst({ where: { leadId }, orderBy: { seq: 'desc' }, select: { seq: true } });
+    return [this.prisma.leadFollowup.create({ data: { leadId, seq: (last?.seq ?? 0) + 1, scheduledAt: at, assignedToId } })];
   }
 
   /**
@@ -2107,7 +2373,8 @@ export class LeadsService {
    */
   /**
    * Take leads out of the book WITHOUT destroying them — the Duplicate Leads
-   * purge, and the only delete in the CRM that can be taken back.
+   * purge and the Lead Library's bulk delete, the only deletes in the CRM that
+   * can be taken back.
    *
    * `removeMany` below is a hard delete that cascades through calls, notes,
    * activities and assignments; nothing survives it, so the "undo" the purge
@@ -2120,7 +2387,12 @@ export class LeadsService {
    * Deliberately NOT what the single delete or the import rollback do. Rolling
    * back a bad import should genuinely remove what it wrote, and one lead
    * deleted by hand is a decision someone made about one record. This is the
-   * bulk, semi-automatic path, where the mistake is plausible and expensive.
+   * bulk path — a rule-driven purge, or a drag-selected sweep of the Library
+   * grid — where the mistake is plausible and expensive.
+   *
+   * An archived lead keeps its Lead ID (the column is unique across archived
+   * rows too), so the import refuses a row that names one rather than failing
+   * on the unique index — see the create branch of `bulkImport`.
    */
   async archiveMany(ids: string[], user?: { id: string; role: Role }) {
     if (ids.length === 0) return { archived: 0, ids: [] as string[] };
@@ -2148,7 +2420,9 @@ export class LeadsService {
             action: 'lead_archived',
             oldValue: null,
             newValue: null,
-            remarks: `Removed ${found.length} duplicate lead(s), reversible: ${leads
+            // Generic wording: the Lead Library's bulk delete archives too, so
+            // not every batch filed here is a duplicate purge.
+            remarks: `Removed ${found.length} lead(s), reversible: ${leads
               .slice(0, 20)
               .map((l) => l.leadId)
               .join(', ')}${found.length > 20 ? ` +${found.length - 20} more` : ''}`,

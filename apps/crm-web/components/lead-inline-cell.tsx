@@ -11,15 +11,22 @@ import { leadsApi, type Lead, type UpdateLeadInput } from '@/lib/leads';
  * Click the value to edit it, Enter/blur saves, Escape abandons — the same feel as
  * the Comments cell, but without the comment-history plumbing, so it suits plain
  * text fields like Lost Reason. Saves just that one field via the lead PATCH.
+ *
+ * That PATCH is Admin + Team Leader only, so a page an employee can open passes
+ * `readOnly` for them — otherwise the cell offers an edit the API refuses with a
+ * 403 the moment it is saved.
  */
 export function LeadInlineCell({
   lead,
   field,
   placeholder = 'Add…',
+  readOnly = false,
 }: {
   lead: Lead;
   field: keyof UpdateLeadInput & keyof Lead;
   placeholder?: string;
+  /** Show the value without the editor — for roles the lead PATCH refuses. */
+  readOnly?: boolean;
 }) {
   const qc = useQueryClient();
   const current = (lead[field] as string | null) ?? '';
@@ -45,6 +52,14 @@ export function LeadInlineCell({
     if (text === current.trim()) return setEditing(false);
     save.mutate(text);
   };
+
+  if (readOnly) {
+    return (
+      <span title={current || undefined} className="block w-full min-w-0 truncate px-1 py-0.5 text-[12px]">
+        {current || <span className="text-muted-foreground">—</span>}
+      </span>
+    );
+  }
 
   if (editing) {
     return (

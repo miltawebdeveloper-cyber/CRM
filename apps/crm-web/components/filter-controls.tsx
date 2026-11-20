@@ -1,6 +1,26 @@
 'use client';
 
-import { CalendarRange, Search, type LucideIcon } from 'lucide-react';
+import { CalendarRange, Search, X, type LucideIcon } from 'lucide-react';
+
+/**
+ * "Clear (n)" at the end of a filter bar — shown only while something is
+ * narrowing the list, and saying how many things are. A row of a dozen
+ * controls gives no other sign that a filter set three screens ago is still
+ * hiding most of the book.
+ */
+export function ClearFiltersButton({ count, onClear }: { count: number; onClear: () => void }) {
+  if (count <= 0) return null;
+  return (
+    <button
+      type="button"
+      onClick={onClear}
+      title="Clear all filters"
+      className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border bg-card px-3 py-2 text-[12.5px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+    >
+      <X className="h-3.5 w-3.5" /> Clear ({count})
+    </button>
+  );
+}
 
 /**
  * Controlled filter dropdown used across list pages. Pass the current `value`

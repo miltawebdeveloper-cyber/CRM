@@ -547,11 +547,32 @@ export class ListLeadsQueryDto {
   timezone?: string;
 
   /** Outcome slug, or the display name carried by leads imported before the
-   *  outcome list existed — both are matched, as the browser filter did. */
-  @ApiPropertyOptional({ description: 'Call outcome slug (or legacy display name)' })
+   *  outcome list existed — both are matched, as the browser filter did.
+   *  Several may be given, comma-separated, to match any of them. */
+  @ApiPropertyOptional({ description: 'Call outcome slug(s), comma-separated (or legacy display names)' })
   @IsOptional()
   @IsString()
   callStatus?: string;
+
+  /**
+   * Quick filter on the Next Follow-up column: `today` = dated today on the
+   * lead's own clock, `overdue` = more than an hour past (the callbacks
+   * module's grace period). See LeadsService.followUpWhere.
+   */
+  @ApiPropertyOptional({ description: 'today | overdue — on the Next Follow-up date' })
+  @IsOptional()
+  @IsIn(['today', 'overdue'])
+  followUp?: 'today' | 'overdue';
+
+  /**
+   * `contacted` / `never` — the same "contacted" the KPI cards count (a
+   * completed call, or a status of contacted or beyond), so picking it makes
+   * the table and the Contacted card agree.
+   */
+  @ApiPropertyOptional({ description: 'contacted | never' })
+  @IsOptional()
+  @IsIn(['contacted', 'never'])
+  contact?: 'contacted' | 'never';
 
   @ApiPropertyOptional({ description: 'assigned | unassigned' })
   @IsOptional()
