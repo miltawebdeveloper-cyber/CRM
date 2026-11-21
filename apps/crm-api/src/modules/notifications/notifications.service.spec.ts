@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { NotificationType } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { MailService } from '../mail/mail.service.js';
-import { NotificationsService } from './notifications.service.js';
+import { NotificationsService, notificationLink } from './notifications.service.js';
 
 /**
  * The line between "the CRM tells you" and "your inbox tells you".
@@ -118,5 +118,41 @@ describe('NotificationsService — listing', () => {
     await service.list('user-2', { unread: false });
     expect(findMany.mock.calls[0][0].where).toEqual({ userId: 'user-2' });
     expect(findMany.mock.calls[0][0].take).toBe(100);
+  });
+});
+
+/** Clicking a notification opens what it is about — only ever a page inside the CRM. */
+describe('NotificationsService — links', () => {
+  function harness() {
+    const create = jest.fn(async (_a: { data: Record<string, unknown> }) => ({}));
+    const createMany = jest.fn(async (_a: { data: Array<Record<string, unknown>> }) => ({ count: 1 }));
+    const prisma = {
+      notification: { create, createMany },
+      user: { findMany: jest.fn(async () => [{ id: 'mgr-1' }]) },
+      appSetting: { findUnique: jest.fn(async () => null) },
+    } as unknown as PrismaService;
+    const service = new NotificationsService(prisma, { send: jest.fn(async () => undefined) } as unknown as MailService);
+    return { service, create, createMany };
+  }
+
+  it('stores the page for the rep and for the managers copied in', async () => {
+    const { service, create, createMany } = harness();
+    await service.notifyAndEmail('rep-1', NotificationType.callback_due, 'Due', 'Body', { alsoManagers: true, link: '/leads/abc' });
+    expect(create.mock.calls[0][0].data.link).toBe('/leads/abc');
+    expect(createMany.mock.calls[0][0].data[0].link).toBe('/leads/abc');
+  });
+
+  it('stores no link when there is nothing to open', async () => {
+    const { service, create } = harness();
+    await service.notifyAndEmail('rep-1', NotificationType.callback_due, 'Due', 'Body');
+    expect(create.mock.calls[0][0].data.link).toBeNull();
+  });
+
+  it('keeps a path inside the CRM and drops anything that could leave it', () => {
+    expect(notificationLink('/zoom/m-1')).toBe('/zoom/m-1');
+    // String.raw keeps the backslash: "/\evil.example" is one some browsers read as "//evil.example".
+    for (const bad of ['https://evil.example', '//evil.example', String.raw`/\evil.example`, '/\tx', 'leads/abc', '', null, undefined]) {
+      expect(notificationLink(bad)).toBeNull();
+    }
   });
 });

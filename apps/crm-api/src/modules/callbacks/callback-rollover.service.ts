@@ -218,7 +218,7 @@ export class CallbackRolloverService {
         `The scheduled call for ${lead.businessName} (${lead.leadId}) was not completed on ` +
           `${formatInZone(from, lead.timezone)}. It has been rescheduled automatically for ` +
           `${formatInZone(to, lead.timezone)} and is back on your queue for that day.`,
-        { email: lead.assignedTo?.email ?? null, alsoManagers: true },
+        { email: lead.assignedTo?.email ?? null, alsoManagers: true, link: `/leads/${lead.id}` },
       );
     }
   }

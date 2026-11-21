@@ -1131,6 +1131,7 @@ export class LeadsService {
         'new_leads',
         'New leads uploaded',
         `${imported} new lead(s) were imported.`,
+        '/lead-library',
       );
     }
 

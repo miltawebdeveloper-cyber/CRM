@@ -450,7 +450,7 @@ export class ZoomService {
 
   // In-app + email notification to the meeting organizer (managers cc'd).
   private notify(
-    m: { organizerId: string | null; organizer?: { email: string | null } | null },
+    m: { id: string; organizerId: string | null; organizer?: { email: string | null } | null },
     type: NotificationType,
     title: string,
     body: string,
@@ -458,6 +458,8 @@ export class ZoomService {
     return this.notifications.notifyAndEmail(m.organizerId, type, title, body, {
       email: m.organizer?.email ?? null,
       alsoManagers: true,
+      // The meeting's page — clicking the notification opens it.
+      link: `/zoom/${m.id}`,
     });
   }
 

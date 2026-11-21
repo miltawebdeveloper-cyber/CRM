@@ -1,7 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Bell, Filter } from 'lucide-react';
+import { safeReturnPath } from '@/lib/return-to';
 import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotificationList } from '@/lib/use-notifications';
 import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
@@ -86,8 +88,26 @@ export default function NotificationsPage() {
             </>
           );
           const card = 'flex w-full items-start gap-3 rounded-lg border bg-card p-4 text-left shadow-sm';
-          // An unread one is a button: clicking it marks it read, and under the
-          // Unread filter it leaves the list.
+          // One about a record (a callback's lead, a Zoom meeting) opens it —
+          // read or not — and marks it read on the way. Only a path inside the
+          // CRM is followed (lib/return-to). No prefetch: up to 100 rows.
+          const href = safeReturnPath(n.link);
+          if (href) {
+            return (
+              <Link
+                key={n.id}
+                href={href}
+                prefetch={false}
+                onClick={() => { if (!n.isRead) markRead.mutate(n.id); }}
+                title={n.isRead ? 'Open' : 'Open and mark as read'}
+                className={`${card} transition-colors hover:bg-muted/50 ${n.isRead ? 'opacity-70' : ''}`}
+              >
+                {content}
+              </Link>
+            );
+          }
+          // Otherwise an unread one is a button: clicking it marks it read, and
+          // under the Unread filter it leaves the list.
           return n.isRead ? (
             <div key={n.id} className={`${card} opacity-70`}>
               {content}

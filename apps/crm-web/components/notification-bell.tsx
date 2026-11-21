@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Bell, CheckCheck } from 'lucide-react';
 import { formatDateTime } from '@/lib/display-settings';
 import { badgeText } from '@/lib/notification-cache';
+import { safeReturnPath } from '@/lib/return-to';
 import {
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
@@ -19,6 +20,11 @@ import {
  * Clicking a notification marks it read. It leaves the list and the badge drops
  * on the click, not when the server answers (lib/use-notifications). Read ones
  * stay on the Notifications page ("View all").
+ *
+ * One about a record — a callback's lead, a Zoom meeting — is a link: the same
+ * click also opens that page and closes the list. Only a path inside the CRM
+ * is followed (lib/return-to); older notifications have no link and stay a
+ * plain "mark as read".
  */
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
@@ -60,19 +66,25 @@ export function NotificationBell() {
     const id = focusNext.current;
     if (id === null) return;
     focusNext.current = null;
-    const next = Array.from(panelRef.current?.querySelectorAll<HTMLButtonElement>('[data-notification-id]') ?? []).find(
+    const next = Array.from(panelRef.current?.querySelectorAll<HTMLElement>('[data-notification-id]') ?? []).find(
       (el) => el.dataset.notificationId === id,
     );
     (next ?? panelRef.current)?.focus();
   }, [list.length]);
 
-  function read(id: string, el: HTMLButtonElement) {
+  function read(id: string, el: HTMLElement) {
     if (document.activeElement === el) {
       const li = el.closest('li');
-      const sibling = (li?.nextElementSibling ?? li?.previousElementSibling)?.querySelector<HTMLButtonElement>('[data-notification-id]');
+      const sibling = (li?.nextElementSibling ?? li?.previousElementSibling)?.querySelector<HTMLElement>('[data-notification-id]');
       focusNext.current = sibling?.dataset.notificationId ?? '';
     }
     markRead.mutate(id);
+  }
+
+  /** Read it, and go to the page it's about; the list closes behind you. */
+  function openRecord(id: string) {
+    markRead.mutate(id);
+    setOpen(false);
   }
 
   return (
@@ -131,24 +143,34 @@ export function NotificationBell() {
               <p className="px-3 py-6 text-center text-sm text-muted-foreground">You’re all caught up.</p>
             ) : (
               <ul>
-                {list.map((n) => (
-                  <li key={n.id} className="border-b last:border-0">
-                    <button
-                      type="button"
-                      data-notification-id={n.id}
-                      onClick={(e) => read(n.id, e.currentTarget)}
-                      title="Mark as read"
-                      className="block w-full px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-                    >
+                {list.map((n) => {
+                  const href = safeReturnPath(n.link);
+                  const item = 'block w-full px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none';
+                  const content = (
+                    <>
                       <span className="flex items-center gap-2">
                         <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
                         <span className="text-sm font-medium">{n.title}</span>
                       </span>
                       <span className="block text-xs text-muted-foreground">{n.body}</span>
                       <span className="mt-0.5 block text-[11px] text-muted-foreground">{formatDateTime(n.createdAt)}</span>
-                    </button>
-                  </li>
-                ))}
+                    </>
+                  );
+                  return (
+                    <li key={n.id} className="border-b last:border-0">
+                      {href ? (
+                        // No prefetch: a long list must not fire a request per row.
+                        <Link href={href} prefetch={false} data-notification-id={n.id} onClick={() => openRecord(n.id)} title="Open and mark as read" className={item}>
+                          {content}
+                        </Link>
+                      ) : (
+                        <button type="button" data-notification-id={n.id} onClick={(e) => read(n.id, e.currentTarget)} title="Mark as read" className={item}>
+                          {content}
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

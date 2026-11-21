@@ -66,6 +66,7 @@ export class ZoomRemindersService {
           NotificationType.zoom_due,
           `Zoom meeting starting: ${client}`,
           `Your Zoom meeting with ${client} is due now (${fmt(at, tz)}).`,
+          `/zoom/${m.id}`,
         );
         updates.reminderDueAt = now;
         fired++;
@@ -79,6 +80,7 @@ export class ZoomRemindersService {
           NotificationType.zoom_reminder,
           `Zoom meeting tomorrow: ${client}`,
           `Reminder: your Zoom meeting with ${client} is scheduled for ${fmt(at, tz)}.`,
+          `/zoom/${m.id}`,
         );
         updates.reminderDayBeforeAt = now;
         fired++;
@@ -91,7 +93,8 @@ export class ZoomRemindersService {
     return { fired };
   }
 
-  private fire(userId: string | null, email: string | null, type: NotificationType, title: string, body: string) {
-    return this.notifications.notifyAndEmail(userId, type, title, body, { email, alsoManagers: true });
+  /** `link` is the meeting's page — clicking the notification opens it. */
+  private fire(userId: string | null, email: string | null, type: NotificationType, title: string, body: string, link: string) {
+    return this.notifications.notifyAndEmail(userId, type, title, body, { email, alsoManagers: true, link });
   }
 }

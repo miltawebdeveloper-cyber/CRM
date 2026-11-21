@@ -536,7 +536,7 @@ export class CallsService {
         'callback_reminder',
         `Callback scheduled for ${lead.businessName}`,
         callbackText,
-        { email: lead.assignedTo?.email ?? null, alsoManagers: true },
+        { email: lead.assignedTo?.email ?? null, alsoManagers: true, link: `/leads/${lead.id}` },
       );
     }
     return results;

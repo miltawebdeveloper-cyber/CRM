@@ -52,7 +52,7 @@ describe('CallbacksService — reminder engine', () => {
         _type: NotificationType,
         _title: string,
         _body: string,
-        _opts?: { email?: string | null; alsoManagers?: boolean },
+        _opts?: { email?: string | null; alsoManagers?: boolean; link?: string | null },
       ) => undefined,
     );
 
@@ -94,6 +94,8 @@ describe('CallbacksService — reminder engine', () => {
 
     expect(notifyAndEmail).toHaveBeenCalledTimes(1);
     expect(firedType(notifyAndEmail)).toBe(NotificationType.callback_reminder);
+    // Clicking it in the bell opens the lead.
+    expect(notifyAndEmail.mock.calls[0][4]).toMatchObject({ link: '/leads/lead-1' });
   });
 
   it('raises the due milestone at the scheduled time, and it is not the missed one', async () => {

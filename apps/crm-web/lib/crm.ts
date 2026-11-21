@@ -674,6 +674,8 @@ export interface Notification {
   type: string;
   isRead: boolean;
   createdAt: string;
+  /** The page it's about ("/leads/<id>", "/zoom/<id>"); null when there's nothing to open. */
+  link: string | null;
 }
 export type CallbackEmailType = 'callback_reminder' | 'callback_due' | 'callback_missed';
 export interface EmailSettings {

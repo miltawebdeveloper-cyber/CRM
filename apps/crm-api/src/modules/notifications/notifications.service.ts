@@ -48,6 +48,21 @@ const CALLBACK_EMAIL_TYPES: Record<ToggleableType, boolean> = {
   callback_missed: true, // not completed in time — the one that emails
 };
 
+/**
+ * A notification's link, kept only when it is a path inside the CRM.
+ *
+ * The links are built here in the API ("/leads/<id>", "/zoom/<id>"), never
+ * taken from a user, but the browser follows them on a click, so anything that
+ * isn't a plain same-site path — an absolute URL, a protocol-relative `//host`,
+ * a backslash or control-character form a browser might read as one — is
+ * dropped rather than stored.
+ */
+export function notificationLink(link: string | null | undefined): string | null {
+  if (!link || !link.startsWith('/') || link.startsWith('//')) return null;
+  if (/[\\\s\u0000-\u001f\u007f]/.test(link)) return null;
+  return link.slice(0, 500);
+}
+
 /** Whether this notification type is one of the callback events. */
 function isCallbackType(type: string): type is ToggleableType {
   return type in CALLBACK_EMAIL_TYPES;
@@ -113,14 +128,15 @@ export class NotificationsService {
    * Fan-out a notification to every admin + team leader (NTF-001..003).
    * Used by other modules (imports, target alerts) via the shared service.
    */
-  async notifyManagers(type: NotificationType, title: string, body: string) {
+  async notifyManagers(type: NotificationType, title: string, body: string, link?: string | null) {
     const managers = await this.prisma.user.findMany({
       where: { role: { in: [Role.admin, Role.team_leader] }, isActive: true },
       select: { id: true },
     });
     if (managers.length === 0) return { created: 0 };
+    const to = notificationLink(link);
     await this.prisma.notification.createMany({
-      data: managers.map((m) => ({ userId: m.id, type, title, body })),
+      data: managers.map((m) => ({ userId: m.id, type, title, body, link: to })),
     });
     return { created: managers.length };
   }
@@ -162,19 +178,22 @@ export class NotificationsService {
    * `CALLBACK_EMAIL_TYPES`), and the admin can switch even that off. `email` is
    * the assigned user's address; the configured distribution list (req 7) is
    * emailed in addition. Email is best-effort and never fails the caller.
+   *
+   * `link` is the page the notification is about — clicking it in the bell
+   * opens that page (see `notificationLink`).
    */
   async notifyAndEmail(
     userId: string | null,
     type: NotificationType,
     title: string,
     body: string,
-    opts: { email?: string | null; alsoManagers?: boolean } = {},
+    opts: { email?: string | null; alsoManagers?: boolean; link?: string | null } = {},
   ) {
     if (userId) {
-      await this.prisma.notification.create({ data: { userId, type, title, body } });
+      await this.prisma.notification.create({ data: { userId, type, title, body, link: notificationLink(opts.link) } });
     }
     if (opts.alsoManagers) {
-      await this.notifyManagers(type, title, body);
+      await this.notifyManagers(type, title, body, opts.link);
     }
 
     // A callback event that is CRM-only stops here, having done its real job.

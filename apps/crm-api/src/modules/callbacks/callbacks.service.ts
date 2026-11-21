@@ -128,7 +128,7 @@ export class CallbacksService {
           `Scheduled Callback: ${fmt(cb, tz)}\n` +
           `Lead Time Zone: ${zoneName(tz)}\n` +
           `Missed Time: ${fmt(now, tz)}`;
-        await this.fire(lead.assignedToId, email, NotificationType.callback_missed, 'Missed Callback', body);
+        await this.fire(lead.assignedToId, email, NotificationType.callback_missed, 'Missed Callback', body, `/leads/${lead.id}`);
         fired++;
         // The claim above already wrote this lead's stamps, so it skips the
         // batched update at the bottom of the loop.
@@ -145,6 +145,7 @@ export class CallbacksService {
           NotificationType.callback_due,
           `Callback due now: ${lead.businessName}`,
           `Your callback for ${lead.businessName} is due (${fmt(cb, tz)}).`,
+          `/leads/${lead.id}`,
         );
         updates.callbackReminderDueAt = now;
         fired++;
@@ -158,6 +159,7 @@ export class CallbacksService {
           NotificationType.callback_reminder,
           `Callback tomorrow: ${lead.businessName}`,
           `Reminder: callback for ${lead.businessName} is scheduled for ${fmt(cb, tz)}.`,
+          `/leads/${lead.id}`,
         );
         updates.callbackReminderDayBeforeAt = now;
         fired++;
@@ -170,8 +172,9 @@ export class CallbacksService {
     return { fired };
   }
 
-  private fire(userId: string | null, email: string | null, type: NotificationType, title: string, body: string) {
-    return this.notifications.notifyAndEmail(userId, type, title, body, { email, alsoManagers: true });
+  /** `link` is the lead's page — clicking the notification opens it. */
+  private fire(userId: string | null, email: string | null, type: NotificationType, title: string, body: string, link: string) {
+    return this.notifications.notifyAndEmail(userId, type, title, body, { email, alsoManagers: true, link });
   }
 
   // ── On-screen reminders (req 4, 5, 7) ──

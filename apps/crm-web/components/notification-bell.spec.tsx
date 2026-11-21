@@ -7,10 +7,17 @@ import type { Notification as AppNotification } from '@/lib/crm';
 import { NotificationBell } from './notification-bell';
 
 // next/link needs the App Router mounted; a plain anchor is all this needs.
+// It stops the click going on to a real navigation, which jsdom can't do.
 jest.mock('next/link', () => ({
   __esModule: true,
-  default: ({ href, children, prefetch: _prefetch, ...rest }: { href: string; children: React.ReactNode; prefetch?: boolean }) => (
-    <a href={href} {...rest}>{children}</a>
+  default: ({
+    href,
+    children,
+    prefetch: _prefetch,
+    onClick,
+    ...rest
+  }: { href: string; children: React.ReactNode; prefetch?: boolean; onClick?: (e: React.MouseEvent) => void }) => (
+    <a href={href} onClick={(e) => { onClick?.(e); e.preventDefault(); }} {...rest}>{children}</a>
   ),
 }));
 
@@ -30,13 +37,14 @@ jest.mock('@/lib/crm', () => ({
   },
 }));
 
-const note = (id: string, isRead = false): AppNotification => ({
+const note = (id: string, isRead = false, link: string | null = null): AppNotification => ({
   id,
   title: `Title ${id}`,
   body: `Body ${id}`,
   type: 'callback_due',
   isRead,
   createdAt: '2026-11-20T10:00:00Z',
+  link,
 });
 
 /** A request that only answers when the test says so. */
@@ -174,6 +182,29 @@ describe('NotificationBell', () => {
     await openBell(2);
     fireEvent.mouseDown(document.body);
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('opens the record a notification is about, marking it read and closing the list', async () => {
+    mockMarkRead.mockReturnValue(held<unknown>().promise);
+    mockListUnread.mockResolvedValue([note('a', false, '/leads/lead-1'), note('b')]);
+    renderBell();
+    await openBell(2);
+    const link = await screen.findByRole('link', { name: /Title a/ });
+    expect(link.getAttribute('href')).toBe('/leads/lead-1');
+    fireEvent.click(link);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(mockMarkRead).toHaveBeenCalledWith('a'));
+    await waitFor(() => expect(badge()).toBe('1'));
+  });
+
+  it('never follows a link that would leave the CRM', async () => {
+    mockListUnread.mockResolvedValue([note('a', false, 'https://evil.example/x'), note('b', false, '//evil.example')]);
+    renderBell();
+    await openBell(2);
+    await screen.findByRole('button', { name: /Title a/ });
+    // Both stay plain "mark as read" buttons.
+    expect(screen.queryByRole('link', { name: /Title a/ })).toBeNull();
+    expect(screen.queryByRole('link', { name: /Title b/ })).toBeNull();
   });
 
   it('links to the full history', async () => {

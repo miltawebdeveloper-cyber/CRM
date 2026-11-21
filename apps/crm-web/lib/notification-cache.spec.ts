@@ -17,6 +17,7 @@ const note = (id: string, isRead = false): AppNotification => ({
   type: 'callback_due',
   isRead,
   createdAt: '2026-11-20T10:00:00Z',
+  link: null,
 });
 
 function seeded() {

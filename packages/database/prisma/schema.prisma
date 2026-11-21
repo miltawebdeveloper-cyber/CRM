@@ -1086,6 +1086,9 @@ model Notification {
   type      NotificationType
   isRead    Boolean          @default(false) @map("is_read")
   createdAt DateTime         @default(now()) @map("created_at")
+  // Where clicking it goes: a path inside the CRM ("/leads/<id>", "/zoom/<id>").
+  // Null on notifications from before it existed, and on any about nothing to open.
+  link      String?
 
   @@index([userId, isRead])
   @@index([createdAt])
