@@ -7,8 +7,9 @@ import { productivityApi, type DailySummaryRow } from '@/lib/crm';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 
 function toCsv(rows: DailySummaryRow[]): string {
-  const header = 'Caller,Calls Made,Connected,Callbacks,Deals';
-  const body = rows.map((r) => [r.name, r.callsMade, r.connected, r.callbacks, r.deals].join(','));
+  const header = 'Caller,Calls Made,Daily Target,Connected,Callbacks,Deals';
+  // Blank, not 0, for a rep with no target: 0 would read as "a target of nothing".
+  const body = rows.map((r) => [r.name, r.callsMade, r.dailyCallTarget || '', r.connected, r.callbacks, r.deals].join(','));
   return [header, ...body].join('\n');
 }
 
@@ -28,12 +29,14 @@ export default function CallSummaryPage() {
     URL.revokeObjectURL(url);
   }
 
-  const sum = (key: keyof Pick<DailySummaryRow, 'callsMade' | 'connected' | 'callbacks' | 'deals'>) =>
+  const sum = (key: keyof Pick<DailySummaryRow, 'callsMade' | 'connected' | 'callbacks' | 'deals' | 'dailyCallTarget'>) =>
     rows.reduce((a, r) => a + r[key], 0);
 
   const columns = useMemo<ColumnDef<DailySummaryRow>[]>(() => [
     { key: 'caller', header: 'Caller', required: true, cellClassName: 'font-medium', render: (r) => r.name, footer: () => 'Total' },
     { key: 'callsMade', header: 'Calls Made', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => r.callsMade, footer: () => sum('callsMade') },
+    // Set per rep in Calls Made. The footer is the team's target for the day.
+    { key: 'target', header: 'Daily Target', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => (r.dailyCallTarget > 0 ? r.dailyCallTarget : '—'), footer: () => sum('dailyCallTarget') || '—' },
     { key: 'connected', header: 'Connected', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => r.connected, footer: () => sum('connected') },
     { key: 'callbacks', header: 'Callbacks', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => r.callbacks, footer: () => sum('callbacks') },
     { key: 'deals', header: 'Deals', headerClassName: 'text-right', cellClassName: 'text-right tabular-nums', render: (r) => r.deals, footer: () => sum('deals') },

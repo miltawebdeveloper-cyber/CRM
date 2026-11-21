@@ -11,6 +11,7 @@ import { WidgetCard, type Column } from '@/components/dashboard/widget-card';
 import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { LeadFunnel } from '@/components/dashboard/lead-funnel';
 import { TrendChart } from '@/components/dashboard/trend-chart';
+import { CallsVsTarget } from '@/components/dashboard/calls-vs-target';
 import { kpiDelta } from '@/lib/kpi-delta';
 import { AnimatedNumber } from '@/components/animated-number';
 import { LiveIndicator } from '@/components/live-indicator';
@@ -77,7 +78,8 @@ const closedColumns: Column<Lead>[] = [
 /** Today per rep — the manager's leaderboard, most calls first. */
 const teamColumns: Column<DailySummaryRow>[] = [
   { key: 'name', header: 'Rep' },
-  { key: 'callsMade', header: 'Calls', className: 'text-right tabular-nums' },
+  // "12 / 40" when the rep has a daily call target (set in Calls Made).
+  { key: 'callsMade', header: 'Calls', className: 'text-right tabular-nums', cell: (r) => <CallsVsTarget calls={r.callsMade} target={r.dailyCallTarget} /> },
   { key: 'connected', header: 'Connected', className: 'text-right tabular-nums' },
   { key: 'callbacks', header: 'Callbacks', className: 'text-right tabular-nums' },
   { key: 'deals', header: 'Deals', className: 'text-right tabular-nums' },
@@ -279,6 +281,16 @@ export default function DashboardPage() {
     retry: false,
     refetchInterval: LIVE_MS,
   });
+  // Their daily call target, set by a manager in Calls Made (0 = none). Read on
+  // its own because it changes rarely; a rep with no employee record gets none.
+  const myTargetQ = useQuery({
+    // Calls Made's own key, so setting a target there refreshes this too.
+    queryKey: ['call-target', me?.id],
+    queryFn: () => callsApi.callTarget(me!.id),
+    enabled: mine && !!me?.id,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
   const dueNow = todaysCallbacks.filter((c) => c.status === 'due').length;
   // Manager — the unassigned pool right now (not the cards' date range), and today per rep.
   const poolQ = useQuery({
@@ -385,7 +397,7 @@ export default function DashboardPage() {
               icon={Phone}
               iconBg="var(--tone-teal-bg)"
               iconColor="var(--tone-teal-fg)"
-              value={(myTodayQ.data?.totalCalls ?? 0).toLocaleString()}
+              value={<CallsVsTarget calls={myTodayQ.data?.totalCalls ?? 0} target={myTargetQ.data?.dailyCallTarget ?? 0} />}
               label={`Calls today · ${(myTodayQ.data?.connectedCalls ?? 0).toLocaleString()} connected`}
               href={links.calls}
             />

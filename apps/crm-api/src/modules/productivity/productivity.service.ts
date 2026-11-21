@@ -130,6 +130,9 @@ export class ProductivityService {
    * Counted in the database with the same Prisma filters the cards use, so a
    * call the cards leave out can't be counted here by a JavaScript re-reading
    * of the rule that treats an empty status differently.
+   *
+   * `dailyCallTarget` is the rep's per-day call target, set in Calls Made (0 =
+   * none), so the leaderboard can read "12 / 40".
    */
   async dailySummary() {
     const today = startOfToday();
@@ -138,16 +141,19 @@ export class ProductivityService {
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
     });
-    const base: Prisma.CallWhereInput = { callerId: { in: callers.map((c) => c.id) }, startTime: { gte: today } };
+    const ids = callers.map((c) => c.id);
+    const base: Prisma.CallWhereInput = { callerId: { in: ids }, startTime: { gte: today } };
     const reached = await reachedOutcomeSlugs(this.prisma);
-    const [byOutcome, connected, groups] = await Promise.all([
+    const [byOutcome, connected, groups, targets] = await Promise.all([
       this.prisma.call.groupBy({ by: ['callerId', 'outcome'], where: { AND: [base, COUNTED_CALL] }, _count: { _all: true } }),
       this.prisma.call.groupBy({ by: ['callerId'], where: { AND: [base, COUNTED_CALL, connectedCall(reached)] }, _count: { _all: true } }),
       this.outcomeGroups(),
+      this.prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, dailyCallTarget: true } }),
     ]);
     const won = new Set(groups.won);
     const callback = new Set(groups.callbacks);
     const connectedBy = new Map(connected.map((r) => [r.callerId, r._count._all]));
+    const targetBy = new Map(targets.map((t) => [t.id, t.dailyCallTarget]));
     return callers.map((c) => {
       const mine = byOutcome.filter((r) => r.callerId === c.id);
       const count = (pick: (outcome: string | null) => boolean) =>
@@ -159,6 +165,7 @@ export class ProductivityService {
         connected: connectedBy.get(c.id) ?? 0,
         callbacks: count((o) => !!o && callback.has(o)),
         deals: count((o) => !!o && won.has(o)),
+        dailyCallTarget: targetBy.get(c.id) ?? 0,
       };
     });
   }

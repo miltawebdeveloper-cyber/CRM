@@ -22,6 +22,8 @@ describe('ProductivityService.dailySummary', () => {
     const prisma = {
       user: { findMany: jest.fn(async () => [{ id: 'ann', name: 'Ann' }, { id: 'bob', name: 'Bob' }]) },
       call: { groupBy },
+      // Ann has a daily call target; Bob has no employee target set.
+      employee: { findMany: jest.fn(async () => [{ id: 'ann', dailyCallTarget: 40 }]) },
       outcome: {
         // The reached list (category IN …), the won list (one category), the callback list.
         findMany: jest.fn(async (a: { where: { category?: string | { in: string[] } } }) =>
@@ -40,8 +42,8 @@ describe('ProductivityService.dailySummary', () => {
     const h = harness();
     const rows = await h.service.dailySummary();
     expect(rows).toEqual([
-      { id: 'ann', name: 'Ann', callsMade: 7, connected: 5, callbacks: 2, deals: 1 },
-      { id: 'bob', name: 'Bob', callsMade: 0, connected: 0, callbacks: 0, deals: 0 },
+      { id: 'ann', name: 'Ann', callsMade: 7, connected: 5, callbacks: 2, deals: 1, dailyCallTarget: 40 },
+      { id: 'bob', name: 'Bob', callsMade: 0, connected: 0, callbacks: 0, deals: 0, dailyCallTarget: 0 },
     ]);
   });
 

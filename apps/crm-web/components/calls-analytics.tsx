@@ -333,6 +333,9 @@ function TargetEditor({ userId, onDone }: { userId: string; onDone: () => void }
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['calls-made'] });
       qc.invalidateQueries({ queryKey: ['call-target', userId] });
+      // The target also shows as "12 / 40" on the dashboard's Team today and on Call Summary.
+      qc.invalidateQueries({ queryKey: ['productivity', 'daily-summary'] });
+      qc.invalidateQueries({ queryKey: ['daily-summary'] });
       onDone();
     },
   });

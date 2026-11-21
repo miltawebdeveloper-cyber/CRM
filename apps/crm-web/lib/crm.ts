@@ -634,6 +634,8 @@ export interface DailySummaryRow {
   connected: number;
   callbacks: number;
   deals: number;
+  /** The rep's per-day call target (set in Calls Made); 0 = none set. */
+  dailyCallTarget: number;
 }
 export type Period = 'day' | 'week' | 'month';
 export const productivityApi = {
