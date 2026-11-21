@@ -1,9 +1,8 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Users, Activity, Database, ShieldCheck, Import as ImportIcon, Upload, Trash2, type LucideIcon } from 'lucide-react';
+import { Users, Activity, Database, Import as ImportIcon, Download, Trash2, type LucideIcon } from 'lucide-react';
 import { activitiesApi, metricsApi } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { PageHead } from '@/components/page-head';
@@ -14,26 +13,21 @@ import { CountryManagement } from '@/components/admin/country-management';
 import { TimezoneManagement } from '@/components/admin/timezone-management';
 import { leadOrViewer } from '@/lib/timezone';
 
-function Toggle({ on: initial }: { on: boolean }) {
-  const [on, setOn] = useState(initial);
-  return (
-    <button onClick={() => setOn((v) => !v)} className={`relative h-6 w-[42px] shrink-0 rounded-full transition-colors ${on ? 'bg-primary' : 'bg-[var(--brand-edge)]'}`}>
-      <span className={`absolute top-[3px] h-[18px] w-[18px] rounded-full bg-white shadow transition-all ${on ? 'left-[21px]' : 'left-[3px]'}`} />
-    </button>
-  );
-}
-
-const CONTROLS: [string, string, boolean][] = [
-  ['Lead auto-assignment', 'Distribute new leads to callers automatically', true],
-  ['Idle alerts', 'Notify supervisor after 20 min idle', true],
-  ['Call recording', 'Record all outbound calls', true],
-  ['Daily backups', 'Automatic database backup at 2 AM EST', true],
-  ['Maintenance mode', 'Temporarily disable access for non-admins', false],
-];
-const DM: { icon: LucideIcon; t: string; d: string; href?: string }[] = [
+/**
+ * Every tile goes somewhere real.
+ *
+ * This page used to carry a "System Controls" panel — Lead auto-assignment,
+ * Idle alerts, Call recording, Daily backups, Maintenance mode — whose switches
+ * only flipped on screen: nothing saved them and nothing in the API acted on
+ * them, so "Daily backups at 2 AM: on" promised backups the CRM does not take,
+ * and "Maintenance mode" locked nobody out. It went, with the "Backup Now" tile
+ * and the hard-coded "Uptime 99.98%" and "Security: Healthy" cards. Leads are
+ * auto-distributed for real from the Assigned page. "Export Data" did nothing;
+ * leads export, at any size, from Lead Library.
+ */
+const DM: { icon: LucideIcon; t: string; d: string; href: string }[] = [
   { icon: ImportIcon, t: 'Import Leads', d: 'Bulk CSV / Excel upload', href: '/import' },
-  { icon: Upload, t: 'Export Data', d: 'Download full database' },
-  { icon: Database, t: 'Backup Now', d: 'Manual database snapshot' },
+  { icon: Download, t: 'Export Leads', d: 'CSV / Excel from Lead Library', href: '/lead-library' },
   // Was labelled "AI duplicate detection" and wired to nothing — a tile that
   // promised a feature and did not move when clicked. The screen behind it now
   // exists, and the description says what it actually does: an exact match on
@@ -52,24 +46,10 @@ export default function AdminPage() {
 
       <KpiGrid>
         <KpiCard icon={Users} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={activeUsers || '—'} label="Active Users" />
-        <KpiCard icon={Activity} iconBg="var(--tone-teal-bg-2)" iconColor="var(--tone-teal-fg)" value="99.98%" label="Uptime (30d)" />
         <KpiCard icon={Database} iconBg="var(--tone-amber-bg-2)" iconColor="var(--tone-amber-fg)" value={(summary?.totalLeads ?? 0).toLocaleString()} label="Lead Records" />
-        <KpiCard icon={ShieldCheck} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value="Healthy" label="Security Status" />
       </KpiGrid>
 
-      <div className="grid gap-[18px] lg:grid-cols-2">
-        <div className="rounded-2xl border bg-card shadow-sm">
-          <div className="border-b px-[18px] py-4"><h3 className="font-display text-[14px] font-semibold">System Controls</h3></div>
-          <div className="px-[18px]">
-            {CONTROLS.map(([t, d, on]) => (
-              <div key={t} className="flex items-center justify-between gap-4 border-b py-3.5 last:border-0">
-                <div><div className="text-[13px] font-semibold">{t}</div><div className="text-[12px] text-muted-foreground">{d}</div></div>
-                <Toggle on={on} />
-              </div>
-            ))}
-          </div>
-        </div>
-
+      <div>
         <div className="rounded-2xl border bg-card shadow-sm">
           <div className="border-b px-[18px] py-4"><h3 className="font-display text-[14px] font-semibold">Activity Log</h3><div className="text-xs text-muted-foreground">Recent system events</div></div>
           <div className="px-[18px]">
@@ -96,7 +76,7 @@ export default function AdminPage() {
 
       <div className="mt-[18px] rounded-2xl border bg-card shadow-sm">
         <div className="border-b px-[18px] py-4"><h3 className="font-display text-[14px] font-semibold">Data Management</h3></div>
-        <div className="grid gap-3.5 p-[18px] sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3.5 p-[18px] sm:grid-cols-3">
           {DM.map((d) => {
             const tile = 'rounded-2xl border bg-card p-5 text-center transition-all hover:-translate-y-0.5 hover:shadow-md';
             const body = (
@@ -106,13 +86,8 @@ export default function AdminPage() {
                 <div className="mt-0.5 text-[11.5px] text-muted-foreground">{d.d}</div>
               </>
             );
-            // A tile that goes somewhere is a link (prefetched, and it opens in
-            // a new tab); the rest stay buttons, unchanged.
-            return d.href ? (
-              <Link key={d.t} href={d.href} className={tile}>{body}</Link>
-            ) : (
-              <button key={d.t} type="button" className={tile}>{body}</button>
-            );
+            // Links: prefetched, and they open in a new tab.
+            return <Link key={d.t} href={d.href} className={tile}>{body}</Link>;
           })}
         </div>
       </div>

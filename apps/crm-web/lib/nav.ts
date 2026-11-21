@@ -104,7 +104,7 @@ export const NAV: NavGroup[] = [
   {
     heading: 'AI & Admin',
     items: [
-      { label: 'AI Training', href: '/ai-training', icon: Bot, sub: 'Knowledge base & coaching', roles: MANAGERS },
+      { label: 'AI Training', href: '/ai-training', icon: Bot, sub: 'Knowledge base & AI assistant', roles: MANAGERS },
       { label: 'Integrations', href: '/integrations', icon: Plug, sub: 'Calling platforms', roles: ADMIN },
       { label: 'User Management', href: '/users', icon: Shield, sub: 'Users & roles', roles: ADMIN },
       { label: 'Admin Panel', href: '/admin', icon: SlidersHorizontal, sub: 'System administration', roles: ADMIN },

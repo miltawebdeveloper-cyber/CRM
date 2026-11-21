@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { GitBranch, DollarSign, Percent, Clock, MapPin, Building2 } from 'lucide-react';
+import { GitBranch, Clock, MapPin, Building2 } from 'lucide-react';
 import { leadsApi, type Lead } from '@/lib/leads';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
@@ -92,9 +92,7 @@ export default function PipelinePage() {
 
       <KpiGrid>
         <KpiCard icon={GitBranch} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value={openDeals} label="Open Deals" />
-        <KpiCard icon={DollarSign} iconBg="var(--brand-surface-2)" iconColor="var(--brand-on-surface)" value="$284K" label="Weighted Value" />
-        <KpiCard icon={Percent} iconBg="var(--tone-amber-bg)" iconColor="var(--tone-amber-fg)" value="22%" label="Win Rate" />
-        <KpiCard icon={Clock} iconBg="var(--tone-teal-bg)" iconColor="var(--tone-teal-fg)" value="14 days" label="Avg Cycle" />
+        {/* "$284K weighted value", "22% win rate" and "14 days avg cycle" stood here, typed in: leads carry no deal value, and nothing measured the other two. */}
       </KpiGrid>
 
       {view === 'board' ? (

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { KeyRound, Plus } from 'lucide-react';
+import { KeyRound } from 'lucide-react';
 import { api } from '@/lib/api';
 import { configApi } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
@@ -43,7 +43,7 @@ function Row({ t, d, on }: { t: string; d: string; on: boolean }) {
 // Preferences sits second, right after Profile: it is the tab every role has a
 // reason to open, and the only one whose settings change what every other screen
 // looks like.
-const TABS = ['Profile', 'Preferences', 'Notifications', 'Calling', 'Security', 'API & Keys'] as const;
+const TABS = ['Profile', 'Preferences', 'Notifications', 'Calling', 'Security', 'Services'] as const;
 type Tab = (typeof TABS)[number];
 
 export default function SettingsPage() {
@@ -131,9 +131,9 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {tab === 'API & Keys' && (
+      {tab === 'Services' && (
         <div className="max-w-[760px] rounded-2xl border bg-card shadow-sm">
-          <div className="flex items-center justify-between border-b px-[18px] py-4"><div><h3 className="font-display text-[14px] font-semibold">API Keys & Integrations</h3><div className="text-xs text-muted-foreground">Live status from your environment</div></div><button className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-[12px] font-semibold text-primary-foreground"><Plus className="h-3.5 w-3.5" /> Generate Key</button></div>
+          <div className="flex items-center justify-between border-b px-[18px] py-4"><div><h3 className="font-display text-[14px] font-semibold">Services</h3><div className="text-xs text-muted-foreground">Live status from your environment</div></div>{/* A Generate Key button sat here; the CRM has no API keys to generate. */}</div>
           <div className="p-[18px]">
             {cfg && [['Database', cfg.database.provider, cfg.database.configured], ['Redis', 'Cache / queues', cfg.redis.configured], ['Calling Provider', cfg.calling.provider, cfg.calling.configured], ['AI Provider', `${cfg.ai.provider}${cfg.ai.model ? ` · ${cfg.ai.model}` : ''}`, cfg.ai.configured], ['Lead Sync (OpenPhone)', cfg.quo.sandbox ? 'Sandbox mode' : 'Live', cfg.quo.configured], ['Object Storage', cfg.storage.provider, cfg.storage.configured]].map((k) => (
               <div key={k[0] as string} className="flex items-center gap-3.5 border-b py-3.5 last:border-0">

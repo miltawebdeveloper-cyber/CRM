@@ -1,21 +1,26 @@
 'use client';
 
-import { IconAction } from '@/components/icon-action';
 import { useState, useRef, useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Building2, FileText, BookOpen, MessageSquare, Bot, Send, Sparkles, RefreshCw, Mic, BookMarked, Target } from 'lucide-react';
+import { Building2, FileText, BookOpen, MessageSquare, Bot, Send } from 'lucide-react';
 import { aiApi } from '@/lib/crm';
-import { PageHead, Avatar } from '@/components/page-head';
-import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
+import { Avatar } from '@/components/page-head';
 
+/**
+ * The topics the AI Assistant answers on (api: modules/ai/knowledge-base).
+ *
+ * This page used to show numbers nothing measured — "115 KB articles", "1,240
+ * AI answers this week ▲18%", "86 calls coached", "7.8/10 confidence", an
+ * article count on each topic (the knowledge base holds nine entries), and a
+ * Voice Coaching panel of fixed scores with a canned "3 missed closing
+ * opportunities detected in today's calls". Its Sync KB and Run Voice Analysis
+ * buttons did nothing. All of that went; the assistant itself is real and stays.
+ */
 const KB = [
-  { icon: Building2, t: 'Company Operations', d: 'Services, US markets covered, timezones handled, client industries served', n: 18, bg: 'var(--brand-surface)', color: 'var(--brand-on-surface)' },
-  { icon: FileText, t: 'Tax Knowledge', d: 'Tax forms, filing processes, common client questions (1099, W-2, deadlines)', n: 42, bg: 'var(--tone-amber-bg-2)', color: 'var(--tone-amber-fg)' },
-  { icon: BookOpen, t: 'Bookkeeping', d: 'QuickBooks, Xero, payroll basics, reconciliation workflows', n: 31, bg: 'var(--tone-teal-bg-2)', color: 'var(--tone-teal-fg)' },
-  { icon: MessageSquare, t: 'Sales Scripts', d: 'Opening conversations, objection handling, closing methods', n: 24, bg: '#f7e3da', color: 'var(--tone-red-fg-2)' },
-];
-const COACH: [string, number, string][] = [
-  ['Confidence', 78, 'var(--brand)'], ['Speaking Pace', 64, 'var(--tone-amber-fg)'], ['Objection Handling', 82, 'var(--tone-teal-fg)'], ['Closing Strength', 58, 'var(--tone-red-fg-2)'],
+  { icon: Building2, t: 'Company Operations', d: 'Services, US markets covered, timezones handled, client industries served', bg: 'var(--brand-surface)', color: 'var(--brand-on-surface)' },
+  { icon: FileText, t: 'Tax Knowledge', d: 'Tax forms, filing processes, common client questions (1099, W-2, deadlines)', bg: 'var(--tone-amber-bg-2)', color: 'var(--tone-amber-fg)' },
+  { icon: BookOpen, t: 'Bookkeeping', d: 'QuickBooks, Xero, payroll basics, reconciliation workflows', bg: 'var(--tone-teal-bg-2)', color: 'var(--tone-teal-fg)' },
+  { icon: MessageSquare, t: 'Sales Scripts', d: 'Opening conversations, objection handling, closing methods', bg: '#f7e3da', color: 'var(--tone-red-fg-2)' },
 ];
 
 interface Msg { role: 'user' | 'ai'; text: string }
@@ -40,30 +45,16 @@ export default function AiTrainingPage() {
 
   return (
     <div>
-      <PageHead>
-        {/* Secondary actions as compact icons (name on hover, focus or tap); the page's main action keeps its text. See components/icon-action. */}
-        <IconAction size="md" icon={RefreshCw} label="Sync KB" onClick={() => {}} />
-        <button className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground hover:opacity-90"><Sparkles className="h-4 w-4" /> Run Voice Analysis</button>
-      </PageHead>
-
-      <KpiGrid>
-        <KpiCard icon={BookMarked} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value="115" label="KB Articles" />
-        <KpiCard icon={Sparkles} iconBg="var(--tone-amber-bg-2)" iconColor="var(--tone-amber-fg)" value="1,240" label="AI Answers This Week" trend="18%" trendDir="up" />
-        <KpiCard icon={Mic} iconBg="var(--tone-teal-bg-2)" iconColor="var(--tone-teal-fg)" value="86" label="Calls Coached" />
-        <KpiCard icon={Target} iconBg="var(--brand-surface)" iconColor="var(--brand-on-surface)" value="7.8/10" label="Avg Confidence" />
-      </KpiGrid>
-
       <div className="grid gap-[18px] xl:grid-cols-[7fr_5fr]">
-        {/* Knowledge base */}
+        {/* Knowledge base — the topics, not clickable: there is nothing behind a card to open. */}
         <div className="rounded-2xl border bg-card shadow-sm">
-          <div className="border-b px-[18px] py-4"><h3 className="font-display text-[14px] font-semibold">Knowledge Base</h3><div className="text-xs text-muted-foreground">Training categories for new employees</div></div>
+          <div className="border-b px-[18px] py-4"><h3 className="font-display text-[14px] font-semibold">Knowledge Base</h3><div className="text-xs text-muted-foreground">Topics the AI Assistant can answer questions on</div></div>
           <div className="grid gap-3.5 p-[18px] sm:grid-cols-2">
             {KB.map((k) => (
-              <div key={k.t} className="cursor-pointer rounded-2xl border bg-card p-[18px] transition-all hover:-translate-y-0.5 hover:shadow-md">
+              <div key={k.t} className="rounded-2xl border bg-card p-[18px]">
                 <div className="mb-3 grid h-[42px] w-[42px] place-items-center rounded-[11px]" style={{ background: k.bg, color: k.color }}><k.icon className="h-[21px] w-[21px]" /></div>
                 <div className="font-display text-[13.5px] font-bold">{k.t}</div>
-                <div className="my-1.5 text-[12px] leading-relaxed text-muted-foreground">{k.d}</div>
-                <div className="text-[11px] font-semibold text-primary">{k.n} articles</div>
+                <div className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">{k.d}</div>
               </div>
             ))}
           </div>
@@ -92,25 +83,6 @@ export default function AiTrainingPage() {
             <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask anything — e.g. How do I handle a pricing objection?" className="flex-1 rounded-[11px] border bg-background px-3.5 py-2.5 text-[13px] outline-none focus:border-primary" />
             <button type="submit" disabled={ask.isPending} className="grid place-items-center rounded-[11px] bg-primary px-4 text-primary-foreground disabled:opacity-60"><Send className="h-4 w-4" /></button>
           </form>
-        </div>
-      </div>
-
-      {/* Voice coaching */}
-      <div className="mt-[18px] rounded-2xl border bg-card shadow-sm">
-        <div className="border-b px-[18px] py-4"><h3 className="font-display text-[14px] font-semibold">Voice Coaching</h3><div className="text-xs text-muted-foreground">AI analysis of recent call recordings</div></div>
-        <div className="p-[18px]">
-          <div className="mb-[18px] grid gap-[18px_28px] sm:grid-cols-2">
-            {COACH.map(([lab, v, c]) => (
-              <div key={lab}>
-                <div className="mb-[7px] flex justify-between text-[12.5px] font-semibold"><span>{lab}</span><b>{v}%</b></div>
-                <div className="h-2 overflow-hidden rounded-full bg-[var(--brand-surface)]"><i className="block h-full rounded-full" style={{ width: `${v}%`, background: c }} /></div>
-              </div>
-            ))}
-          </div>
-          <div className="flex gap-3 rounded-md border border-[var(--brand-lime-soft)] bg-[var(--tone-neutral-bg)] p-[15px] text-[12.5px] leading-relaxed text-[var(--brand-ink)]">
-            <Sparkles className="h-5 w-5 shrink-0 text-[var(--brand)]" />
-            <div><b>AI Suggestion:</b> Strong rapport on opening, but 3 missed closing opportunities detected in today&apos;s calls. Try asking for the next step earlier — right after confirming interest.</div>
-          </div>
         </div>
       </div>
     </div>
