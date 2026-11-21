@@ -21,8 +21,17 @@ describe('IconAction', () => {
     // The visible label sits beside it, hidden from assistive tech (no double reading).
     const tip = screen.getByText('Add Lead');
     expect(tip.getAttribute('aria-hidden')).toBe('true');
-    expect(tip.className).toContain('group-hover/tip:opacity-100');
-    expect(tip.className).toContain('group-focus-within/tip:opacity-100');
+    expect(tip.className).toContain('group-hover/tip:block');
+    expect(tip.className).toContain('group-focus-within/tip:block');
+    // Out of the layout at rest: a transparent label still widened the page.
+    expect(tip.className).toContain('hidden');
+  });
+
+  it('can hang its label from its right edge, for an icon at the edge of the page', () => {
+    render(<IconAction icon={Plus} label="Export breakdown CSV" align="end" onClick={() => {}} />);
+    const tip = screen.getByText('Export breakdown CSV');
+    expect(tip.className).toContain('right-0');
+    expect(tip.className).not.toContain('-translate-x-1/2');
   });
 
   it('is a real link when it navigates', () => {

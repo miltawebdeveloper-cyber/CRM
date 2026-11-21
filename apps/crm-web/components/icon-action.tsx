@@ -18,6 +18,12 @@ type IconActionProps = {
    * where an icon action stands beside the page's main action.
    */
   size?: 'sm' | 'md';
+  /**
+   * Where the name label sits under the icon: centred (default), or flush with
+   * the icon's right edge — for an icon at the right edge of the page, whose
+   * centred label would hang off the screen.
+   */
+  align?: 'center' | 'end';
 } & ({ href: string; onClick?: never } | { href?: undefined; onClick: () => void });
 
 /**
@@ -32,7 +38,7 @@ type IconActionProps = {
  * so a greyed-out icon still says what it is.
  */
 export function IconAction(props: IconActionProps) {
-  const { icon: Icon, label, variant = 'default', disabled, busy, size = 'sm' } = props;
+  const { icon: Icon, label, variant = 'default', disabled, busy, size = 'sm', align = 'center' } = props;
   const box =
     variant === 'primary'
       ? 'bg-primary text-primary-foreground shadow-sm hover:opacity-90'
@@ -52,10 +58,17 @@ export function IconAction(props: IconActionProps) {
         </button>
       )}
       {/* Decorative: the control's aria-label already names it, so this is
-          hidden from screen readers rather than read twice. */}
+          hidden from screen readers rather than read twice.
+
+          Out of the layout until hover or focus (`hidden`, not `opacity-0`).
+          A transparent label still takes up room, and one under an icon at the
+          right edge made the whole page 30-odd px wider than the screen — a
+          sideways scroll on every phone. */}
       <span
         aria-hidden
-        className="pointer-events-none absolute left-1/2 top-full z-50 mt-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11.5px] font-medium text-background opacity-0 shadow-md transition-opacity duration-100 group-focus-within/tip:opacity-100 group-hover/tip:opacity-100"
+        className={`pointer-events-none absolute top-full z-50 mt-1.5 hidden whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-[11.5px] font-medium text-background shadow-md group-focus-within/tip:block group-hover/tip:block ${
+          align === 'end' ? 'right-0' : 'left-1/2 -translate-x-1/2'
+        }`}
       >
         {label}
       </span>
