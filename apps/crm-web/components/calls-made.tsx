@@ -32,7 +32,11 @@ const LEAD_STATUS_OPTS = [
  * Employees see their own calls; managers see the team and can narrow to one
  * rep. The API enforces both regardless of what the UI shows.
  */
-export function CallsMade({ isManager }: { isManager: boolean }) {
+/**
+ * `initialOutcome` opens the list already filtered — how the Analytics tab's
+ * numbers open the calls behind them (a slug, `bucket:<group>` or `none`).
+ */
+export function CallsMade({ isManager, initialOutcome }: { isManager: boolean; initialOutcome?: string }) {
   const filters = useCallFilters(isManager);
   const { params: scope, dateFilter, setDateFilter, userId, setUserId, userOpts } = filters;
   // With dialling off no call rows are written at all, which is the single
@@ -54,7 +58,7 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
   // Statuses", but it has always sent `outcome` to the API — with the Call
   // Status column now gone, that name promised a filter on a column that
   // isn't there and hid the one it really is.
-  const [outcomeFilter, setOutcomeFilter] = useState('');
+  const [outcomeFilter, setOutcomeFilter] = useState(initialOutcome ?? '');
 
   // Every filter goes to the API. Applying the geography/status ones in the
   // browser used to mean the tiles (server-side) and the table (client-side)
@@ -329,7 +333,19 @@ export function CallsMade({ isManager }: { isManager: boolean }) {
     const legacy = (filterOpts?.callStatuses ?? [])
       .filter((s) => !known.has(s.toLowerCase()))
       .map((s) => ({ label: s, value: s }));
-    return [{ label: 'All Call Outcomes', value: '' }, ...fromOutcomes, ...legacy];
+    // Whole groups and "no outcome" first — what the Analytics tab's tiles open.
+    // Matched on the call's own outcome, so each holds exactly the calls the
+    // number on that tab counted (see the API's CallStatsQueryDto.outcome).
+    const groups = [
+      { label: 'No outcome logged', value: 'none' },
+      { label: 'All Cold', value: 'bucket:cold' },
+      { label: 'All Warm', value: 'bucket:warm' },
+      { label: 'All Hot', value: 'bucket:hot' },
+      { label: 'All Connected / Follow-ups', value: 'bucket:connected' },
+      { label: 'All Closed (won and lost)', value: 'bucket:closed' },
+      ...(outcomes.some((o) => !o.category) ? [{ label: 'All with no group', value: 'bucket:ungrouped' }] : []),
+    ];
+    return [{ label: 'All Call Outcomes', value: '' }, ...groups, ...fromOutcomes, ...legacy];
   }, [outcomes, filterOpts]);
 
   // The API already applied every filter — the table shows exactly what it returned.

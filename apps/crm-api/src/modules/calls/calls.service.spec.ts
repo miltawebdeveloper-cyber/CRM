@@ -398,3 +398,141 @@ describe('CallsService — follow-up mutations are scoped to the caller', () => 
     await expect(service.completeFollowup('lead', 'lead-1', manager)).resolves.toBeDefined();
   });
 });
+
+/**
+ * The Analytics tab's Lead Book speaks the dashboard's language: Contacted is
+ * "reached" and Balance is the leads still owed a first conversation — not
+ * assigned − closed under the same name.
+ */
+describe('CallsService.leadBook', () => {
+  function harness(counts: [number, number, number]) {
+    const queue = [...counts];
+    const count = jest.fn(async (_a: { where: Record<string, unknown> }) => queue.shift() ?? 0);
+    const prisma = {
+      lead: { count },
+      outcome: { findMany: jest.fn(async () => [{ slug: 'call_back' }]) },
+    } as unknown as PrismaService;
+    const service = new CallsService(prisma, {} as NotificationsService, {} as OutcomesService, {} as CommunicationsService);
+    return { service, count };
+  }
+
+  it('reports contacted, the balance still to reach, and closed', async () => {
+    const { service } = harness([375, 120, 30]);
+    const book = await service.leadBook(undefined, { id: 'admin-1', role: 'admin' as Role });
+    expect(book).toEqual({ assigned: 375, contacted: 120, balance: 255, closed: 30 });
+  });
+
+  it('counts contacted with the shared rule: an answered call, or a contacted-or-beyond status', async () => {
+    const { service, count } = harness([10, 4, 1]);
+    await service.leadBook(undefined, { id: 'emp-1', role: 'employee' as Role });
+    const contacted = JSON.stringify(count.mock.calls[1][0].where);
+    expect(contacted).toContain('"assignedToId":"emp-1"');
+    expect(contacted).toContain('"status":{"in":["contacted","interested","closed"]}');
+    expect(contacted).toContain('"outcome":{"in":["call_back"]}');
+    expect(contacted).toContain('"durationSecs":{"gt":0}');
+  });
+});
+
+/**
+ * The Analytics tab's numbers open as lists in Calls Made, so the Call Outcome
+ * filter takes what those numbers count: a bucket, or "no outcome", matched on
+ * the call's own outcome — the list holds exactly as many calls as the number.
+ */
+describe('CallsService — the Call Outcome filter', () => {
+  function harness() {
+    const outcomeFindMany = jest.fn(async (_a: { where: unknown }) => [{ slug: 'no_answer' }, { slug: 'voice_mail' }]);
+    const prisma = {
+      outcome: { findMany: outcomeFindMany, findUnique: jest.fn(async () => ({ name: 'Call Back' })) },
+    } as unknown as PrismaService;
+    const service = new CallsService(prisma, {} as NotificationsService, {} as OutcomesService, {} as CommunicationsService);
+    const filter = (raw?: string) =>
+      (service as unknown as { outcomeFilter: (r?: string) => Promise<{ OR?: unknown[] }> }).outcomeFilter(raw);
+    return { filter, outcomeFindMany };
+  }
+
+  it('matches a whole bucket on the call’s own outcome', async () => {
+    const { filter, outcomeFindMany } = harness();
+    expect(await filter('bucket:cold')).toEqual({ OR: [{ outcome: { in: ['no_answer', 'voice_mail'] } }] });
+    expect(JSON.stringify(outcomeFindMany.mock.calls[0][0].where)).toContain('"category":{"in":["cold"]}');
+  });
+
+  it('reads Closed as won and lost, and "ungrouped" as outcomes with no group', async () => {
+    const { filter, outcomeFindMany } = harness();
+    await filter('bucket:closed,bucket:ungrouped');
+    const where = JSON.stringify(outcomeFindMany.mock.calls[0][0].where);
+    expect(where).toContain('"closed_positive","closed_negative"');
+    expect(where).toContain('{"category":null}');
+  });
+
+  it('matches calls with no outcome logged', async () => {
+    const { filter } = harness();
+    expect(await filter('none')).toEqual({ OR: [{ outcome: null }] });
+  });
+
+  it('keeps a single outcome’s legacy fallback, and no filter means no condition', async () => {
+    const { filter } = harness();
+    const one = await filter('call_back');
+    expect(one.OR).toContainEqual({ outcome: 'call_back' });
+    expect(JSON.stringify(one.OR)).toContain('"callStatus":{"equals":"Call Back"');
+    expect(await filter(undefined)).toEqual({});
+    expect(await filter(' , ')).toEqual({});
+  });
+});
+
+describe('CallsService.callsMadeTeam', () => {
+  function harness() {
+    const userFindMany = jest.fn(async (a: { where: { role?: unknown; id?: unknown } }) =>
+      a.where.role ? [{ id: 'ann' }, { id: 'bob' }] : [{ id: 'ann', name: 'Ann' }, { id: 'bob', name: 'Bob' }, { id: 'tl', name: 'Tess' }],
+    );
+    const groupBy = jest.fn(async (a: { by: string[] }) =>
+      a.by.length === 2
+        ? [
+            { callerId: 'ann', outcome: 'call_back', _count: { _all: 4 }, _sum: { durationSecs: 400 } },
+            { callerId: 'ann', outcome: 'negotiation', _count: { _all: 1 }, _sum: { durationSecs: 300 } },
+            { callerId: 'ann', outcome: 'closed_won', _count: { _all: 1 }, _sum: { durationSecs: 200 } },
+            { callerId: 'ann', outcome: 'no_answer', _count: { _all: 3 }, _sum: { durationSecs: 0 } },
+            { callerId: 'ann', outcome: null, _count: { _all: 2 }, _sum: { durationSecs: 60 } },
+            // A team leader who rang today: not an employee, still on the board.
+            { callerId: 'tl', outcome: 'call_back', _count: { _all: 1 }, _sum: { durationSecs: 90 } },
+          ]
+        : [{ callerId: 'ann', _count: { _all: 6 } }, { callerId: 'tl', _count: { _all: 1 } }],
+    );
+    const prisma = {
+      user: { findMany: userFindMany },
+      call: { groupBy },
+      employee: { findMany: jest.fn(async () => [{ id: 'ann', dailyCallTarget: 10 }]) },
+      outcome: {
+        findMany: jest.fn(async (a: { where?: unknown }) =>
+          a?.where
+            ? [{ slug: 'call_back' }, { slug: 'negotiation' }, { slug: 'closed_won' }]
+            : [
+                { slug: 'call_back', category: 'warm' },
+                { slug: 'negotiation', category: 'hot' },
+                { slug: 'closed_won', category: 'closed_positive' },
+                { slug: 'no_answer', category: 'cold' },
+              ],
+        ),
+      },
+    } as unknown as PrismaService;
+    return new CallsService(prisma, {} as NotificationsService, {} as OutcomesService, {} as CommunicationsService);
+  }
+  const manager = { id: 'mgr', role: 'admin' as Role };
+
+  it('gives every rep a row, busiest first, counted by the shared rules', async () => {
+    const rows = await harness().callsMadeTeam({ from: '2026-11-16', to: '2026-11-20' } as never, manager);
+    expect(rows.map((r) => r.id)).toEqual(['ann', 'tl', 'bob']);
+    expect(rows[0]).toEqual({
+      id: 'ann', name: 'Ann', calls: 11, given: 9, answered: 6, talkSecs: 960,
+      warm: 4, hot: 1, won: 1, lost: 0, noOutcome: 2,
+      // 10 a day over five days.
+      target: 50,
+    });
+    // A rep with no calls is on the board with zeroes, not missing.
+    expect(rows[2]).toMatchObject({ id: 'bob', calls: 0, answered: 0, target: null });
+  });
+
+  it('has no target over an open-ended range', async () => {
+    const rows = await harness().callsMadeTeam({} as never, manager);
+    expect(rows.find((r) => r.id === 'ann')?.target).toBeNull();
+  });
+});

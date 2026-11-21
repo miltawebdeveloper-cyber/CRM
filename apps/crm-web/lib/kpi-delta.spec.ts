@@ -22,4 +22,9 @@ describe('kpiDelta', () => {
     expect(kpiDelta(84, 75, { days: 7 }).title).toBe('up 12% — 84 vs 75 in the previous 7 days');
     expect(kpiDelta(9, 9, { days: 1 }).title).toBe('unchanged — 9 vs 9 in the previous 1 day');
   });
+
+  it('writes the figures in their own format when given one — a duration, not seconds', () => {
+    const fmt = (n: number) => `${Math.round(n / 60)}m`;
+    expect(kpiDelta(3600, 3000, { days: 7, format: fmt }).title).toBe('up 20% — 60m vs 50m in the previous 7 days');
+  });
 });

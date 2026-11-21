@@ -172,8 +172,9 @@ export function CallsAspects({ filters }: { filters: CallFilters }) {
     };
   }, [data, dim, measure, checklist]);
 
-  // The chart names who it's about, the way a printed report would.
-  const who = userId ? users.find((u) => u.id === userId)?.name ?? 'Employee' : isManager ? 'All Employees' : 'My Calls';
+  // The chart names who and when it's about, the way a printed report would:
+  // "All employees · 1 Nov – 7 Nov". It read "All Employees Call All dates".
+  const who = userId ? users.find((u) => u.id === userId)?.name ?? 'Employee' : isManager ? 'All employees' : 'My calls';
   const when =
     dateFilter.from && dateFilter.to
       ? dateFilter.from === dateFilter.to
@@ -191,7 +192,7 @@ export function CallsAspects({ filters }: { filters: CallFilters }) {
     <div className="mb-[18px] rounded-2xl border bg-card p-5 shadow-sm">
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
         <div>
-          <h3 className="font-display text-[14px] font-semibold italic">{who} Call {when}</h3>
+          <h3 className="font-display text-[14px] font-semibold">{who} · {when}</h3>
           <p className="text-[11px] text-muted-foreground">
             {isManager && !userId ? 'The whole team — pick an employee above to read one rep.' : 'Calls in the selected range, broken down by aspect.'}
             {unlogged > 0 && (

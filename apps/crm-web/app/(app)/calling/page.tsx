@@ -141,6 +141,10 @@ export default function CallingPage() {
   // Which view is showing. The dialer's state lives here, so switching tabs and
   // back doesn't disturb an in-progress call.
   const [tab, setTab] = useState<'panel' | 'made' | 'analytics' | 'recordings' | 'missed' | 'sms'>('panel');
+  // A number clicked on the Analytics tab opens its calls here, in Calls Made,
+  // already filtered. `n` remounts Calls Made so a second click re-applies it.
+  // Choosing a tab yourself clears it, so Calls Made opens unfiltered as before.
+  const [drill, setDrill] = useState<{ outcome: string; n: number } | null>(null);
   const [queueFilter, setQueueFilter] = useState<'all' | 'callback' | 'zoom' | 'new_call'>('all');
   // Which zone's leads the queue is showing. `''` is All Time Zones. Persisted so
   // it survives switching to Calls Made and back, or following a lead into Lead
@@ -874,7 +878,7 @@ export default function CallingPage() {
               // trip, and the session is persisted on top of that. Blocking them
               // stopped nothing and cost the agent the context they were reaching
               // for.
-              onClick={() => setTab(k)}
+              onClick={() => { setTab(k); setDrill(null); }}
               className={`whitespace-nowrap rounded-[5px] px-2.5 py-[3px] text-[11px] font-semibold transition-colors ${tab === k ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-background hover:text-foreground'}`}
             >
               {label}
@@ -883,8 +887,16 @@ export default function CallingPage() {
         </div>
       </PageTabs>
 
-      {tab === 'made' && <CallsMade isManager={isManager} />}
-      {tab === 'analytics' && <CallsAnalytics isManager={isManager} />}
+      {tab === 'made' && <CallsMade key={drill?.n ?? 0} isManager={isManager} initialOutcome={drill?.outcome} />}
+      {tab === 'analytics' && (
+        <CallsAnalytics
+          isManager={isManager}
+          onDrill={(outcome) => {
+            setDrill({ outcome, n: Date.now() });
+            setTab('made');
+          }}
+        />
+      )}
       {tab === 'recordings' && <CallRecordings />}
       {tab === 'missed' && <MissedCalls />}
       {tab === 'sms' && <SmsHistory />}

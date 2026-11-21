@@ -37,6 +37,12 @@ export interface KpiProps {
    */
   href?: string;
   /**
+   * Makes the card a button instead — for a card that acts on the page it is
+   * on (the Analytics tab's "Calls with no outcome" opens Calls Made filtered
+   * to them) rather than going to another page. Ignored when `href` is set.
+   */
+  onClick?: () => void;
+  /**
    * The ▲/▼ against the previous period (see lib/kpi-delta). Sits beside the
    * figure rather than under it, so a card with one stays the height of its
    * neighbours.
@@ -59,7 +65,7 @@ const ARROW: Record<KpiDelta['direction'], string> = { up: '▲', down: '▼', f
  * and only the content differs between modules. This mirrors the Calls dashboard,
  * which is the reference design.
  */
-export function KpiCard({ icon: Icon, iconBg, iconColor, value, label, href, delta }: KpiProps) {
+export function KpiCard({ icon: Icon, iconBg, iconColor, value, label, href, onClick, delta }: KpiProps) {
   // Rendered as it is, with no entry animation — the figures are what someone
   // navigates to the page to read, so they arrive with it.
   const tile = 'group/kpi flex items-center gap-2.5 overflow-hidden rounded-xl border bg-card px-3 py-2.5 shadow-sm transition-all hover:-translate-y-[1px] hover:shadow-md';
@@ -89,15 +95,23 @@ export function KpiCard({ icon: Icon, iconBg, iconColor, value, label, href, del
         </div>
       </div>
       {/* A quiet "this opens something" cue, strongest on hover. */}
-      {href && (
+      {(href || onClick) && (
         <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground/40 transition-colors group-hover/kpi:text-muted-foreground" aria-hidden />
       )}
     </>
   );
-  return href ? (
-    <Link href={href} className={`${tile} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50`}>
+  const focus = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50";
+  if (href) {
+    return (
+      <Link href={href} className={`${tile} ${focus}`}>
+        {body}
+      </Link>
+    );
+  }
+  return onClick ? (
+    <button type="button" onClick={onClick} className={`${tile} w-full text-left ${focus}`}>
       {body}
-    </Link>
+    </button>
   ) : (
     <div className={tile}>{body}</div>
   );

@@ -428,6 +428,8 @@ export interface CallsMadeStats {
   totalDurationSecs: number;
   avgDurationSecs: number;
   connectedPct: number;
+  /** Calls with no outcome logged — counted in `total`, in no bucket. */
+  noOutcome: number;
   /** Leads worked without a call — listed in the log, counted apart from `total`. */
   processed: number;
   /** Every contact in the log, dialled or not — what the table's rows total. */
@@ -440,6 +442,11 @@ export interface CallsMadeStats {
   given: number;
   byStatus: CallStatusCount[];
   categories: { cold: number; warm: number; hot: number; connected: number; closedPositive: number; closedNegative: number };
+  /**
+   * Shares of `given` (calls with an outcome), in %. `callsMade` is a legacy
+   * name for the REACH rate — every outcome past Cold — not a count of calls;
+   * the Analytics tab labels it "Reached".
+   */
   ratios: { callsMade: number; warm: number; hot: number; connected: number; closedPositive: number; closedNegative: number };
   coldPct: number;
   /** Null when no target applies (none set, or an open-ended date range). */
@@ -456,12 +463,15 @@ export interface CallTarget {
  * assigned right now, so unlike everything else on the Calls Made dashboard it
  * does not move with the date range.
  */
+/** A rep's (or the team's) lead book, in the dashboard's terms. Not date-filtered. */
 export interface LeadBook {
   assigned: number;
-  /** Leads that reached a terminal status (closed or rejected). */
-  completed: number;
-  /** Still to work: assigned − completed. */
+  /** Reached: an answered call, or a status of contacted-or-beyond — the dashboard's Contacted. */
+  contacted: number;
+  /** Still owed a first conversation: assigned − contacted — the dashboard's Balance. */
   balance: number;
+  /** A terminal status, won or lost (closed or rejected). */
+  closed: number;
 }
 
 export interface CallRecord {
@@ -530,6 +540,25 @@ export interface CallPivotCell {
   secs: number;
 }
 
+/** A rep's calls over the range, side by side with the team (GET /calls/made/team). */
+export interface TeamCallsRow {
+  id: string;
+  name: string;
+  calls: number;
+  /** Calls with a configured outcome — the base for the warm / hot rate. */
+  given: number;
+  /** Answered — the shared "connected" rule. */
+  answered: number;
+  talkSecs: number;
+  warm: number;
+  hot: number;
+  won: number;
+  lost: number;
+  noOutcome: number;
+  /** Daily target × days in the range; null without a target or a closed range. */
+  target: number | null;
+}
+
 export interface CallPivot {
   rows: CallPivotAxis[];
   cols: CallPivotAxis[];
@@ -553,6 +582,8 @@ export const callsApi = {
     (await api.get('/calls/made/records', { params })).data,
   madeFilters: async (params?: CallsMadeQuery): Promise<CallsMadeFilterOptions> =>
     (await api.get('/calls/made/filters', { params })).data,
+  /** One row per rep for the range — Analytics' team comparison (managers only). */
+  madeTeam: async (params?: CallsMadeQuery): Promise<TeamCallsRow[]> => (await api.get('/calls/made/team', { params })).data,
   madePivot: async (params: CallPivotQuery): Promise<CallPivot> =>
     (await api.get('/calls/made/pivot', { params })).data,
   leadBook: async (userId?: string): Promise<LeadBook> =>

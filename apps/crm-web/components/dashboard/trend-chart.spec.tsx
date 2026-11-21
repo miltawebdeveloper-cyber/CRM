@@ -38,4 +38,18 @@ describe('TrendChart', () => {
     expect(endLabelOffsets({ calls: 12, contacted: 11 }, 40)).toEqual({ calls: -3, contacted: 11 });
     expect(endLabelOffsets({ calls: 11, contacted: 12 }, 40)).toEqual({ calls: 11, contacted: -3 });
   });
+
+  it('can draw answered calls as the second line, for the Calling Panel', () => {
+    render(<TrendChart days={DAYS} second="connected" />);
+    expect(screen.getByText('Answered')).toBeTruthy();
+    expect(screen.queryByText('Leads contacted')).toBeNull();
+    expect(screen.getByRole('img').getAttribute('aria-label')).toContain('Calls made and answered per day');
+    fireEvent.click(screen.getByRole('button', { name: 'Show table' }));
+    const headers = Array.from(document.querySelectorAll('th')).map((th) => th.textContent);
+    expect(headers).toEqual(['Day', 'Calls made', 'Answered']);
+  });
+
+  it('keeps end labels apart for any pair of lines', () => {
+    expect(endLabelOffsets({ calls: 10, connected: 10 }, 40, 170, ['calls', 'connected'])).toEqual({ calls: -3, connected: 11 });
+  });
 });

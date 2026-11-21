@@ -18,9 +18,10 @@ export interface KpiDelta {
 export function kpiDelta(
   current: number,
   previous: number,
-  opts: { upIsGood?: boolean; kind?: 'pct' | 'pts'; days: number },
+  /** `format` writes the two figures in the sentence — a duration as "1h 2m" rather than seconds. */
+  opts: { upIsGood?: boolean; kind?: 'pct' | 'pts'; days: number; format?: (n: number) => string },
 ): KpiDelta {
-  const { upIsGood = true, kind = 'pct', days } = opts;
+  const { upIsGood = true, kind = 'pct', days, format } = opts;
   const period = `the previous ${days} day${days === 1 ? '' : 's'}`;
   const diff = current - previous;
   const direction: KpiDelta['direction'] = diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat';
@@ -37,8 +38,9 @@ export function kpiDelta(
     text = `${Math.abs(Math.round((diff / previous) * 100))}%`;
   }
 
-  const was = kind === 'pts' ? `${previous}%` : previous.toLocaleString();
-  const now = kind === 'pts' ? `${current}%` : current.toLocaleString();
+  const show = (n: number) => (format ? format(n) : kind === 'pts' ? `${n}%` : n.toLocaleString());
+  const was = show(previous);
+  const now = show(current);
   const moved = direction === 'flat' ? 'unchanged' : direction === 'up' ? `up ${text}` : `down ${text}`;
   return { text, direction, tone, title: `${moved} — ${now} vs ${was} in ${period}` };
 }

@@ -12,6 +12,7 @@ import { closureFields } from '../leads/lead-closure.js';
 import { COMPLETION_ACTIONS, completedOpenLeadCounts, productiveSeconds } from './work-time.js';
 import { queueStatusOf } from './queue-status.js';
 import { ABANDONED_STATUS, COUNTED_CALL, FAILED_STATUSES, MISSED_STATUSES, REACHED_CATEGORIES, connectedCall, isConnectedCall, reachedOutcomeSlugs } from './call-status.js';
+import { contactedLeadWhere } from '../../common/lead-contacted.js';
 import {
   businessDay,
   businessDayEnd,
@@ -1392,17 +1393,7 @@ export class CallsService {
     // outcome list existed carry the display NAME in their legacy callStatus, and
     // the old client-side filter matched either — so keep both, or historical
     // rows would silently vanish from the log when filtered.
-    let outcomeWhere: Prisma.CallWhereInput = {};
-    if (query.outcome) {
-      const oc = await this.prisma.outcome.findUnique({ where: { slug: query.outcome }, select: { name: true } });
-      const legacy = [query.outcome, ...(oc?.name ? [oc.name] : [])];
-      outcomeWhere = {
-        OR: [
-          { outcome: query.outcome },
-          ...legacy.map((v) => ({ outcome: null, lead: { callStatus: { equals: v, mode: 'insensitive' as const } } })),
-        ],
-      };
-    }
+    const outcomeWhere = await this.outcomeFilter(query.outcome);
 
     return {
       ...(callerId ? { callerId } : {}),
@@ -1451,6 +1442,46 @@ export class CallsService {
 
   /** Whole days covered by the range — the multiplier for a per-day target.
    *  An open-ended range has no meaningful day count. */
+  /**
+   * The Call Outcome filter (see CallStatsQueryDto.outcome): comma-separated
+   * tokens, any of which may match.
+   *
+   * A plain slug keeps its legacy fallback — a call logged before per-call
+   * outcomes carries none, and its lead's imported call status stands in. A
+   * bucket and `none` match the call's own outcome only, which is what the
+   * Analytics tab counts, so a list opened from one of its numbers holds
+   * exactly that many calls.
+   */
+  private async outcomeFilter(raw: string | undefined): Promise<Prisma.CallWhereInput> {
+    const tokens = (raw ?? '').split(',').map((t) => t.trim()).filter(Boolean);
+    if (tokens.length === 0) return {};
+    const branches: Prisma.CallWhereInput[] = [];
+
+    const groups = tokens.filter((t) => t.startsWith('bucket:')).map((t) => t.slice('bucket:'.length));
+    if (groups.length) {
+      const categories = groups.flatMap((g): OutcomeCategory[] =>
+        g === 'closed' ? [OutcomeCategory.closed_positive, OutcomeCategory.closed_negative]
+          : (Object.values(OutcomeCategory) as string[]).includes(g) ? [g as OutcomeCategory] : [],
+      );
+      const rows = await this.prisma.outcome.findMany({
+        where: { OR: [{ category: { in: categories } }, ...(groups.includes('ungrouped') ? [{ category: null }] : [])] },
+        select: { slug: true },
+      });
+      branches.push({ outcome: { in: rows.map((r) => r.slug) } });
+    }
+    if (tokens.includes('none')) branches.push({ outcome: null });
+
+    for (const slug of tokens.filter((t) => t !== 'none' && !t.startsWith('bucket:'))) {
+      const oc = await this.prisma.outcome.findUnique({ where: { slug }, select: { name: true } });
+      const legacy = [slug, ...(oc?.name ? [oc.name] : [])];
+      branches.push(
+        { outcome: slug },
+        ...legacy.map((v) => ({ outcome: null, lead: { callStatus: { equals: v, mode: 'insensitive' as const } } })),
+      );
+    }
+    return { OR: branches };
+  }
+
   private daysInRange(query: CallStatsQueryDto): number | null {
     if (!query.from || !query.to) return null;
     const ms = dayEnd(query.to).getTime() - dayStart(query.from).getTime();
@@ -1500,7 +1531,7 @@ export class CallsService {
   async callsMadeStats(query: CallStatsQueryDto, current: { id: string; role: Role }) {
     const where = await this.callsMadeWhere(query, current);
     const reached = await reachedOutcomeSlugs(this.prisma);
-    const [total, outgoing, incoming, connected, missed, failed, duration, byOutcome, outcomes, processed] = await Promise.all([
+    const [total, outgoing, incoming, connected, missed, failed, duration, byOutcome, outcomes, processed, noOutcome] = await Promise.all([
       this.prisma.call.count({ where }),
       this.prisma.call.count({ where: { ...where, direction: CommDirection.outbound } }),
       this.prisma.call.count({ where: { ...where, direction: CommDirection.inbound } }),
@@ -1536,6 +1567,9 @@ export class CallsService {
         _sum: { durationSecs: true },
         _avg: { durationSecs: true },
       }),
+      // Calls nobody logged an outcome on — outside every bucket, so the funnel
+      // can't see them; the Analytics tab shows them so they get fixed.
+      this.prisma.call.count({ where: { AND: [where, { outcome: null }] } }),
     ]);
 
     const counts = new Map(byOutcome.filter((o) => o.outcome).map((o) => [o.outcome as string, o._count._all]));
@@ -1582,6 +1616,8 @@ export class CallsService {
       totalDurationSecs: duration._sum.durationSecs ?? 0,
       avgDurationSecs: Math.round(duration._avg.durationSecs ?? 0),
       connectedPct: total > 0 ? Number(((connected / total) * 100).toFixed(1)) : 0,
+      /** Calls with no outcome logged — in `total`, in no bucket. */
+      noOutcome,
       /** Leads worked without a call — listed in the log, counted apart from `total`. */
       processed: processed._count._all,
       /** Every contact in the log, dialled or not — what the table's rows total. */
@@ -1745,10 +1781,76 @@ export class CallsService {
   }
 
   /**
-   * The selected rep's lead book: what they are holding, and how much of it is
-   * worked off. "Completed" is a lead that reached a terminal status — the same
-   * closed/rejected pair the calling queue treats as done — so the balance is
-   * what's genuinely left to call.
+   * Analytics' team comparison: one row per rep for the range, counted with
+   * the rules every other Calls Made figure uses (callsMadeWhere for the calls,
+   * connectedCall for answered, the outcome groups for warm / hot / won).
+   *
+   * Every active employee gets a row, a rep with no calls included — "nothing
+   * today" is an answer — and so does anyone else who made calls in the range.
+   * `userId` is ignored: the comparison is the whole team by definition.
+   * `target` is the rep's daily target × the days in the range, or null with
+   * no target or an open-ended range (as on the target dial).
+   */
+  async callsMadeTeam(query: CallStatsQueryDto, current: { id: string; role: Role }) {
+    const where = await this.callsMadeWhere({ ...query, userId: undefined }, current);
+    const reached = await reachedOutcomeSlugs(this.prisma);
+    const [employees, byOutcome, answered, outcomes] = await Promise.all([
+      this.prisma.user.findMany({ where: { role: Role.employee, isActive: true }, select: { id: true } }),
+      this.prisma.call.groupBy({ by: ['callerId', 'outcome'], where, _count: { _all: true }, _sum: { durationSecs: true } }),
+      this.prisma.call.groupBy({ by: ['callerId'], where: { AND: [where, connectedCall(reached)] }, _count: { _all: true } }),
+      this.prisma.outcome.findMany({ select: { slug: true, category: true } }),
+    ]);
+    const ids = [...new Set([...employees.map((e) => e.id), ...byOutcome.map((r) => r.callerId).filter((id): id is string => !!id)])];
+    const [people, targets] = await Promise.all([
+      this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
+      this.prisma.employee.findMany({ where: { id: { in: ids } }, select: { id: true, dailyCallTarget: true } }),
+    ]);
+    const categoryOf = new Map(outcomes.map((o) => [o.slug, o.category]));
+    const answeredBy = new Map(answered.map((r) => [r.callerId, r._count._all]));
+    const targetBy = new Map(targets.map((t) => [t.id, t.dailyCallTarget]));
+    const days = this.daysInRange(query);
+
+    return people
+      .map((p) => {
+        const mine = byOutcome.filter((r) => r.callerId === p.id);
+        const sum = (pick: (outcome: string | null) => boolean) =>
+          mine.filter((r) => pick(r.outcome)).reduce((n, r) => n + r._count._all, 0);
+        const inGroup = (...cats: OutcomeCategory[]) => (o: string | null) => !!o && cats.includes(categoryOf.get(o) as OutcomeCategory);
+        const perDay = targetBy.get(p.id) ?? 0;
+        return {
+          id: p.id,
+          name: p.name,
+          calls: sum(() => true),
+          /** Calls with a configured outcome — the base for the warm / hot rate. */
+          given: sum((o) => !!o && categoryOf.has(o)),
+          answered: answeredBy.get(p.id) ?? 0,
+          talkSecs: mine.reduce((n, r) => n + (r._sum.durationSecs ?? 0), 0),
+          warm: sum(inGroup(OutcomeCategory.warm)),
+          hot: sum(inGroup(OutcomeCategory.hot)),
+          won: sum(inGroup(OutcomeCategory.closed_positive)),
+          lost: sum(inGroup(OutcomeCategory.closed_negative)),
+          noOutcome: sum((o) => o === null),
+          target: days !== null && perDay > 0 ? perDay * days : null,
+        };
+      })
+      .sort((a, b) => b.calls - a.calls || a.name.localeCompare(b.name));
+  }
+
+  /**
+   * The selected rep's lead book: what they are holding, how much of it has
+   * been reached, and how much is closed.
+   *
+   *  • contacted — reached: an answered call, or a contacted-or-beyond status.
+   *    The dashboard's own rule (common/lead-contacted), so "Contacted" is the
+   *    same number here as on its card.
+   *  • balance — assigned − contacted: the leads still owed a first
+   *    conversation, again as the dashboard defines Balance.
+   *  • closed — a terminal status, won or lost (the closed/rejected pair the
+   *    calling queue treats as done).
+   *
+   * It used to report "Completed" (= closed) and a Balance of assigned −
+   * closed, so the Analytics tab's Balance and the dashboard's Balance were two
+   * different numbers under one name.
    *
    * Deliberately *not* date-filtered. A lead book is a stock, not a flow, and the
    * Lead model records no assignment date to range it by; the date filter on this
@@ -1766,11 +1868,14 @@ export class CallsService {
       // Unassigned leads belong to nobody's book, so they're never in the count.
       ...(only ? { assignedToId: only } : { assignedToId: { not: null } }),
     };
-    const [assigned, completed] = await Promise.all([
+    const reached = await reachedOutcomeSlugs(this.prisma);
+    const [assigned, contacted, closed] = await Promise.all([
       this.prisma.lead.count({ where }),
+      // ANDed, not spread: the contacted rule is an OR.
+      this.prisma.lead.count({ where: { AND: [where, contactedLeadWhere(reached)] } }),
       this.prisma.lead.count({ where: { ...where, status: { in: [LeadStatus.closed, LeadStatus.rejected] } } }),
     ]);
-    return { assigned, completed, balance: Math.max(assigned - completed, 0) };
+    return { assigned, contacted, balance: Math.max(assigned - contacted, 0), closed };
   }
 
   /** Read the per-employee call target (managers, or a rep reading their own). */

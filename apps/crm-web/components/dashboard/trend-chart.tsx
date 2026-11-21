@@ -14,10 +14,21 @@ import type { TrendDay } from '@/lib/crm';
  * a table view so no number is reachable only by hovering. Text stays in text
  * colours; only the lines and their keys carry the series colour.
  */
-const SERIES = [
-  { key: 'calls', label: 'Calls made', color: 'var(--chart-1)' },
-  { key: 'contacted', label: 'Leads contacted', color: 'var(--chart-2)' },
-] as const;
+/**
+ * The second line: leads contacted (the dashboard) or answered calls (the
+ * Calling Panel's Analytics tab). The first is always calls made.
+ */
+export type TrendSecond = 'contacted' | 'connected';
+type SeriesKey = 'calls' | TrendSecond;
+
+function seriesFor(second: TrendSecond) {
+  return [
+    { key: 'calls' as SeriesKey, label: 'Calls made', color: 'var(--chart-1)' },
+    second === 'connected'
+      ? { key: 'connected' as SeriesKey, label: 'Answered', color: 'var(--chart-2)' }
+      : { key: 'contacted' as SeriesKey, label: 'Leads contacted', color: 'var(--chart-2)' },
+  ];
+}
 
 const INK = 'hsl(var(--foreground))';
 const MUTED = 'hsl(var(--muted-foreground))';
@@ -34,29 +45,37 @@ export function shortDay(day: string): string {
  * labels would land on each other; the larger one is lifted and the smaller
  * dropped so both stay readable and each stays beside its own line.
  */
-export function endLabelOffsets(last: Record<string, number>, max: number, plotHeight = 170): Record<string, number> {
-  const [a, b] = SERIES.map((s) => last[s.key] ?? 0);
+export function endLabelOffsets(
+  last: Record<string, number>,
+  max: number,
+  plotHeight = 170,
+  keys: [string, string] = ['calls', 'contacted'],
+): Record<string, number> {
+  const [ka, kb] = keys;
+  const [a, b] = [last[ka] ?? 0, last[kb] ?? 0];
   const gapPx = max > 0 ? (Math.abs(a - b) / max) * plotHeight : 0;
-  if (gapPx >= 12) return { calls: 4, contacted: 4 };
-  return a >= b ? { calls: -3, contacted: 11 } : { calls: 11, contacted: -3 };
+  if (gapPx >= 12) return { [ka]: 4, [kb]: 4 };
+  return a >= b ? { [ka]: -3, [kb]: 11 } : { [ka]: 11, [kb]: -3 };
 }
 
 type TipEntry = { dataKey?: string | number; value?: number; payload?: TrendDay };
 
-function TrendTooltip({ active, payload, label }: { active?: boolean; payload?: TipEntry[]; label?: string | number }) {
+function TrendTooltip({ active, payload, label, second }: { active?: boolean; payload?: TipEntry[]; label?: string | number; second: TrendSecond }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload;
   return (
     <div className="rounded-md border bg-card px-3 py-2 text-[12px] shadow-md">
       <div className="mb-1 text-[11px] text-muted-foreground">{typeof label === 'string' ? shortDay(label) : label}</div>
-      {SERIES.map((s) => (
+      {seriesFor(second).map((s) => (
         <div key={s.key} className="flex items-center gap-2">
           <span className="inline-block h-0.5 w-3 rounded-full" style={{ background: s.color }} aria-hidden />
           <span className="font-semibold tabular-nums">{(row?.[s.key] ?? 0).toLocaleString()}</span>
           <span className="text-muted-foreground">{s.label}</span>
         </div>
       ))}
-      {row && (
+      {/* The answered count rides along under the dashboard's two lines; when
+          answered IS the second line, it's already above. */}
+      {row && second === 'contacted' && (
         <div className="mt-1 border-t pt-1 text-[11px] text-muted-foreground">
           {row.connected.toLocaleString()} of the calls connected
         </div>
@@ -65,17 +84,19 @@ function TrendTooltip({ active, payload, label }: { active?: boolean; payload?: 
   );
 }
 
-export function TrendChart({ days, dimmed = false }: { days: TrendDay[]; dimmed?: boolean }) {
+export function TrendChart({ days, dimmed = false, second = 'contacted' }: { days: TrendDay[]; dimmed?: boolean; second?: TrendSecond }) {
   const [asTable, setAsTable] = useState(false);
+  const SERIES = useMemo(() => seriesFor(second), [second]);
   const { max, last, offsets, totals } = useMemo(() => {
-    const max = Math.max(0, ...days.flatMap((d) => [d.calls, d.contacted]));
+    const max = Math.max(0, ...days.flatMap((d) => [d.calls, d[second]]));
     const lastDay = days[days.length - 1];
-    const last = { calls: lastDay?.calls ?? 0, contacted: lastDay?.contacted ?? 0 };
+    const last: Record<string, number> = { calls: lastDay?.calls ?? 0, [second]: lastDay?.[second] ?? 0 };
     const totals = days.reduce((t, d) => ({ calls: t.calls + d.calls, connected: t.connected + d.connected, contacted: t.contacted + d.contacted }), { calls: 0, connected: 0, contacted: 0 });
-    return { max, last, offsets: endLabelOffsets(last, max), totals };
-  }, [days]);
+    return { max, last, offsets: endLabelOffsets(last, max, 170, ['calls', second]), totals };
+  }, [days, second]);
   const lastIndex = days.length - 1;
   const range = days.length ? `${shortDay(days[0].day)} – ${shortDay(days[lastIndex].day)}` : '';
+  const what = SERIES.map((s) => s.label.toLowerCase()).join(' and ');
 
   return (
     <div className={`rounded-xl border bg-card px-4 py-3 shadow-sm transition-opacity ${dimmed ? 'opacity-60' : ''}`}>
@@ -103,13 +124,15 @@ export function TrendChart({ days, dimmed = false }: { days: TrendDay[]; dimmed?
       {asTable ? (
         <div className="max-h-[260px] overflow-y-auto">
           <table className="w-full text-[12px]">
-            <caption className="sr-only">Calls made, connected calls and leads contacted per day, {range}</caption>
+            <caption className="sr-only">
+              {second === 'connected' ? 'Calls made and answered per day' : 'Calls made, connected calls and leads contacted per day'}, {range}
+            </caption>
             <thead>
               <tr className="border-b text-left text-[11px] text-muted-foreground">
                 <th className="py-1.5 pr-3 font-medium">Day</th>
                 <th className="py-1.5 pr-3 text-right font-medium">Calls made</th>
-                <th className="py-1.5 pr-3 text-right font-medium">Connected</th>
-                <th className="py-1.5 text-right font-medium">Leads contacted</th>
+                <th className="py-1.5 pr-3 text-right font-medium">{second === 'connected' ? 'Answered' : 'Connected'}</th>
+                {second === 'contacted' && <th className="py-1.5 text-right font-medium">Leads contacted</th>}
               </tr>
             </thead>
             <tbody>
@@ -118,7 +141,7 @@ export function TrendChart({ days, dimmed = false }: { days: TrendDay[]; dimmed?
                   <td className="py-1.5 pr-3">{shortDay(d.day)}</td>
                   <td className="py-1.5 pr-3 text-right tabular-nums">{d.calls.toLocaleString()}</td>
                   <td className="py-1.5 pr-3 text-right tabular-nums">{d.connected.toLocaleString()}</td>
-                  <td className="py-1.5 text-right tabular-nums">{d.contacted.toLocaleString()}</td>
+                  {second === 'contacted' && <td className="py-1.5 text-right tabular-nums">{d.contacted.toLocaleString()}</td>}
                 </tr>
               ))}
             </tbody>
@@ -127,7 +150,7 @@ export function TrendChart({ days, dimmed = false }: { days: TrendDay[]; dimmed?
       ) : (
         <div
           role="img"
-          aria-label={`Calls made and leads contacted per day, ${range}: ${totals.calls} calls, ${totals.contacted} leads contacted. Use Show table for the figures.`}
+          aria-label={`${what[0].toUpperCase()}${what.slice(1)} per day, ${range}: ${totals.calls} calls, ${totals[second]} ${SERIES[1].label.toLowerCase()}. Use Show table for the figures.`}
           className="h-[230px]"
         >
           <ResponsiveContainer width="100%" height="100%">
@@ -150,7 +173,7 @@ export function TrendChart({ days, dimmed = false }: { days: TrendDay[]; dimmed?
                 width={44}
                 domain={[0, max > 0 ? 'auto' : 4]}
               />
-              <Tooltip content={<TrendTooltip />} cursor={{ stroke: MUTED, strokeWidth: 1 }} />
+              <Tooltip content={<TrendTooltip second={second} />} cursor={{ stroke: MUTED, strokeWidth: 1 }} />
               {SERIES.map((s) => (
                 <Line
                   key={s.key}

@@ -104,7 +104,16 @@ export class CallStatsQueryDto {
   @IsString()
   leadStatus?: string;
 
-  @ApiPropertyOptional({ description: "Outcome slug logged on the call (falls back to the lead's legacy call status)" })
+  /**
+   * One or more comma-separated tokens, any of which matches:
+   *  • an outcome slug — logged on the call, falling back to the lead's legacy
+   *    call status for calls from before per-call outcomes;
+   *  • `bucket:<group>` — every outcome in a group (cold, warm, hot,
+   *    connected, closed = won and lost, ungrouped = no group), on the call
+   *    itself, so the list matches the Analytics tab's counts;
+   *  • `none` — calls with no outcome logged.
+   */
+  @ApiPropertyOptional({ description: "Outcome slug(s), bucket:<group> or none — comma-separated, any may match" })
   @IsOptional()
   @IsString()
   outcome?: string;

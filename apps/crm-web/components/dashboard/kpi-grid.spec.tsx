@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { describe, expect, it, jest } from '@jest/globals';
-import { render } from '@testing-library/react';
+import { fireEvent, render } from '@testing-library/react';
 import React from 'react';
 import { Target } from 'lucide-react';
 import { KpiCard, KpiGrid } from './kpi-card';
@@ -46,5 +46,16 @@ describe('KpiCard as a link', () => {
     expect(badge.textContent).toContain('▲');
     expect(badge.textContent).toContain('50%');
     expect(badge.className).toContain('tone-red');
+  });
+});
+
+describe('KpiCard as a button', () => {
+  it('acts on the page it is on when given a click', () => {
+    const onClick = jest.fn();
+    const { container } = render(<KpiCard icon={Target} iconBg="x" iconColor="y" value={5} label="Calls with no outcome" onClick={onClick} />);
+    const button = container.querySelector('button')!;
+    expect(button.getAttribute('type')).toBe('button');
+    fireEvent.click(button);
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 });

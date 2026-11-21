@@ -73,6 +73,16 @@ export class CallsController {
     return this.calls.callsMadeStats(query, { id: user.id, role: user.role });
   }
 
+  /**
+   * One row per rep for the range — the Analytics tab's team comparison.
+   * Managers only: it reads every rep's calls side by side.
+   */
+  @Get('made/team')
+  @Roles(Role.admin, Role.team_leader)
+  callsMadeTeam(@Query() query: CallStatsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.calls.callsMadeTeam(query, { id: user.id, role: user.role });
+  }
+
   @Get('made/records')
   callsMadeRecords(@Query() query: CallStatsQueryDto, @CurrentUser() user: AuthUser) {
     return this.calls.callsMadeRecords(query, { id: user.id, role: user.role });
