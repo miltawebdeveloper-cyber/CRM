@@ -82,8 +82,10 @@ const DATE_MODES: DateMode[] = ['all', 'day', 'week', 'month', 'year', 'custom']
  * Every parameter this module owns — anything else in the URL is left alone.
  * `status` is the old combined Status dropdown's parameter: still read, so a
  * link made before the split opens the view it named, and cleared on write.
+ * `all` is the "default view" marker `leadListHref` writes when a link names
+ * no filter at all; like the rest it is cleared once the page has read it.
  */
-const OWNED_PARAMS = [...TEXT_PARAMS.map(([, p]) => p), 'outcome', 'status', 'on', 'date', 'from', 'to', 'sort'];
+const OWNED_PARAMS = [...TEXT_PARAMS.map(([, p]) => p), 'outcome', 'status', 'on', 'date', 'from', 'to', 'sort', 'all'];
 
 const allowed = (key: keyof LeadListFilters, v: string) => !ALLOWED[key] || ALLOWED[key]!.includes(v);
 
@@ -166,6 +168,19 @@ export function activeFilterCount(f: LeadListFilters, opts: { employee?: boolean
 }
 
 /** Every filter back to its default, keeping the sort and the date field. */
+/**
+ * A link to a lead list showing exactly these filters, everything else at its
+ * default — what a dashboard card points at.
+ *
+ * A link with no filter in it would let the page restore whatever its reader
+ * last had saved, and "Assigned Leads: 375" would open on somebody's Texas
+ * view. So the default view is asked for explicitly (`?all=1`).
+ */
+export function leadListHref(base: string, patch: Partial<LeadListFilters> = {}): string {
+  const qs = filtersToParams({ ...DEFAULT_LEAD_LIST_FILTERS, ...patch }).toString();
+  return `${base}?${qs || 'all=1'}`;
+}
+
 export function clearedFilters(f: LeadListFilters): LeadListFilters {
   return { ...DEFAULT_LEAD_LIST_FILTERS, sort: f.sort, dateField: f.dateField };
 }

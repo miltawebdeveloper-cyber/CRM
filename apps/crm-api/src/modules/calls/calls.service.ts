@@ -11,7 +11,7 @@ import { CallPivotDim, CallPivotQueryDto, CallStatsQueryDto, SetCallTargetDto, S
 import { closureFields } from '../leads/lead-closure.js';
 import { COMPLETION_ACTIONS, completedOpenLeadCounts, productiveSeconds } from './work-time.js';
 import { queueStatusOf } from './queue-status.js';
-import { ABANDONED_STATUS, FAILED_STATUSES, MISSED_INBOUND_CALL, MISSED_STATUSES } from './call-status.js';
+import { ABANDONED_STATUS, COUNTED_CALL, FAILED_STATUSES, MISSED_STATUSES, REACHED_CATEGORIES, connectedCall, isConnectedCall, reachedOutcomeSlugs } from './call-status.js';
 import {
   businessDay,
   businessDayEnd,
@@ -1432,7 +1432,9 @@ export class CallsService {
        * number and ring it back — and so they are counted here too, exactly
        * once, which is what keeps these tiles describing their own table.
        */
-      NOT: { ...MISSED_INBOUND_CALL, leadId: { not: null } },
+      // The rule itself is COUNTED_CALL (call-status), shared with every other
+      // call total so the dashboard and this module count the same calls.
+      ...COUNTED_CALL,
       // Filter on when the call happened, not when the row was written.
       ...(query.from || query.to
         ? {
@@ -1490,27 +1492,24 @@ export class CallsService {
    * because an outcome is what places a call in a bucket. Raw volume counts every
    * call, so `total` is deliberately >= `given`.
    *
-   * `connected` (volume) comes from `endTime` rather than the provider status:
-   * every call logged through the dialer gets an end time, while `status` is only
-   * set on calls that came through OpenPhone, so counting status alone would
-   * report zero for manually dialled work.
+   * `connected` (volume) is ANSWERED calls (call-status: connectedCall) — the
+   * rep's outcome where there is one, the phone system's answered status and
+   * talk time where there isn't. It used to be every finished call, so a call
+   * marked No Answer counted as connected.
    */
   async callsMadeStats(query: CallStatsQueryDto, current: { id: string; role: Role }) {
     const where = await this.callsMadeWhere(query, current);
+    const reached = await reachedOutcomeSlugs(this.prisma);
     const [total, outgoing, incoming, connected, missed, failed, duration, byOutcome, outcomes, processed] = await Promise.all([
       this.prisma.call.count({ where }),
       this.prisma.call.count({ where: { ...where, direction: CommDirection.outbound } }),
       this.prisma.call.count({ where: { ...where, direction: CommDirection.inbound } }),
-      // Abandoned calls carry an end time so they stop reading as "in progress",
-      // but they were never dispositioned — counting them as connected would
-      // inflate the connect rate with calls nobody confirmed even happened.
-      // Both exclusions travel together in one AND. Spreading `...where` and
-      // then writing `NOT:` beside it would REPLACE the missed-inbound
-      // exclusion this filter carries rather than add to it, and the connect
-      // rate would quietly go back to counting calls nobody answered.
-      this.prisma.call.count({
-        where: { ...where, endTime: { not: null }, AND: [{ NOT: { status: ABANDONED_STATUS } }] },
-      }),
+      // Answered calls only. ANDed with `where` rather than spread into it:
+      // `where` carries the missed-inbound `NOT` and, when filtering by
+      // outcome, an `OR` — spreading the connected rule's own `OR` beside it
+      // would replace one of them. (An abandoned call has no outcome and no
+      // answered status, so it can never qualify.)
+      this.prisma.call.count({ where: { AND: [where, connectedCall(reached)] } }),
       // Unanswered — outbound calls the customer didn't pick up, plus inbound
       // ones the rep actively declined. Still shown as "Unanswered" rather than
       // "Missed Calls", and now that is simply what it holds: `where` excludes
@@ -1668,8 +1667,9 @@ export class CallsService {
    * rate, talk time and average handle time without re-querying — and so a total
    * is always summed from the same numbers the cells show, never from a rate.
    *
-   * `connected` counts calls with an end time, the same definition the Calls Made
-   * stats use, so the two tabs can't disagree about what "connected" means.
+   * `connected` counts ANSWERED calls (call-status: isConnectedCall), the same
+   * rule the Calls Made stats use, so the two tabs can't disagree about what
+   * "connected" means.
    */
   async callsMadePivot(query: CallPivotQueryDto, current: { id: string; role: Role }) {
     const pivotWhere = await this.callsMadeWhere(query, current);
@@ -1700,6 +1700,8 @@ export class CallsService {
     const rowKeys = new Map<string, PivotKey>();
     const colKeys = new Map<string, PivotKey>();
     const cells = new Map<string, { calls: number; connected: number; secs: number }>();
+    // The reached outcomes, from the list already loaded for the axes.
+    const reached = new Set(outcomes.filter((o) => o.category && REACHED_CATEGORIES.includes(o.category)).map((o) => o.slug));
 
     for (const c of calls) {
       const r = rowKey(c);
@@ -1711,8 +1713,8 @@ export class CallsService {
       const id = `${r.key}\u0000${k.key}`;
       const cell = cells.get(id) ?? { calls: 0, connected: 0, secs: 0 };
       cell.calls += 1;
-      // Same "connected" definition the stats use, so the two tabs can't disagree.
-      if (c.endTime && c.status !== ABANDONED_STATUS) cell.connected += 1;
+      // Same "connected" (answered) rule the stats use, so the two tabs can't disagree.
+      if (isConnectedCall(c, reached)) cell.connected += 1;
       cell.secs += c.durationSecs ?? 0;
       cells.set(id, cell);
     }

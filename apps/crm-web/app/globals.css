@@ -626,3 +626,17 @@
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+
+/* Chart series colours — slots 1 (blue) and 2 (orange) of the dataviz
+   reference palette, each stepped for its surface. Validated (lightness band,
+   chroma, colour-blind separation, contrast >= 3:1) against this app's own card
+   surfaces: #ffffff light, #24231f dark. Independent of the brand palette on
+   purpose — a series keeps its colour whichever theme is chosen. */
+:root {
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+}
+.dark {
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+}

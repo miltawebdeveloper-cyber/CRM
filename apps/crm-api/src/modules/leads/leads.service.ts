@@ -42,7 +42,8 @@ import { closureCreateFields, closureFields } from './lead-closure.js';
 import { buildMatchKeys, decisionKey, emailDomain, longestWord, type LeadMatchOptions, type MatchableRecord, type MatchSignal } from './lead-dedupe.js';
 import { LeadIdService } from './lead-id.service.js';
 import { assertLeadAccess, isManagerRole } from '../../common/lead-access.js';
-import { CONTACTED_LEAD_WHERE } from '../../common/lead-contacted.js';
+import { contactedLeadWhere } from '../../common/lead-contacted.js';
+import { reachedOutcomeSlugs } from '../calls/call-status.js';
 
 /**
  * Shown when a same-day reassignment is refused for want of confirmation.
@@ -1667,8 +1668,11 @@ export class LeadsService {
     if (query.status) andClauses.push({ status: query.status });
     const followUp = this.followUpWhere(query.followUp);
     if (followUp) andClauses.push(followUp);
-    if (query.contact === 'contacted') andClauses.push(CONTACTED_LEAD_WHERE);
-    else if (query.contact === 'never') andClauses.push({ NOT: CONTACTED_LEAD_WHERE });
+    if (query.contact === 'contacted' || query.contact === 'never') {
+      // Reached = an answered call or a contacted-or-beyond status (common/lead-contacted).
+      const contacted = contactedLeadWhere(await reachedOutcomeSlugs(this.prisma));
+      andClauses.push(query.contact === 'contacted' ? contacted : { NOT: contacted });
+    }
 
     const where: Prisma.LeadWhereInput = {
       deletedAt: null,
@@ -1823,7 +1827,8 @@ export class LeadsService {
    *
    * The card definitions are the dashboard's: Assigned is the share of the set
    * with an owner, Contacted is measured within Assigned (see
-   * `CONTACTED_LEAD_WHERE`), Balance is the remainder and Progress the ratio.
+   * `contactedLeadWhere` — reached by an answered call, or a contacted-or-beyond
+   * status), Balance is the remainder and Progress the ratio.
    *
    * Every extra condition is ANDed, never spread: an employee's `where` already
    * carries `assignedToId: <them>`, which a spread `assignedToId: { not: null }`
@@ -1845,8 +1850,9 @@ export class LeadsService {
      * every chip but the active one.
      */
     const { where: base } = await this.listWhere({ ...query, followUp: undefined, contact: undefined } as ListLeadsQueryDto, user);
+    const CONTACTED = contactedLeadWhere(await reachedOutcomeSlugs(this.prisma));
     const contactClause = (c?: 'contacted' | 'never') =>
-      c === 'contacted' ? CONTACTED_LEAD_WHERE : c === 'never' ? { NOT: CONTACTED_LEAD_WHERE } : null;
+      c === 'contacted' ? CONTACTED : c === 'never' ? { NOT: CONTACTED } : null;
     const chipWhere = (...clauses: (Prisma.LeadWhereInput | null)[]): Prisma.LeadWhereInput => ({
       AND: [base, ...clauses.filter((c): c is Prisma.LeadWhereInput => !!c)],
     });
@@ -1855,7 +1861,7 @@ export class LeadsService {
       await this.prisma.$transaction([
         this.prisma.lead.count({ where }),
         this.prisma.lead.count({ where: assignedWhere }),
-        this.prisma.lead.count({ where: { AND: [assignedWhere, CONTACTED_LEAD_WHERE] } }),
+        this.prisma.lead.count({ where: { AND: [assignedWhere, CONTACTED] } }),
         this.prisma.lead.count({ where: chipWhere(this.followUpWhere('today'), contactClause(query.contact)) }),
         this.prisma.lead.count({ where: chipWhere(this.followUpWhere('overdue'), contactClause(query.contact)) }),
         this.prisma.lead.count({ where: chipWhere(this.followUpWhere(query.followUp), contactClause('never')) }),

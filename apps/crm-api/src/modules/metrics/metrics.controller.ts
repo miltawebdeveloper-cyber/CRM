@@ -30,6 +30,12 @@ export class MetricsController {
     return this.metrics.daily(q, user);
   }
 
+  /** Calls, connected calls and first contacts per day — the dashboard's trend chart. */
+  @Get('trend')
+  trend(@Query() q: MetricsQueryDto, @CurrentUser() user: AuthUser) {
+    return this.metrics.trend(q, user);
+  }
+
   @Get('bar')
   bar(@Query() q: MetricsQueryDto, @CurrentUser() user: AuthUser) {
     return this.metrics.bar(q, user);

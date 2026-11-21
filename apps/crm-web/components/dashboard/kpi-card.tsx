@@ -1,7 +1,9 @@
 'use client';
 
-import { type LucideIcon } from 'lucide-react';
+import Link from 'next/link';
+import { ChevronRight, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import type { KpiDelta } from '@/lib/kpi-delta';
 
 export interface KpiProps {
   icon: LucideIcon;
@@ -28,7 +30,26 @@ export interface KpiProps {
   sparkColor?: string;
   /** No longer meaningful — the tile is compact by definition. */
   compact?: boolean;
+  /**
+   * Makes the card a link to the list behind its number — "Balance Leads"
+   * opens the leads it counted. Only where such a list exists; a card without
+   * one stays a plain tile rather than opening something that disagrees with it.
+   */
+  href?: string;
+  /**
+   * The ▲/▼ against the previous period (see lib/kpi-delta). Sits beside the
+   * figure rather than under it, so a card with one stays the height of its
+   * neighbours.
+   */
+  delta?: KpiDelta | null;
 }
+
+const DELTA_TONE: Record<KpiDelta['tone'], string> = {
+  better: 'text-[var(--tone-teal-fg)]',
+  worse: 'text-[var(--tone-red-fg-2)]',
+  same: 'text-muted-foreground',
+};
+const ARROW: Record<KpiDelta['direction'], string> = { up: '▲', down: '▼', flat: '=' };
 
 /**
  * The one summary card used by every module.
@@ -38,13 +59,12 @@ export interface KpiProps {
  * and only the content differs between modules. This mirrors the Calls dashboard,
  * which is the reference design.
  */
-export function KpiCard({ icon: Icon, iconBg, iconColor, value, label }: KpiProps) {
+export function KpiCard({ icon: Icon, iconBg, iconColor, value, label, href, delta }: KpiProps) {
   // Rendered as it is, with no entry animation — the figures are what someone
   // navigates to the page to read, so they arrive with it.
-  return (
-    <div
-      className="flex items-center gap-2.5 overflow-hidden rounded-xl border bg-card px-3 py-2.5 shadow-sm transition-all hover:-translate-y-[1px] hover:shadow-md"
-    >
+  const tile = 'group/kpi flex items-center gap-2.5 overflow-hidden rounded-xl border bg-card px-3 py-2.5 shadow-sm transition-all hover:-translate-y-[1px] hover:shadow-md';
+  const body = (
+    <>
       <div
         className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[8px]"
         style={{ background: iconBg, color: iconColor }}
@@ -52,14 +72,34 @@ export function KpiCard({ icon: Icon, iconBg, iconColor, value, label }: KpiProp
         <Icon className="h-[13px] w-[13px]" />
       </div>
       <div className="min-w-0">
-        <div className="font-display text-[18px] font-semibold leading-none tracking-tight">{value}</div>
+        <div className="flex items-baseline gap-1.5">
+          <div className="font-display text-[18px] font-semibold leading-none tracking-tight">{value}</div>
+          {delta && (
+            <span title={delta.title} className={`whitespace-nowrap text-[10.5px] font-semibold leading-none ${DELTA_TONE[delta.tone]}`}>
+              <span aria-hidden>{ARROW[delta.direction]} </span>
+              {delta.text}
+              <span className="sr-only">, {delta.title}</span>
+            </span>
+          )}
+        </div>
         {/* Long captions truncate rather than wrapping, which would make this tile
             taller than the others in the row; the full text stays on the tooltip. */}
         <div className="mt-[3px] truncate text-[11px] font-medium text-muted-foreground" title={label}>
           {label}
         </div>
       </div>
-    </div>
+      {/* A quiet "this opens something" cue, strongest on hover. */}
+      {href && (
+        <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground/40 transition-colors group-hover/kpi:text-muted-foreground" aria-hidden />
+      )}
+    </>
+  );
+  return href ? (
+    <Link href={href} className={`${tile} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50`}>
+      {body}
+    </Link>
+  ) : (
+    <div className={tile}>{body}</div>
   );
 }
 

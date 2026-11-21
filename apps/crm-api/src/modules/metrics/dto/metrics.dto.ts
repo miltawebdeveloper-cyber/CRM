@@ -1,4 +1,5 @@
-import { IsIn, IsOptional, IsString, IsDateString } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, IsDateString } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsTimezoneCode } from '../../../common/validators/is-timezone-code.validator.js';
 
@@ -43,4 +44,15 @@ export class MetricsQueryDto {
   @IsOptional()
   @IsIn(['created', 'scheduled'])
   dateField?: 'created' | 'scheduled';
+
+  /**
+   * Also return the same figures for the period just before `from`–`to`, the
+   * same number of days long — the dashboard's ▲/▼ badges. Needs both bounds;
+   * without them there is no period to compare.
+   */
+  @ApiPropertyOptional({ description: 'true to also return the previous period (needs from and to)' })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === '1')
+  @IsBoolean()
+  compare?: boolean;
 }

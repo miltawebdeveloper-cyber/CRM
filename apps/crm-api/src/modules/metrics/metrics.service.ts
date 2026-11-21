@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { LeadStatus, Prisma, Role, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { allTimezoneCodes, businessDayEnd, businessDayStart, tzLabel, UNSET_TIMEZONE_LABEL } from '../../common/timezone.js';
+import { allTimezoneCodes, businessDay, businessDayEnd, businessDayStart, tzLabel, UNSET_TIMEZONE_LABEL } from '../../common/timezone.js';
 import { MetricsQueryDto } from './dto/metrics.dto.js';
-import { CONNECTED_CALL, MISSED_INBOUND_CALL } from '../calls/call-status.js';
-import { CONTACTED_LEAD_WHERE } from '../../common/lead-contacted.js';
+import { COUNTED_CALL, MISSED_INBOUND_CALL, connectedCall, reachedOutcomeSlugs } from '../calls/call-status.js';
+import { contactedLeadWhere } from '../../common/lead-contacted.js';
 
 interface Node {
   total: number;
@@ -40,6 +40,33 @@ const ymdOf = (s: string) => {
 };
 const dayStart = (s: string) => businessDayStart(ymdOf(s));
 const dayEnd = (s: string) => businessDayEnd(ymdOf(s));
+
+/** `day` moved by `n` calendar days — arithmetic on the calendar, no clock involved. */
+export const shiftDay = (day: string, n: number): string => {
+  const [y, m, d] = datePartsOf(day);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+};
+
+/** Days from `from` to `to`, both included. */
+const spanDays = (from: string, to: string): number => {
+  const [fy, fm, fd] = datePartsOf(from);
+  const [ty, tm, td] = datePartsOf(to);
+  return Math.round((Date.UTC(ty, tm - 1, td) - Date.UTC(fy, fm - 1, fd)) / 86_400_000) + 1;
+};
+
+/**
+ * The period just before `from`–`to`, the same number of days long: the
+ * 1st–7th compares with the 25th–31st of the month before, a single day with
+ * the day before it.
+ */
+export function previousPeriod(from: string, to: string): { from: string; to: string; days: number } {
+  const days = spanDays(from, to);
+  return { from: shiftDay(from, -days), to: shiftDay(from, -1), days };
+}
+
+/** The trend chart's default window, and the most it will draw. */
+const TREND_DEFAULT_DAYS = 14;
+const TREND_MAX_DAYS = 92;
 
 @Injectable()
 export class MetricsService {
@@ -114,20 +141,6 @@ export class MetricsService {
   }
 
   /**
-   * A lead counts as contacted once someone has actually reached it: a call that
-   * completed, or a status of contacted-or-beyond. Derived live rather than
-   * stored, so the count stays right as leads progress, are reworked or removed.
-   *
-   * Note this is a fragment, always spread onto an already-scoped clause — it is
-   * never the whole WHERE. The Contacted card counts contacted leads WITHIN the
-   * assigned set, not across the whole book.
-   *
-   * Defined once in `common/lead-contacted` and shared with the Lead Library /
-   * Lead Management cards, so the word means the same thing on both.
-   */
-  private static readonly CONTACTED: Prisma.LeadWhereInput = CONTACTED_LEAD_WHERE;
-
-  /**
    * DSH-001..004 / MET — the dashboard's summary cards, scoped to the caller.
    *
    * ROLE ISOLATION. This is the one place the dashboard's numbers come from, and
@@ -169,7 +182,37 @@ export class MetricsService {
    * has the team done with the leads it holds", and a row that cannot add up is
    * worse than a row that is honestly about a smaller set.
    */
+  /**
+   * The dashboard cards — and, with `compare` and both bounds, the same
+   * figures for the period just before, for the ▲/▼ badges. The previous
+   * period goes through the same cache, so a dashboard polling every 15s asks
+   * the database for it once per cache window, not every tick.
+   */
   async summary(q: MetricsQueryDto, user?: { id: string; role: Role }) {
+    const { compare, ...base } = q;
+    const current = await this.cachedSummary(base as MetricsQueryDto, user);
+    if (!compare || !q.from || !q.to) return { ...current, previous: null };
+    const prev = previousPeriod(ymdOf(q.from), ymdOf(q.to));
+    const before = await this.cachedSummary({ ...base, from: prev.from, to: prev.to } as MetricsQueryDto, user);
+    return {
+      ...current,
+      previous: {
+        from: prev.from,
+        to: prev.to,
+        days: prev.days,
+        totalLeads: before.totalLeads,
+        contactedLeads: before.contactedLeads,
+        convertedLeads: before.convertedLeads,
+        closedLeads: before.closedLeads,
+        totalCalls: before.totalCalls,
+        connectedCalls: before.connectedCalls,
+        missedCalls: before.missedCalls,
+        conversionPct: before.conversionPct,
+      },
+    };
+  }
+
+  private async cachedSummary(q: MetricsQueryDto, user?: { id: string; role: Role }) {
     const now = Date.now();
     // Entries sorted, so the same filter arriving with its keys in a different
     // order cannot split into two cache entries — and undefined dropped, so an
@@ -216,6 +259,8 @@ export class MetricsService {
 
     // Calls are filtered on when the call happened, matching the Calls Made
     // dashboard, and scoped to the employee who placed them.
+    // Which outcomes mean the customer was reached — "connected" is an answered call.
+    const reached = await reachedOutcomeSlugs(this.prisma);
     const callWhere: Prisma.CallWhereInput = {
       ...(isEmployee ? { callerId: user!.id } : {}),
       ...(q.from || q.to
@@ -244,7 +289,10 @@ export class MetricsService {
       // the row above it, and Balance is exactly the remainder. Counting across
       // the whole book instead would let an admin's Contacted exceed a plausible
       // fraction of Assigned, and would make Assigned − Contacted meaningless.
-      this.prisma.lead.count({ where: { ...assignedWhere, ...MetricsService.CONTACTED } }),
+      // Contacted = reached: an answered call, or a contacted-or-beyond status —
+      // common/lead-contacted, shared with the lead lists' cards. ANDed, not
+      // spread: it is an OR, and the scope it joins may carry one too.
+      this.prisma.lead.count({ where: { AND: [assignedWhere, contactedLeadWhere(reached)] } }),
       // Leads awaiting a follow-up, counted the way the Follow-Ups page lists
       // them: a callback still outstanding, or a note carrying a next date.
       // Counting LEADS (not rows) is what stops a lead with three notes being
@@ -264,8 +312,12 @@ export class MetricsService {
       this.prisma.lead.count({ where: { ...assignedWhere, status: { in: [LeadStatus.interested, LeadStatus.closed] } } }),
       this.prisma.lead.count({ where: { ...assignedWhere, status: LeadStatus.closed } }),
       this.prisma.target.aggregate({ where: this.targetWhere(q), _sum: { monthlyTarget: true } }),
-      this.prisma.call.count({ where: callWhere }),
-      this.prisma.call.count({ where: { ...callWhere, ...CONNECTED_CALL } }),
+      // Total and Connected count what Calls Made counts (COUNTED_CALL): a
+      // missed inbound call on a known lead is the Missed Calls card's, below,
+      // and used to be counted in all three. ANDed, not spread — each rule is
+      // a `NOT`, and spread together the second would replace the first.
+      this.prisma.call.count({ where: { AND: [callWhere, COUNTED_CALL] } }),
+      this.prisma.call.count({ where: { AND: [callWhere, COUNTED_CALL, connectedCall(reached)] } }),
       // A genuine missed call: the customer rang in and nobody picked up. The
       // card sits directly above the Missed Calls list on the same dashboard,
       // so it counts exactly what that list shows. The broad MISSED_STATUSES
@@ -382,6 +434,7 @@ export class MetricsService {
   /** MAP-002/003 — per-state totals vs targets (color-coded state map). */
   async byState(q: MetricsQueryDto, user?: { id: string; role: Role }) {
     const where = this.leadWhere(q, user);
+    const reached = await reachedOutcomeSlugs(this.prisma);
     const [leadGroups, targetGroups, assignedGroups, contactedGroups] = await Promise.all([
       this.prisma.lead.groupBy({
         by: ['state', 'timezone'],
@@ -398,17 +451,12 @@ export class MetricsService {
         where: { ...where, assignedToId: { not: null } },
         _count: { _all: true },
       }),
-      // Same contacted rule as summary(): a completed call exists OR the lead has
-      // reached a contacted-or-beyond status.
+      // The shared contacted rule (common/lead-contacted), as summary() uses it:
+      // an answered call, or a contacted-or-beyond status. It had its own copy
+      // here, which counted any finished call — No Answer included.
       this.prisma.lead.groupBy({
         by: ['state'],
-        where: {
-          ...where,
-          OR: [
-            { status: { in: ['contacted', 'interested', 'closed'] } },
-            { calls: { some: { endTime: { not: null } } } },
-          ],
-        },
+        where: { AND: [where, contactedLeadWhere(reached)] },
         _count: { _all: true },
       }),
     ]);
@@ -442,6 +490,68 @@ export class MetricsService {
   }
 
   /** CHT-003 — daily lead counts over the selected range (line). */
+  /**
+   * Calls made, connected calls and leads contacted for the first time, per
+   * business day — the dashboard's trend chart.
+   *
+   * Over the dashboard's date range when it has one (both ends), else the last
+   * fourteen days; never more than ~three months, so a year-long range can't
+   * turn into a year of rows. Scoped like the cards: an employee sees the calls
+   * they placed and the leads they hold, a manager the whole floor. Days are
+   * the BUSINESS calendar's, the same "today" the cards use, and a day with
+   * nothing on it is reported as zero rather than left out — a gap in a line
+   * chart reads as missing data.
+   *
+   * "Contacted" is a lead's first ANSWERED call landing on that day — new leads
+   * reached, not repeat calls to the same lead, and not a No Answer.
+   */
+  async trend(q: MetricsQueryDto, user?: { id: string; role: Role }) {
+    const to = q.to ? ymdOf(q.to) : businessDay();
+    let from = q.from && q.to ? ymdOf(q.from) : shiftDay(to, -(TREND_DEFAULT_DAYS - 1));
+    if (from > to) from = to;
+    if (spanDays(from, to) > TREND_MAX_DAYS) from = shiftDay(to, -(TREND_MAX_DAYS - 1));
+
+    const window = { gte: dayStart(from), lte: dayEnd(to) };
+    const isEmployee = user?.role === Role.employee;
+    const callScope: Prisma.CallWhereInput = isEmployee ? { callerId: user!.id } : {};
+    const reached = await reachedOutcomeSlugs(this.prisma);
+    const [calls, connected, contacted] = await Promise.all([
+      // The call cards' rules exactly, so a day on the chart adds up to the cards.
+      this.prisma.call.findMany({ where: { AND: [{ ...callScope, startTime: window }, COUNTED_CALL] }, select: { startTime: true } }),
+      this.prisma.call.findMany({ where: { AND: [{ ...callScope, startTime: window }, COUNTED_CALL, connectedCall(reached)] }, select: { startTime: true } }),
+      // Each lead's FIRST answered call, kept when it lands in the window. Not
+      // the First Contact column: that is stamped by any outcome, No Answer
+      // included (it records when a lead was first worked), so the line used to
+      // count leads nobody had reached while the Contacted card beside it didn't.
+      this.prisma.call.groupBy({
+        by: ['leadId'],
+        where: {
+          AND: [
+            { leadId: { not: null }, lead: { deletedAt: null, ...(isEmployee ? { assignedToId: user!.id } : {}) } },
+            connectedCall(reached),
+          ],
+        },
+        _min: { startTime: true },
+        having: { startTime: { _min: window } },
+      }),
+    ]);
+
+    const perDay = (stamps: (Date | null)[]) => {
+      const out = new Map<string, number>();
+      for (const at of stamps) if (at) out.set(businessDay(at), (out.get(businessDay(at)) ?? 0) + 1);
+      return out;
+    };
+    const c = perDay(calls.map((x) => x.startTime));
+    const k = perDay(connected.map((x) => x.startTime));
+    const f = perDay(contacted.map((x) => x._min.startTime));
+
+    const days: { day: string; calls: number; connected: number; contacted: number }[] = [];
+    for (let day = from; day <= to; day = shiftDay(day, 1)) {
+      days.push({ day, calls: c.get(day) ?? 0, connected: k.get(day) ?? 0, contacted: f.get(day) ?? 0 });
+    }
+    return { from, to, scope: isEmployee ? ('personal' as const) : ('organization' as const), days };
+  }
+
   async daily(q: MetricsQueryDto, user?: { id: string; role: Role }) {
     const leads = await this.prisma.lead.findMany({
       where: this.leadWhere(q, user),

@@ -5,6 +5,7 @@ import {
   clearedFilters,
   filtersFromParams,
   filtersToParams,
+  leadListHref,
   normaliseFilters,
   type LeadListFilters,
 } from './lead-list-filters';
@@ -111,5 +112,17 @@ describe('views from before Status was split', () => {
   it('counts the outcome picks as one filter however many are ticked', () => {
     expect(activeFilterCount(f({ outcomes: ['no_answer', 'busy', 'voicemail'] }))).toBe(1);
     expect(activeFilterCount(f({ contact: 'never', followUp: 'today' }))).toBe(2);
+  });
+});
+
+/** Links into a lead list — what a dashboard card points at. */
+describe('leadListHref', () => {
+  it('names the filters it wants, everything else at its default', () => {
+    expect(leadListHref('/leads', { contact: 'never' })).toBe('/leads?contact=never');
+  });
+
+  it('asks for the default view explicitly rather than leaving the reader’s saved filters in charge', () => {
+    expect(leadListHref('/leads')).toBe('/leads?all=1');
+    expect(filtersFromParams(new URLSearchParams('all=1'))).toEqual(D);
   });
 });

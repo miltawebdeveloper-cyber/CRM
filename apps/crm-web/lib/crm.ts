@@ -20,8 +20,8 @@ export interface MetricsSummary {
   /** Leads that have an owner. For an employee this equals their total. */
   assignedLeads: number;
   /**
-   * Assigned leads successfully contacted (completed call or contacted-or-beyond
-   * status). Counted within `assignedLeads`, never across the whole book.
+   * Assigned leads reached (an answered call, or a contacted-or-beyond status).
+   * Counted within `assignedLeads`, never across the whole book.
    */
   contactedLeads: number;
   /** Assigned but not yet reached — `assignedLeads − contactedLeads`. */
@@ -56,6 +56,37 @@ export interface MetricsSummary {
   targetProgressPct: number;
   /** Converted as a share of the book. */
   conversionPct: number;
+  /**
+   * The same figures for the period just before, when asked with `compare`
+   * and a full range — the dashboard's ▲/▼ badges. Null otherwise.
+   */
+  previous?: MetricsPrevious | null;
+}
+export interface MetricsPrevious {
+  from: string;
+  to: string;
+  days: number;
+  totalLeads: number;
+  contactedLeads: number;
+  convertedLeads: number;
+  closedLeads: number;
+  totalCalls: number;
+  connectedCalls: number;
+  missedCalls: number;
+  conversionPct: number;
+}
+/** One business day on the dashboard's trend chart. */
+export interface TrendDay {
+  day: string;
+  calls: number;
+  connected: number;
+  contacted: number;
+}
+export interface MetricsTrend {
+  from: string;
+  to: string;
+  scope: 'organization' | 'personal';
+  days: TrendDay[];
 }
 export interface TimezoneCount {
   timezone: string;
@@ -83,7 +114,7 @@ export interface StateMetric {
   total: number;
   /** Leads in this state that have an owner. */
   assigned: number;
-  /** Leads reached: completed call or contacted-or-beyond status. */
+  /** Leads reached: an answered call, or a contacted-or-beyond status. */
   contacted: number;
   planned: number;
   balance: number;
@@ -111,8 +142,13 @@ export interface MetricsRange {
    * under the same heading.
    */
   dateField?: 'created' | 'scheduled';
+  /** Also return the previous period of the same length (needs from and to). */
+  compare?: boolean;
 }
 export const metricsApi = {
+  /** Calls, connected calls and leads first reached (first answered call) per business day — over the range, or the last 14 days. */
+  trend: async (params?: Pick<MetricsRange, 'from' | 'to'>, signal?: AbortSignal): Promise<MetricsTrend> =>
+    (await api.get('/metrics/trend', { params, signal })).data,
   // `signal` is React Query's: changing a date range supersedes the request for
   // the previous one, and the superseded one is aborted rather than left to
   // finish into a cache entry nobody will read.
@@ -489,7 +525,7 @@ export interface CallPivotCell {
   r: number;
   c: number;
   calls: number;
-  /** Calls with an end time — the same "connected" the Calls Made stats use. */
+  /** Answered calls — the same "connected" the Calls Made stats use. */
   connected: number;
   secs: number;
 }

@@ -579,6 +579,7 @@ describe('LeadsService.listSummary — the cards follow the grid', () => {
     const count = jest.fn(async (_a: unknown) => queue.shift() ?? 0);
     const prisma = {
       lead: { count },
+      outcome: { findMany: jest.fn(async () => [{ slug: 'call_back' }]) },
       $transaction: jest.fn(async (ops: unknown[]) => Promise.all(ops as Promise<unknown>[])),
     } as unknown as PrismaService;
     return { service: new LeadsService(prisma, {} as NotificationsService, {} as LeadIdService), count };
@@ -625,7 +626,7 @@ describe('LeadsService.findAll — quick filters', () => {
     );
     const prisma = {
       lead: { findMany, count },
-      outcome: { findFirst: outcomeFind },
+      outcome: { findFirst: outcomeFind, findMany: jest.fn(async () => [{ slug: 'call_back' }]) },
       $transaction: jest.fn(async (ops: unknown[]) => Promise.all(ops as Promise<unknown>[])),
     } as unknown as PrismaService;
     return { service: new LeadsService(prisma, {} as NotificationsService, {} as LeadIdService), findMany };
@@ -664,6 +665,18 @@ describe('LeadsService.findAll — quick filters', () => {
     expect(clause.NOT.OR).toHaveLength(2);
   });
 
+  it('Contacted means reached — an answered call, not merely a finished one', async () => {
+    const { service, findMany } = harness();
+    await service.findAll({ closed: false, contact: 'contacted' } as never);
+    const branches = (andOf(findMany)[0] as { OR: Array<Record<string, unknown>> }).OR;
+    expect(branches[0]).toEqual({ status: { in: ['contacted', 'interested', 'closed'] } });
+    const call = JSON.stringify(branches[1]);
+    // A reached outcome, or the line answered with talk time — so a No Answer
+    // or a synced missed call no longer takes a lead off "Never contacted".
+    expect(call).toContain('"outcome":{"in":["call_back"]}');
+    expect(call).toContain('"durationSecs":{"gt":0}');
+  });
+
   it('keeps the search and a quick filter both in force', async () => {
     const { service, findMany } = harness();
     await service.findAll({ closed: false, q: 'acme', contact: 'contacted' } as never);
@@ -690,6 +703,7 @@ describe('LeadsService.listSummary — chip counts', () => {
     const count = jest.fn(async (_a: unknown) => 0);
     const prisma = {
       lead: { count },
+      outcome: { findMany: jest.fn(async () => [{ slug: 'call_back' }]) },
       $transaction: jest.fn(async (ops: unknown[]) => Promise.all(ops as Promise<unknown>[])),
     } as unknown as PrismaService;
     return { service: new LeadsService(prisma, {} as NotificationsService, {} as LeadIdService), count };

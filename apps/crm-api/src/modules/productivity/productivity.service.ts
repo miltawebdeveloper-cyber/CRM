@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { OutcomeCategory } from '@crm/database';
+import { OutcomeCategory, Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { COMPLETION_ACTIONS, completedOpenLeadCounts, productiveSeconds } from '../calls/work-time.js';
+import { COUNTED_CALL, connectedCall, reachedOutcomeSlugs } from '../calls/call-status.js';
 import { startOfBusinessDay } from '../../common/timezone.js';
 
 /** Start of today on the business clock (BUSINESS_TIMEZONE), not the server's. */
@@ -114,33 +115,50 @@ export class ProductivityService {
     });
   }
 
-  /** CAL-023 — end-of-day call summary per caller. */
+  /**
+   * CAL-023 — today's calls per rep: the Call Summary page and the dashboard's
+   * "Team today" leaderboard.
+   *
+   * Counted with the same rules as the dashboard's call cards and Calls Made
+   * (calls/call-status): calls STARTED today on the business clock, without the
+   * missed inbound calls that belong to the Missed Calls module (COUNTED_CALL),
+   * and "connected" meaning the customer answered (connectedCall). It used to
+   * count calls that ENDED today and call a call connected unless its outcome
+   * was literally `no_answer` or `busy`, so the leaderboard disagreed with the
+   * Connected Calls card above it on the very same day.
+   *
+   * Counted in the database with the same Prisma filters the cards use, so a
+   * call the cards leave out can't be counted here by a JavaScript re-reading
+   * of the rule that treats an empty status differently.
+   */
   async dailySummary() {
     const today = startOfToday();
-    const [callers, calls, groups] = await Promise.all([
-      this.prisma.user.findMany({
-        where: { role: 'employee', isActive: true },
-        select: { id: true, name: true },
-        orderBy: { name: 'asc' },
-      }),
-      this.prisma.call.findMany({
-        where: { endTime: { gte: today } },
-        select: { callerId: true, outcome: true },
-      }),
+    const callers = await this.prisma.user.findMany({
+      where: { role: 'employee', isActive: true },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+    const base: Prisma.CallWhereInput = { callerId: { in: callers.map((c) => c.id) }, startTime: { gte: today } };
+    const reached = await reachedOutcomeSlugs(this.prisma);
+    const [byOutcome, connected, groups] = await Promise.all([
+      this.prisma.call.groupBy({ by: ['callerId', 'outcome'], where: { AND: [base, COUNTED_CALL] }, _count: { _all: true } }),
+      this.prisma.call.groupBy({ by: ['callerId'], where: { AND: [base, COUNTED_CALL, connectedCall(reached)] }, _count: { _all: true } }),
       this.outcomeGroups(),
     ]);
     const won = new Set(groups.won);
     const callback = new Set(groups.callbacks);
+    const connectedBy = new Map(connected.map((r) => [r.callerId, r._count._all]));
     return callers.map((c) => {
-      const mine = calls.filter((x) => x.callerId === c.id);
-      const connected = mine.filter((x) => x.outcome && !['no_answer', 'busy'].includes(x.outcome)).length;
+      const mine = byOutcome.filter((r) => r.callerId === c.id);
+      const count = (pick: (outcome: string | null) => boolean) =>
+        mine.filter((r) => pick(r.outcome)).reduce((n, r) => n + r._count._all, 0);
       return {
         id: c.id,
         name: c.name,
-        callsMade: mine.length,
-        connected,
-        callbacks: mine.filter((x) => x.outcome && callback.has(x.outcome)).length,
-        deals: mine.filter((x) => x.outcome && won.has(x.outcome)).length,
+        callsMade: count(() => true),
+        connected: connectedBy.get(c.id) ?? 0,
+        callbacks: count((o) => !!o && callback.has(o)),
+        deals: count((o) => !!o && won.has(o)),
       };
     });
   }
