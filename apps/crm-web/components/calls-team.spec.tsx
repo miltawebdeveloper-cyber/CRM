@@ -1,5 +1,5 @@
 /** @jest-environment jsdom */
-import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
@@ -69,7 +69,7 @@ describe('CallsTeam', () => {
 
   it('lists every rep, busiest first, with a team total', () => {
     const { container } = renderTeam();
-    const names = Array.from(container.querySelectorAll('tbody tr td:first-child')).map((td) => td.textContent);
+    const names = Array.from(container.querySelectorAll('tbody tr td:first-child button')).map((b) => b.textContent);
     expect(names).toEqual(['Ann', 'Cy', 'Bob']);
     const total = container.querySelector('tfoot tr') as HTMLElement;
     expect(within(total).getByText('75')).toBeTruthy();
@@ -95,7 +95,7 @@ describe('CallsTeam', () => {
   it('sorts when a heading is clicked', () => {
     const { container } = renderTeam();
     fireEvent.click(screen.getByRole('button', { name: /^Answered/ }));
-    const names = Array.from(container.querySelectorAll('tbody tr td:first-child')).map((td) => td.textContent);
+    const names = Array.from(container.querySelectorAll('tbody tr td:first-child button')).map((b) => b.textContent);
     expect(names).toEqual(['Bob', 'Ann', 'Cy']);
   });
 
@@ -107,5 +107,61 @@ describe('CallsTeam', () => {
     expect(headers[0]).toBe('Rep');
     expect(rows[0]).toEqual(['Ann', 40, 20, 50, 30, 9, 3, 40, 2, 0, '900s', 50, 80, 4]);
     expect(rows[2][11]).toBe(''); // Bob: no target
+  });
+});
+
+/** Below 1280px each rep is a card: every figure stays in view, nothing scrolls off to the side. */
+describe('CallsTeam on a narrow screen', () => {
+  const setUserId = jest.fn();
+  let restore: (() => void) | undefined;
+  beforeEach(() => {
+    const original = window.matchMedia;
+    // Narrower than 1280px: the (min-width: 1280px) query doesn't match.
+    window.matchMedia = ((query: string) => ({
+      matches: false, media: query, onchange: null,
+      addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+    restore = () => { window.matchMedia = original; };
+    setUserId.mockClear();
+  });
+  afterEach(() => restore?.());
+
+  function renderNarrow() {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    qc.setQueryData(['calls-made', 'team', { from: '2026-11-16', to: '2026-11-20' }], [ANN, BOB, CY]);
+    const filters = {
+      params: { from: '2026-11-16', to: '2026-11-20' }, userId: '', setUserId,
+      dateFilter: { mode: 'week', from: '2026-11-16', to: '2026-11-20' },
+    } as never;
+    return render(
+      <QueryClientProvider client={qc}>
+        <CallsTeam filters={filters} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it('shows a card per rep, busiest first, with every figure and no table', () => {
+    const { container } = renderNarrow();
+    expect(container.querySelector('table')).toBeNull();
+    const cards = Array.from(container.querySelectorAll('li'));
+    expect(cards.map((li) => li.querySelector('button')?.textContent)).toEqual(['Ann', 'Cy', 'Bob']);
+    const ann = within(cards[0]);
+    for (const label of ['Answered', 'Warm & hot', 'Won', 'Talk time', 'Target', 'No outcome']) expect(ann.getByText(label)).toBeTruthy();
+    expect(ann.getByText('80%')).toBeTruthy(); // Ann's target
+  });
+
+  it('sorts with the picker and flips with the arrow', () => {
+    const { container } = renderNarrow();
+    fireEvent.change(screen.getByLabelText('Sort by'), { target: { value: 'answered' } });
+    const names = () => Array.from(container.querySelectorAll('li > div button')).map((b) => b.textContent);
+    expect(names()).toEqual(['Bob', 'Ann', 'Cy']);
+    fireEvent.click(screen.getByRole('button', { name: /switch to ascending/ }));
+    expect(names()).toEqual(['Cy', 'Ann', 'Bob']);
+  });
+
+  it('reads the page for a rep from their card', () => {
+    renderNarrow();
+    fireEvent.click(screen.getByRole('button', { name: 'Cy' }));
+    expect(setUserId).toHaveBeenLastCalledWith('cy');
   });
 });

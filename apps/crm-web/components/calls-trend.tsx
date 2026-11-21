@@ -64,17 +64,22 @@ export function CallsTrend({ filters }: { filters: CallFilters }) {
   const { data } = useQuery({ queryKey: ['calls-aspects', query], queryFn: () => callsApi.madePivot(query) });
   const { days, clipped } = useMemo(() => trendDays(data, dateFilter.from, dateFilter.to), [data, dateFilter.from, dateFilter.to]);
 
-  if (days.length < 2) return null; // One day is a number, not a trend — the headline row has it.
   return (
-    <section className="mb-[18px]" aria-label="Calls per day">
-      <h3 className="mb-2 text-[10.5px] font-semibold uppercase tracking-widest text-muted-foreground">
-        Calls per day
-        {clipped && <span className="normal-case tracking-normal opacity-70"> · the last {TREND_MAX_DAYS} days</span>}
-        {data?.truncated && (
-          <span className="normal-case tracking-normal text-[var(--tone-red-fg-2)]"> · from the first {data.scanned.toLocaleString()} calls only</span>
-        )}
-      </h3>
-      <TrendChart days={days} second="connected" />
+    <section className="flex h-full min-w-0 flex-col rounded-2xl border bg-card p-4 shadow-sm sm:p-5" aria-label="Calls per day">
+      <header className="mb-3">
+        <h3 className="font-display text-[14px] font-semibold">Calls per day</h3>
+        <p className="mt-0.5 text-[11.5px] text-muted-foreground">
+          Calls made and answered, day by day
+          {clipped && <> · the last {TREND_MAX_DAYS} days</>}
+          {data?.truncated && <span className="text-[var(--tone-red-fg-2)]"> · from the first {data.scanned.toLocaleString()} calls only</span>}
+        </p>
+      </header>
+      {days.length < 2 ? (
+        // One day is a number, not a trend — the overview band has it.
+        <p className="grid flex-1 place-items-center py-10 text-center text-[12.5px] text-muted-foreground">A trend needs at least two days. Pick a longer range.</p>
+      ) : (
+        <TrendChart days={days} second="connected" bare />
+      )}
     </section>
   );
 }

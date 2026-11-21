@@ -133,8 +133,13 @@ function axisMeta(dim: CallPivotDim, a: CallPivotAxis): { label: string; color: 
  */
 export function CallsAspects({ filters }: { filters: CallFilters }) {
   const { params, dateFilter, userId, users, isManager } = filters;
-  const [dim, setDim] = usePersistedState<CallPivotDim>('calls-aspects:dim', 'bucket');
-  const [measure, setMeasure] = usePersistedState<Measure>('calls-aspects:measure', 'share');
+  // Opens on the hour of day: the funnel buckets it used to open on are the
+  // Outcome mix card above, and a chart repeating them was the same six
+  // numbers a third time. Any dimension is still one pick away.
+  const [dim, setDim] = usePersistedState<CallPivotDim>('calls-aspects:dim', 'hour');
+  // Opens on call counts: on the fixed 0–100% share scale, an even spread over
+  // nine hours is nine flat 11% stubs. Share is one click away.
+  const [measure, setMeasure] = usePersistedState<Measure>('calls-aspects:measure', 'calls');
 
   // rows=employee keeps the response scoped per caller; the columns are the
   // aspect being asked about. The API applies the employee filter, so what comes
@@ -189,12 +194,14 @@ export function CallsAspects({ filters }: { filters: CallFilters }) {
   );
 
   return (
-    <div className="mb-[18px] rounded-2xl border bg-card p-5 shadow-sm">
+    // min-w-0: a chart sizes itself to its box, so a box that may not shrink
+    // below its content keeps the chart at its first width for good.
+    <section aria-label="Explore" className="min-w-0 rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
       <div className="mb-4 flex flex-wrap items-center gap-2.5">
         <div>
-          <h3 className="font-display text-[14px] font-semibold">{who} · {when}</h3>
-          <p className="text-[11px] text-muted-foreground">
-            {isManager && !userId ? 'The whole team — pick an employee above to read one rep.' : 'Calls in the selected range, broken down by aspect.'}
+          <h3 className="font-display text-[14px] font-semibold">Explore</h3>
+          <p className="mt-0.5 text-[11.5px] text-muted-foreground">
+            {who} · {when} — {isManager && !userId ? 'The whole team — pick an employee above to read one rep.' : 'Calls in the selected range, broken down by aspect.'}
             {unlogged > 0 && (
               <>
                 {' '}
@@ -205,9 +212,9 @@ export function CallsAspects({ filters }: { filters: CallFilters }) {
             )}
           </p>
         </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2.5">
+        <div className="flex w-full flex-wrap items-center gap-2.5 sm:ml-auto sm:w-auto">
           <FilterSelect icon={Columns3} value={dim} onChange={(v) => setDim(v as CallPivotDim)} options={DIMS} />
-          <div className="inline-flex rounded-md bg-muted/60 p-[2px]">
+          <div className="inline-flex flex-wrap rounded-md bg-muted/60 p-[2px]">
             {MEASURES.map((m) => (
               <button
                 key={m.value}
@@ -250,7 +257,7 @@ export function CallsAspects({ filters }: { filters: CallFilters }) {
         {/* 72px a bar, not 46: an x tick like "Closed — Won" is about 78px at
             11px type, so at the old minimum the labels overlapped each other
             before the scroll ever kicked in. */}
-        <div className="h-[260px] overflow-x-auto sm:h-[300px] lg:h-[340px]">
+        <div className="h-[240px] overflow-x-auto sm:h-[260px] lg:h-[280px]">
           <div className="h-full" style={{ minWidth: Math.max(bars.length * 72, 320) }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={bars} margin={{ top: 16, right: 12, bottom: 4, left: 8 }} barCategoryGap="22%">
@@ -303,6 +310,6 @@ export function CallsAspects({ filters }: { filters: CallFilters }) {
         </div>
         </>
       )}
-    </div>
+    </section>
   );
 }

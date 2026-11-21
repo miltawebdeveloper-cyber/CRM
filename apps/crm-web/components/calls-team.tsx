@@ -8,6 +8,7 @@ import type { CallFilters } from '@/components/calls-shared';
 import { IconAction } from '@/components/icon-action';
 import { downloadCsv } from '@/lib/export';
 import { usePersistedState } from '@/lib/use-persisted-state';
+import { useMediaQuery } from '@/lib/use-media-query';
 
 type SortKey = 'name' | 'calls' | 'answered' | 'warmHot' | 'won' | 'talk' | 'target' | 'noOutcome';
 type Sort = { key: SortKey; dir: 'asc' | 'desc' };
@@ -115,35 +116,42 @@ export function CallsTeam({ filters }: { filters: CallFilters }) {
     );
   }
 
+  const maxCalls = Math.max(1, ...rows.map((r) => r.calls));
+  // Eight columns need about 760px. Below 1280px (where the sidebar leaves
+  // less than that) each rep is a card instead, so no column is ever cut off.
+  const wide = useMediaQuery('(min-width: 1280px)');
+
   return (
-    <section className="mb-[18px] overflow-hidden rounded-2xl border bg-card shadow-sm" aria-label="Team comparison">
-      <div className="flex items-center gap-3 border-b px-4 py-3">
+    <section className="min-w-0 overflow-hidden rounded-2xl border bg-card shadow-sm" aria-label="Team comparison">
+      <header className="flex items-start gap-3 px-4 pb-3 pt-4 sm:px-5">
         <div className="min-w-0">
           <h3 className="font-display text-[14px] font-semibold">Team comparison</h3>
-          <p className="text-[11px] text-muted-foreground">Every rep for the range. Click a name to read the page for that rep.</p>
+          <p className="mt-0.5 text-[11.5px] text-muted-foreground">Every rep for the range. Click a name to read the page for that rep{wide ? '; sort on any column' : ''}.</p>
         </div>
         <div className="ml-auto">
-          <IconAction icon={Download} label="Export team CSV" onClick={exportCsv} disabled={rows.length === 0} />
+          <IconAction icon={Download} label="Export team CSV" align="end" onClick={exportCsv} disabled={rows.length === 0} />
         </div>
-      </div>
+      </header>
 
       {isLoading ? (
-        <p className="px-4 py-8 text-center text-sm text-muted-foreground">Loading…</p>
+        <p className="px-5 py-10 text-center text-sm text-muted-foreground">Loading…</p>
       ) : rows.length === 0 ? (
-        <p className="px-4 py-8 text-center text-sm text-muted-foreground">No reps to compare.</p>
+        <p className="px-5 py-10 text-center text-sm text-muted-foreground">No reps to compare.</p>
+      ) : !wide ? (
+        <TeamCards rows={sorted} team={team} sort={sort} setSort={setSort} userId={userId} setUserId={setUserId} maxCalls={maxCalls} />
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-[12px]">
+          <table className="w-full min-w-[760px] text-[12.5px]">
             <thead>
-              <tr className="border-b text-[11px] text-muted-foreground">
+              <tr className="border-y bg-muted/40 text-[10.5px] uppercase tracking-wider text-muted-foreground">
                 {COLUMNS.map((c) => (
                   <th
                     key={c.key}
                     scope="col"
                     aria-sort={sort.key === c.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                    className={`whitespace-nowrap px-3 py-2 font-medium ${c.numeric ? 'text-right' : 'text-left'}`}
+                    className={`whitespace-nowrap px-4 py-2 font-semibold ${c.numeric ? 'text-right' : 'text-left'}`}
                   >
-                    <button type="button" onClick={() => toggleSort(c.key)} title={c.hint} className="inline-flex items-center gap-1 hover:text-foreground">
+                    <button type="button" onClick={() => toggleSort(c.key)} title={c.hint} className="inline-flex items-center gap-1 uppercase hover:text-foreground">
                       {c.label}
                       <span aria-hidden className={sort.key === c.key ? 'text-foreground' : 'opacity-0'}>{sort.dir === 'asc' ? '▲' : '▼'}</span>
                     </button>
@@ -156,26 +164,42 @@ export function CallsTeam({ filters }: { filters: CallFilters }) {
                 const x = teamRates(r);
                 const on = r.id === userId;
                 return (
-                  <tr key={r.id} className={`border-b last:border-0 ${on ? 'bg-primary/5' : 'hover:bg-muted/40'}`}>
-                    <td className="px-3 py-1.5">
-                      <button
-                        type="button"
-                        aria-pressed={on}
-                        onClick={() => setUserId(on ? '' : r.id)}
-                        className={`text-left font-medium hover:underline ${on ? 'text-primary' : ''}`}
-                      >
-                        {r.name}
-                      </button>
+                  <tr key={r.id} className={`border-b transition-colors last:border-0 ${on ? 'bg-primary/[0.06]' : 'hover:bg-muted/40'}`}>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          aria-hidden
+                          className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10.5px] font-semibold ${on ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
+                        >
+                          {initials(r.name)}
+                        </span>
+                        <button
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => setUserId(on ? '' : r.id)}
+                          className={`truncate text-left font-semibold hover:underline ${on ? 'text-primary' : ''}`}
+                        >
+                          {r.name}
+                        </button>
+                      </div>
                     </td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{r.calls.toLocaleString()}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums" title={`${r.answered.toLocaleString()} of ${r.calls.toLocaleString()} calls`}>{pct(x.answeredPct)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums" title={`${(r.warm + r.hot).toLocaleString()} of ${r.given.toLocaleString()} calls with an outcome`}>{pct(x.warmHotPct)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{r.won.toLocaleString()}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{formatDuration(r.talkSecs)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums" title={r.target ? `${r.calls.toLocaleString()} of ${r.target.toLocaleString()} target calls` : 'No target set'}>
-                      {x.targetPct === null ? <span className="text-muted-foreground">—</span> : pct(x.targetPct)}
+                    <td className="px-4 py-2.5">
+                      {/* Volume at a glance: a slim bar against the busiest rep. */}
+                      <div className="flex items-center justify-end gap-2.5">
+                        <span aria-hidden className="hidden h-1.5 w-20 overflow-hidden rounded-full bg-muted sm:block">
+                          <span className="block h-full rounded-full" style={{ width: `${(r.calls / maxCalls) * 100}%`, background: 'var(--chart-1)' }} />
+                        </span>
+                        <span className="w-10 text-right font-semibold tabular-nums">{r.calls.toLocaleString()}</span>
+                      </div>
                     </td>
-                    <td className={`px-3 py-1.5 text-right tabular-nums ${r.noOutcome > 0 ? 'font-semibold text-[var(--tone-red-fg-2)]' : 'text-muted-foreground'}`}>
+                    <td className="px-4 py-2.5 text-right tabular-nums" title={`${r.answered.toLocaleString()} of ${r.calls.toLocaleString()} calls`}>{pct(x.answeredPct)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums" title={`${(r.warm + r.hot).toLocaleString()} of ${r.given.toLocaleString()} calls with an outcome`}>{pct(x.warmHotPct)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{r.won.toLocaleString()}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">{formatDuration(r.talkSecs)}</td>
+                    <td className="px-4 py-2.5 text-right" title={r.target ? `${r.calls.toLocaleString()} of ${r.target.toLocaleString()} target calls` : 'No target set'}>
+                      {x.targetPct === null ? <span className="text-muted-foreground">—</span> : <TargetPill pct={x.targetPct} />}
+                    </td>
+                    <td className={`px-4 py-2.5 text-right tabular-nums ${r.noOutcome > 0 ? 'font-semibold text-[var(--tone-red-fg-2)]' : 'text-muted-foreground'}`}>
                       {r.noOutcome.toLocaleString()}
                     </td>
                   </tr>
@@ -183,20 +207,135 @@ export function CallsTeam({ filters }: { filters: CallFilters }) {
               })}
             </tbody>
             <tfoot>
-              <tr className="border-t bg-muted/40 text-[11.5px] font-semibold">
-                <td className="px-3 py-1.5">Team</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{team.calls.toLocaleString()}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{pct(team.answeredPct)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{pct(team.warmHotPct)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{team.won.toLocaleString()}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{formatDuration(team.talkSecs)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{team.targetPct === null ? '—' : pct(team.targetPct)}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{team.noOutcome.toLocaleString()}</td>
+              <tr className="border-t bg-muted/40 text-[12px] font-semibold">
+                <td className="px-4 py-2.5">Team</td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{team.calls.toLocaleString()}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{pct(team.answeredPct)}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{pct(team.warmHotPct)}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{team.won.toLocaleString()}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{formatDuration(team.talkSecs)}</td>
+                <td className="px-4 py-2.5 text-right">{team.targetPct === null ? '—' : <TargetPill pct={team.targetPct} />}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{team.noOutcome.toLocaleString()}</td>
               </tr>
             </tfoot>
           </table>
         </div>
       )}
     </section>
+  );
+}
+
+/** "AM" for Arjun Mehta. */
+function initials(name: string): string {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join('');
+}
+
+/**
+ * Target attainment as a pill: on target (100%+), close (75%+), or behind. The
+ * percentage is written in it, so the colour is never the only signal.
+ */
+function TargetPill({ pct: p }: { pct: number }) {
+  const tone =
+    p >= 100 ? 'bg-[var(--tone-teal-bg)] text-[var(--tone-teal-fg)]'
+      : p >= 75 ? 'bg-[var(--tone-amber-bg)] text-[var(--tone-amber-fg)]'
+        : 'bg-[var(--tone-red-bg)] text-[var(--tone-red-fg-2)]';
+  return <span className={`inline-flex rounded-full px-2 py-[2px] text-[11px] font-semibold tabular-nums ${tone}`}>{pct(p)}</span>;
+}
+
+/**
+ * The team below 1280px: one card per rep, the same figures as the table's
+ * columns, in the same sort. Sorting is a picker plus a direction toggle,
+ * since there are no column headings to click.
+ */
+function TeamCards({ rows, team, sort, setSort, userId, setUserId, maxCalls }: {
+  rows: TeamCallsRow[];
+  team: { calls: number; answeredPct: number; won: number; talkSecs: number; targetPct: number | null };
+  sort: Sort;
+  setSort: (s: Sort) => void;
+  userId: string;
+  setUserId: (id: string) => void;
+  maxCalls: number;
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 border-y bg-muted/40 px-4 py-2 text-[11.5px] sm:px-5">
+        <label htmlFor="team-sort" className="text-muted-foreground">Sort by</label>
+        <select
+          id="team-sort"
+          value={sort.key}
+          onChange={(e) => {
+            const key = e.target.value as SortKey;
+            setSort({ key, dir: key === 'name' ? 'asc' : 'desc' });
+          }}
+          className="rounded-md border bg-card px-2 py-1 text-[12px] font-medium"
+        >
+          {COLUMNS.map((c) => <option key={c.key} value={c.key}>{c.key === 'name' ? 'Name' : c.label}</option>)}
+        </select>
+        <button
+          type="button"
+          onClick={() => setSort({ ...sort, dir: sort.dir === 'asc' ? 'desc' : 'asc' })}
+          aria-label={sort.dir === 'asc' ? 'Ascending, switch to descending' : 'Descending, switch to ascending'}
+          className="grid h-7 w-7 place-items-center rounded-md border bg-card text-[11px] hover:bg-muted"
+        >
+          <span aria-hidden>{sort.dir === 'asc' ? '▲' : '▼'}</span>
+        </button>
+      </div>
+      <ul className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
+        {rows.map((r) => {
+          const x = teamRates(r);
+          const on = r.id === userId;
+          return (
+            <li key={r.id} className={`rounded-xl border p-3.5 ${on ? 'border-primary/50 bg-primary/[0.06]' : ''}`}>
+              <div className="flex items-center gap-2.5">
+                <span aria-hidden className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-[11px] font-semibold ${on ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+                  {initials(r.name)}
+                </span>
+                <button type="button" aria-pressed={on} onClick={() => setUserId(on ? '' : r.id)} className={`min-w-0 truncate text-left text-[13px] font-semibold hover:underline ${on ? 'text-primary' : ''}`}>
+                  {r.name}
+                </button>
+                <span className="ml-auto shrink-0 text-right">
+                  <span className="font-display text-[18px] font-semibold leading-none tabular-nums">{r.calls.toLocaleString()}</span>
+                  <span className="block text-[10px] uppercase tracking-wider text-muted-foreground">calls</span>
+                </span>
+              </div>
+              <span aria-hidden className="mt-2.5 block h-1.5 overflow-hidden rounded-full bg-muted">
+                <span className="block h-full rounded-full" style={{ width: `${(r.calls / maxCalls) * 100}%`, background: 'var(--chart-1)' }} />
+              </span>
+              <dl className="mt-3 grid grid-cols-3 gap-x-3 gap-y-2.5 text-[12px]">
+                <Metric label="Answered" value={pct(x.answeredPct)} />
+                <Metric label="Warm & hot" value={pct(x.warmHotPct)} />
+                <Metric label="Won" value={r.won.toLocaleString()} />
+                <Metric label="Talk time" value={formatDuration(r.talkSecs)} />
+                <Metric label="Target" value={x.targetPct === null ? <span className="text-muted-foreground">—</span> : <TargetPill pct={x.targetPct} />} />
+                <Metric
+                  label="No outcome"
+                  value={<span className={r.noOutcome > 0 ? 'text-[var(--tone-red-fg-2)]' : 'text-muted-foreground'}>{r.noOutcome.toLocaleString()}</span>}
+                />
+              </dl>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t bg-muted/40 px-4 py-2.5 text-[12px] sm:px-5">
+        <b>Team</b>
+        <span><b className="tabular-nums">{team.calls.toLocaleString()}</b> <span className="text-muted-foreground">calls</span></span>
+        <span><b className="tabular-nums">{pct(team.answeredPct)}</b> <span className="text-muted-foreground">answered</span></span>
+        <span><b className="tabular-nums">{team.won.toLocaleString()}</b> <span className="text-muted-foreground">won</span></span>
+        <span><b className="tabular-nums">{formatDuration(team.talkSecs)}</b> <span className="text-muted-foreground">talk</span></span>
+        {team.targetPct !== null && (
+          <span className="inline-flex items-center gap-1.5"><TargetPill pct={team.targetPct} /> <span className="text-muted-foreground">of target</span></span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** One figure on a rep's card. */
+function Metric({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 font-semibold tabular-nums">{value}</dd>
+    </div>
   );
 }

@@ -84,7 +84,8 @@ function TrendTooltip({ active, payload, label, second }: { active?: boolean; pa
   );
 }
 
-export function TrendChart({ days, dimmed = false, second = 'contacted' }: { days: TrendDay[]; dimmed?: boolean; second?: TrendSecond }) {
+/** `bare` drops the chart's own card, for a panel that already has one. */
+export function TrendChart({ days, dimmed = false, second = 'contacted', bare = false }: { days: TrendDay[]; dimmed?: boolean; second?: TrendSecond; bare?: boolean }) {
   const [asTable, setAsTable] = useState(false);
   const SERIES = useMemo(() => seriesFor(second), [second]);
   const { max, last, offsets, totals } = useMemo(() => {
@@ -99,7 +100,7 @@ export function TrendChart({ days, dimmed = false, second = 'contacted' }: { day
   const what = SERIES.map((s) => s.label.toLowerCase()).join(' and ');
 
   return (
-    <div className={`rounded-xl border bg-card px-4 py-3 shadow-sm transition-opacity ${dimmed ? 'opacity-60' : ''}`}>
+    <div className={`${bare ? '' : 'rounded-xl border bg-card px-4 py-3 shadow-sm'} transition-opacity ${dimmed ? 'opacity-60' : ''}`}>
       {/* Legend — always present for two series; line keys, text in text colour. */}
       <div className="mb-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px]">
