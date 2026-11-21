@@ -69,9 +69,18 @@ export class NotificationsService {
     private readonly mail: MailService,
   ) {}
 
-  list(userId: string) {
+  /**
+   * The newest 100: read and unread for the Notifications page, or unread only
+   * (`unread`) for the bell, which lists what is still waiting to be read.
+   *
+   * Filtered here rather than in the browser. Picking the unread rows out of the
+   * newest 100 would miss an older unread one sitting behind a hundred read
+   * ones — and the bell would say "all caught up" under a badge still counting
+   * it.
+   */
+  list(userId: string, opts: { unread?: boolean } = {}) {
     return this.prisma.notification.findMany({
-      where: { userId },
+      where: { userId, ...(opts.unread ? { isRead: false } : {}) },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });

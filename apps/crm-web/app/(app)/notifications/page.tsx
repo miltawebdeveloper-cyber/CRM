@@ -1,9 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Bell, Filter } from 'lucide-react';
-import { notificationsApi } from '@/lib/crm';
+import { useMarkAllNotificationsRead, useMarkNotificationRead, useNotificationList } from '@/lib/use-notifications';
 import { DateFilter, FilterSelect, SearchInput } from '@/components/filter-controls';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
 import { formatDateTime } from '@/lib/display-settings';
@@ -15,19 +14,15 @@ const READ_OPTS = [
 ];
 
 export default function NotificationsPage() {
-  const qc = useQueryClient();
   const [readState, setReadState] = useState('');
   const [dateRange, setDateRange] = useState<DateFilterValue>(EMPTY_DATE_FILTER);
   const [q, setQ] = useState('');
-  const { data: allItems = [], isLoading } = useQuery({
-    queryKey: ['notifications'],
-    queryFn: notificationsApi.list,
-  });
+  const { data: allItems = [], isLoading } = useNotificationList();
 
-  const markAll = useMutation({
-    mutationFn: notificationsApi.markAllRead,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
-  });
+  // Both show at once — here, in the bell's list and on its badge — before the
+  // server answers (lib/use-notifications).
+  const markRead = useMarkNotificationRead();
+  const markAll = useMarkAllNotificationsRead();
 
   const unread = allItems.filter((n) => !n.isRead).length;
 
@@ -69,28 +64,46 @@ export default function NotificationsPage() {
               : 'No notifications match the current filters.'}
           </div>
         )}
-        {items.map((n) => (
-          <div
-            key={n.id}
-            className={`flex items-start gap-3 rounded-lg border bg-card p-4 shadow-sm ${
-              n.isRead ? 'opacity-70' : ''
-            }`}
-          >
-            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <Bell className="h-4 w-4" />
+        {items.map((n) => {
+          const content = (
+            <>
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Bell className="h-4 w-4" />
+              </span>
+              <span className="block flex-1">
+                <span className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{n.title}</span>
+                  {!n.isRead && (
+                    <>
+                      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
+                      <span className="sr-only">Unread</span>
+                    </>
+                  )}
+                </span>
+                <span className="block text-sm text-muted-foreground">{n.body}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">{formatDateTime(n.createdAt)}</span>
+              </span>
+            </>
+          );
+          const card = 'flex w-full items-start gap-3 rounded-lg border bg-card p-4 text-left shadow-sm';
+          // An unread one is a button: clicking it marks it read, and under the
+          // Unread filter it leaves the list.
+          return n.isRead ? (
+            <div key={n.id} className={`${card} opacity-70`}>
+              {content}
             </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-medium">{n.title}</p>
-                {!n.isRead && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
-              </div>
-              <p className="text-sm text-muted-foreground">{n.body}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {formatDateTime(n.createdAt)}
-              </p>
-            </div>
-          </div>
-        ))}
+          ) : (
+            <button
+              key={n.id}
+              type="button"
+              onClick={() => markRead.mutate(n.id)}
+              title="Mark as read"
+              className={`${card} transition-colors hover:bg-muted/50`}
+            >
+              {content}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

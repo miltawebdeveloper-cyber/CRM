@@ -88,3 +88,35 @@ describe('NotificationsService — which callback events email', () => {
     expect(h.send).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * The bell lists what is still unread, asked of the database — not picked out
+ * of the newest 100 in the browser, where an older unread one behind a hundred
+ * read ones would never show under a badge still counting it.
+ */
+describe('NotificationsService — listing', () => {
+  function harness() {
+    const findMany = jest.fn(async (_args: { where: Record<string, unknown>; take?: number }) => []);
+    const prisma = { notification: { findMany } } as unknown as PrismaService;
+    return { service: new NotificationsService(prisma, {} as MailService), findMany };
+  }
+
+  it('lists only unread notifications for the bell', async () => {
+    const { service, findMany } = harness();
+    await service.list('user-1', { unread: true });
+    expect(findMany.mock.calls[0][0].where).toEqual({ userId: 'user-1', isRead: false });
+  });
+
+  it('lists read and unread together for the Notifications page', async () => {
+    const { service, findMany } = harness();
+    await service.list('user-1');
+    expect(findMany.mock.calls[0][0].where).toEqual({ userId: 'user-1' });
+  });
+
+  it('only ever lists the signed-in person’s own notifications', async () => {
+    const { service, findMany } = harness();
+    await service.list('user-2', { unread: false });
+    expect(findMany.mock.calls[0][0].where).toEqual({ userId: 'user-2' });
+    expect(findMany.mock.calls[0][0].take).toBe(100);
+  });
+});

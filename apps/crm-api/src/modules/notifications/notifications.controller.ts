@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Post, Put } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Role } from '@crm/database';
 import { NotificationsService } from './notifications.service.js';
 import { UpdateEmailSettingsDto } from './dto/email-settings.dto.js';
+import { ListNotificationsQueryDto } from './dto/list-notifications.dto.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator.js';
 
@@ -26,8 +27,8 @@ export class NotificationsController {
   }
 
   @Get()
-  list(@CurrentUser() user: AuthUser) {
-    return this.notifications.list(user.id);
+  list(@CurrentUser() user: AuthUser, @Query() q: ListNotificationsQueryDto) {
+    return this.notifications.list(user.id, { unread: q.unread });
   }
 
   @Get('unread-count')

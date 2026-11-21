@@ -1,6 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { activitiesApi, callsApi, configApi, integrationsApi, metricsApi, notificationsApi, openphoneApi, tasksApi } from '@/lib/crm';
 import { usersApi } from '@/lib/users';
+import { NOTIFICATION_KEYS } from '@/lib/notification-cache';
 
 /**
  * What to fetch when a nav row is hovered, so the page has its data before the
@@ -28,7 +29,7 @@ export const NAV_PREFETCH: Record<string, (qc: QueryClient) => void> = {
   '/tasks': (qc) => void qc.prefetchQuery({ queryKey: ['tasks'], queryFn: tasksApi.list }),
   '/users': (qc) => void qc.prefetchQuery({ queryKey: ['users'], queryFn: usersApi.list }),
   '/activity': (qc) => void qc.prefetchQuery({ queryKey: ['activities'], queryFn: activitiesApi.list }),
-  '/notifications': (qc) => void qc.prefetchQuery({ queryKey: ['notifications'], queryFn: notificationsApi.list }),
+  '/notifications': (qc) => void qc.prefetchQuery({ queryKey: NOTIFICATION_KEYS.list, queryFn: notificationsApi.list }),
   '/outcomes': (qc) => void qc.prefetchQuery({ queryKey: ['outcomes'], queryFn: () => callsApi.outcomes() }),
   // Aggregate lead counts per state — a choropleth, not an individually
   // actionable record, so a few seconds' staleness at first paint costs

@@ -6,6 +6,7 @@ import { ThemeProvider } from 'next-themes';
 import { Toaster } from '@/components/toaster';
 import { toast } from '@/lib/toast';
 import { markAppHydrated } from '@/lib/hydration';
+import { refreshBellAfter } from '@/lib/notification-cache';
 
 // Per-mutation opt-ins read by the shared handler below.
 declare module '@tanstack/react-query' {
@@ -65,6 +66,8 @@ export function Providers({ children }: { children: ReactNode }) {
         onSuccess: (_data, _vars, _ctx, mutation) => {
           const msg = mutation.meta?.successMessage;
           if (msg) toast.success(msg);
+          // The bell's badge moves with the action that raised a notification.
+          refreshBellAfter(qc, mutation.options.mutationKey);
         },
         onError: (err, _vars, _ctx, mutation) => {
           if (mutation.meta?.suppressErrorToast) return;

@@ -679,8 +679,12 @@ export interface EmailSettings {
   types: Record<CallbackEmailType, boolean>;
 }
 export const notificationsApi = {
+  /** The newest 100, read and unread — the Notifications page. */
   list: async (): Promise<Notification[]> => (await api.get('/notifications')).data,
+  /** Unread only, newest first — the bell's list. */
+  listUnread: async (): Promise<Notification[]> => (await api.get('/notifications', { params: { unread: true } })).data,
   unreadCount: async (): Promise<{ count: number }> => (await api.get('/notifications/unread-count')).data,
+  markRead: async (id: string) => (await api.post(`/notifications/${encodeURIComponent(id)}/read`)).data,
   markAllRead: async () => (await api.post('/notifications/read-all')).data,
   getEmailSettings: async (): Promise<EmailSettings> => (await api.get('/notifications/email-settings')).data,
   updateEmailSettings: async (s: EmailSettings): Promise<EmailSettings> =>
