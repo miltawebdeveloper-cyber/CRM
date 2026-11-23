@@ -16,6 +16,7 @@
     "merge-duplicate-calls": "tsx prisma/merge-duplicate-calls.ts",
     "repair-lead-edits": "tsx prisma/repair-lead-edits.ts",
     "flush-data": "tsx prisma/flush-transactional-data.ts",
+    "sample-data": "tsx prisma/sample-data.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test prisma/*.test.ts"
   },
