@@ -640,3 +640,22 @@
   --chart-1: #3987e5;
   --chart-2: #d95926;
 }
+
+/* Rep colours — the Calendar's "colour by rep", one per person on the team
+   view (a fifth rep onward shares the neutral "other"). Slot 1 and 2 are the
+   chart blue and orange; 3 and 4 a deep teal and a pink. Every pair checked in
+   OKLab: at least 15 apart in normal vision and 8 apart under protan, deutan
+   and tritan simulation, and each at least 3:1 against the card (#ffffff light,
+   #24231f dark). Text never wears these — they mark, and the name says who. */
+:root {
+  --rep-1: #2a78d6;
+  --rep-2: #eb6834;
+  --rep-3: #0b6e5c;
+  --rep-4: #c0509a;
+}
+.dark {
+  --rep-1: #5a9cf0;
+  --rep-2: #d95926;
+  --rep-3: #1f8a73;
+  --rep-4: #d66bb0;
+}

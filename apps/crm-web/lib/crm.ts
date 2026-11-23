@@ -739,16 +739,19 @@ export interface Task {
 }
 export const tasksApi = {
   list: async (): Promise<Task[]> => (await api.get('/tasks')).data,
-  create: async (title: string, priority: TaskPriority = 'medium'): Promise<Task> =>
-    (await api.post('/tasks', { title, priority })).data,
+  /** `dueDate` is an ISO instant — a task has no customer, so no customer clock to read it on. */
+  create: async (title: string, priority: TaskPriority = 'medium', dueDate?: string): Promise<Task> =>
+    (await api.post('/tasks', { title, priority, ...(dueDate ? { dueDate } : {}) })).data,
   setStatus: async (id: string, status: TaskStatus): Promise<Task> =>
     (await api.patch(`/tasks/${id}`, { status })).data,
+  setDue: async (id: string, dueDate: string): Promise<Task> =>
+    (await api.patch(`/tasks/${id}`, { dueDate })).data,
   remove: async (id: string) => (await api.delete(`/tasks/${id}`)).data,
 };
 
 // ────────────────────────── Calendar ───────────────────────────
-/** The three kinds of scheduled activity the calendar consolidates. */
-export type ActivityType = 'call' | 'callback' | 'zoom';
+/** The kinds of scheduled activity the calendar consolidates. */
+export type ActivityType = 'call' | 'callback' | 'zoom' | 'task';
 
 export interface CalendarEvent {
   id: string;
@@ -764,6 +767,8 @@ export interface CalendarEvent {
   companyName: string;
   leadId: string;
   assignedTo: string | null;
+  /** That person's user id — what the team view groups by. */
+  ownerId: string | null;
   status: string;
   label: string;
   /** The customer's zone, or null when the lead has none configured. */
@@ -776,10 +781,22 @@ export interface CalendarEvent {
   atLabel: string;
   /** Callback lifecycle, or null for scheduled calls and Zoom meetings. */
   callbackStatus: CallbackStatus | null;
+  /** The lead's own id (uuid) — for "Open lead" and rescheduling; null for a meeting with no lead. */
+  leadRef: string | null;
+  /** The meeting's id, for a Zoom event. */
+  meetingId: string | null;
+  /** The Zoom join link, when the meeting has one. */
+  joinUrl: string | null;
+  /** A meeting's length; null for a call (drawn at 30 minutes). */
+  durationMins: number | null;
+  /** The task's id, for a task event (your own tasks with a due date). */
+  taskId: string | null;
+  /** A task's priority; null for the other types. */
+  priority: TaskPriority | null;
 }
 export interface CalendarResult {
   events: CalendarEvent[];
-  summary: { calls: number; callbacks: number; zooms: number; total: number };
+  summary: { calls: number; callbacks: number; zooms: number; tasks: number; total: number };
 }
 export const calendarApi = {
   /** Scheduled activities in a window. `userId` is honoured for managers only. */
