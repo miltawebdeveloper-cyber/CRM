@@ -3,7 +3,9 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { runExclusive } from '../../common/scheduler-lock.js';
 import { AssignmentType, LeadStatus, Prisma, ZoomMeetingStatus } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { dayInZone } from '../../common/timezone.js';
+import { dayInZone, workingDays } from '../../common/timezone.js';
+import { reachedOutcomeSlugs } from '../calls/call-status.js';
+import { readPendingMode, reachedTimes, type PendingMode } from './assignment-progress.js';
 
 /**
  * The widest the US can be behind the server. IST is UTC+5:30 and Hawaii is
@@ -35,6 +37,8 @@ const LIVE_MEETING_STATUSES = [
 ];
 
 export interface CarryForwardResult {
+  /** The managers' setting this run obeyed. In Manual nothing is carried. */
+  mode: PendingMode;
   /** Leads re-stamped into their own new day. */
   carried: number;
   /** Reps those leads belong to — unchanged by this sweep, only counted. */
@@ -43,6 +47,10 @@ export interface CarryForwardResult {
   notYetTheirTomorrow: number;
   /** Left alone because they already hold an appointment on a later day. */
   bookedForALaterDay: number;
+  /** Left alone because the customer was reached since the assignment — done, not pending. */
+  completed: number;
+  /** Left alone because today isn't a working day in the lead's zone — they move on the next one. */
+  notAWorkingDay: number;
   ranAt: Date;
 }
 
@@ -81,6 +89,16 @@ export interface CarryForwardResult {
  * worked on. So each lead is compared against the calendar in ITS OWN zone, and
  * moves only once that zone genuinely reaches the next day.
  *
+ * ONLY IN AUTOMATIC, ONLY ON A WORKING DAY, ONLY WHAT'S UNFINISHED. Managers
+ * choose what happens to a call nobody finished (Pending Calls → Automatic or
+ * Manual). In Manual this does nothing at all: the call keeps its original date
+ * and waits in the Pending Calls list for a manager to reassign it. In Automatic
+ * it moves to the NEXT WORKING DAY — a lead whose zone is on a Saturday stays
+ * where it is until Monday comes round there. And "unfinished" means the
+ * customer was never reached since the call was assigned (see
+ * assignment-progress): a call that rang out is still owed, one that reached
+ * them is done and stays out of the queue.
+ *
  * THREE THINGS THIS DELIBERATELY DOES NOT DO:
  *
  *  1. It never moves a lead between people. The new row names the SAME caller,
@@ -111,6 +129,8 @@ export class AssignmentCarryForwardService {
   @Cron(CronExpression.EVERY_HOUR)
   async scheduledRun() {
     if (process.env.ASSIGNMENT_CARRY_FORWARD_CRON === 'off') return;
+    // Manual: pending calls wait for a manager. Checked before taking the lock.
+    if ((await readPendingMode(this.prisma)) === 'manual') return;
     // One runner across instances — a second one would carry the same leads twice.
     const r = await runExclusive(this.prisma, 'assignment-carry-forward', 2 * 3_600_000, () => this.run());
     if (r && r.carried > 0) {
@@ -176,6 +196,7 @@ export class AssignmentCarryForwardService {
 
   /** How many leads the next run would carry — read-only, for the admin view. */
   async preview(): Promise<number> {
+    if ((await readPendingMode(this.prisma)) === 'manual') return 0;
     const { due } = await this.due(new Date());
     return due.length;
   }
@@ -213,7 +234,10 @@ export class AssignmentCarryForwardService {
           take: 1,
           select: { scheduledAt: true },
         },
+        // The ACTIVE row, not merely the latest-stamped: a manager can give a
+        // call for a later day, and that row's stamp is in the future.
         assignments: {
+          where: { isActive: true },
           orderBy: { assignedAt: 'desc' },
           take: 1,
           select: { assignedAt: true },
@@ -232,9 +256,17 @@ export class AssignmentCarryForwardService {
       take: 5_000,
     });
 
+    // Who was reached since their call was assigned — those are done, not pending.
+    const stamps = leads.map((l) => l.assignments[0]?.assignedAt).filter((d): d is Date => !!d);
+    const since = stamps.length ? new Date(Math.min(...stamps.map((d) => d.getTime()))) : now;
+    const reachedAt = await reachedTimes(this.prisma, leads.map((l) => l.id), since, await reachedOutcomeSlugs(this.prisma));
+    const working = workingDays();
+
     const due: Array<{ id: string; assignedToId: string; timezone: string | null; callStatus: string | null }> = [];
     let notYet = 0;
     let booked = 0;
+    let completed = 0;
+    let offDay = 0;
     for (const l of leads) {
       const today = dayInZone(now, l.timezone);
       const last = l.assignments[0]?.assignedAt;
@@ -267,9 +299,24 @@ export class AssignmentCarryForwardService {
         continue;
       }
 
+      // Reached since it was assigned: the call is done. It stays out of
+      // tomorrow's queue until a callback, a meeting or a manager brings it back.
+      const reached = reachedAt.get(l.id);
+      if (reached && (!last || reached >= last)) {
+        completed++;
+        continue;
+      }
+
+      // The NEXT WORKING day: on a day off in the lead's zone the call waits
+      // where it is, and moves when a working day comes round there.
+      if (!working.has(new Date(`${today}T12:00:00Z`).getUTCDay())) {
+        offDay++;
+        continue;
+      }
+
       due.push({ id: l.id, assignedToId: l.assignedToId!, timezone: l.timezone, callStatus: l.callStatus });
     }
-    return { due, notYet, booked };
+    return { due, notYet, booked, completed, offDay };
   }
 
   /** The furthest-out commitment on a lead: a scheduled call still open, or a
@@ -288,9 +335,14 @@ export class AssignmentCarryForwardService {
 
   async run(): Promise<CarryForwardResult> {
     const ranAt = new Date();
-    const { due, notYet, booked } = await this.due(ranAt);
+    const mode = await readPendingMode(this.prisma);
+    if (mode === 'manual') {
+      return { mode, carried: 0, callers: 0, notYetTheirTomorrow: 0, bookedForALaterDay: 0, completed: 0, notAWorkingDay: 0, ranAt };
+    }
+    const { due, notYet, booked, completed, offDay } = await this.due(ranAt);
+    const skipped = { notYetTheirTomorrow: notYet, bookedForALaterDay: booked, completed, notAWorkingDay: offDay };
     if (due.length === 0) {
-      return { carried: 0, callers: 0, notYetTheirTomorrow: notYet, bookedForALaterDay: booked, ranAt };
+      return { mode, carried: 0, callers: 0, ...skipped, ranAt };
     }
 
     const callers = new Set<string>();
@@ -311,7 +363,7 @@ export class AssignmentCarryForwardService {
         // the row reads as an account of the move on its own — this is what the
         // lead's Assignment History shows and what the export reports.
         remarks:
-          `Moved to the next day (${dayInZone(ranAt, l.timezone)} in the lead's time zone) — ` +
+          `Moved to the next working day (${dayInZone(ranAt, l.timezone)} in the lead's time zone) — ` +
           `${l.callStatus ? `last call left incomplete (${l.callStatus})` : 'not yet worked'}. ` +
           `Same lead, same owner; original created date unchanged.`,
         isActive: true,
@@ -330,10 +382,10 @@ export class AssignmentCarryForwardService {
     ]);
 
     return {
+      mode,
       carried: due.length,
       callers: callers.size,
-      notYetTheirTomorrow: notYet,
-      bookedForALaterDay: booked,
+      ...skipped,
       ranAt,
     };
   }

@@ -15,6 +15,7 @@ import { CallsMade } from '@/components/calls-made';
 import { CallsAnalytics } from '@/components/calls-analytics';
 import { CallRecordings } from '@/components/call-recordings';
 import { SmsHistory } from '@/components/sms-history';
+import { PendingCalls } from '@/components/pending-calls';
 import { MissedCalls } from '@/components/missed-calls';
 import { PageTabs } from '@/components/page-tabs';
 import { PageHead, Avatar } from '@/components/page-head';
@@ -60,6 +61,9 @@ const PHASE_LABEL: Record<CallPhase, string> = {
 // Scheduled times are shown in the LEAD's zone, with the zone named — an
 // appointment belongs to the customer's clock, not the rep's browser.
 const formatScheduledTime = formatScheduleInLeadZone;
+
+/** "Nov 21" for a yyyy-mm-dd day — a date, so read as UTC and never shifted. */
+const shortDay = (ymd: string) => new Date(`${ymd}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 function getQueueItemType(l: Lead) {
   // "Due today" is asked on the CUSTOMER's calendar, not the rep's — the two are
@@ -140,7 +144,7 @@ export default function CallingPage() {
   const qc = useQueryClient();
   // Which view is showing. The dialer's state lives here, so switching tabs and
   // back doesn't disturb an in-progress call.
-  const [tab, setTab] = useState<'panel' | 'made' | 'analytics' | 'recordings' | 'missed' | 'sms'>('panel');
+  const [tab, setTab] = useState<'panel' | 'made' | 'analytics' | 'recordings' | 'missed' | 'sms' | 'pending'>('panel');
   // A number clicked on the Analytics tab opens its calls here, in Calls Made,
   // already filtered. `n` remounts Calls Made so a second click re-applies it.
   // Choosing a tab yourself clears it, so Calls Made opens unfiltered as before.
@@ -867,7 +871,11 @@ export default function CallingPage() {
              // Inbound calls nobody picked up. Its own tab rather than a widget,
              // so a rep can work the list rather than glance at the newest few.
              ['missed', 'Missed Calls'],
-             ['sms', 'SMS']] as const)).map(([k, label]) => (
+             ['sms', 'SMS'],
+             // Assigned calls whose day passed unfinished, and the Manual /
+             // Automatic choice for them — the managers' tools, so only they get
+             // the tab (the API refuses anyone else).
+             ...(isManager ? [['pending', 'Pending Calls'] as const] : [])] as const)).map(([k, label]) => (
             <button
               key={k}
               type="button"
@@ -900,6 +908,7 @@ export default function CallingPage() {
       {tab === 'recordings' && <CallRecordings />}
       {tab === 'missed' && <MissedCalls />}
       {tab === 'sms' && <SmsHistory />}
+      {tab === 'pending' && isManager && <PendingCalls />}
 
       {tab === 'panel' && (
       <>
@@ -1192,7 +1201,16 @@ export default function CallingPage() {
                           📅 {formatScheduledTime(qType.scheduledAt, q.timezone)}
                         </span>
                       ) : (
-                        <span>{q.timezone}</span>
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          {q.timezone}
+                          {/* Carried over unfinished from an earlier day: the day it
+                              was first given stays on it (date-wise order reads it). */}
+                          {q.assignedOn && q.scheduledFor && q.assignedOn < q.scheduledFor && (
+                            <span className="rounded-full bg-[var(--tone-amber-bg)] px-1.5 py-[1px] text-[10px] font-semibold text-[var(--tone-amber-fg)]" title="Not finished on the day it was assigned; moved on with you">
+                              Assigned {shortDay(q.assignedOn)}
+                            </span>
+                          )}
+                        </span>
                       )}
                     </div>
                   </div>

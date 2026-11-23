@@ -27,6 +27,8 @@ const ACTION_LABEL: Record<string, string> = {
   lead_reassigned: 'Lead reassigned',
   // Returned to the unassigned pool (Lead Management → Unassign).
   lead_unassigned: 'Lead unassigned',
+  // A pending call given to the same employee for a new day (Pending Calls).
+  lead_rescheduled: 'Call rescheduled',
   status_changed: 'Status changed',
   call_completed: 'Call completed',
   call_queued: 'Call queued (Quo)',

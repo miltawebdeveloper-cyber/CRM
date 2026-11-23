@@ -65,6 +65,7 @@ export class ProductivityService {
       orderBy: { name: 'asc' },
     });
     const callerIds = callers.map((c) => c.id);
+    const reached = await reachedOutcomeSlugs(this.prisma);
 
     const [assignedByStatus, callsInPeriod, workedOpen, savesInPeriod] = await Promise.all([
       this.prisma.lead.groupBy({
@@ -78,9 +79,10 @@ export class ProductivityService {
         where: { callerId: { in: callerIds }, startTime: { gte: today } },
         select: { callerId: true, startTime: true, endTime: true, durationSecs: true },
       }),
-      // Still-open leads each rep has saved at least once. Terminal leads are
-      // counted from the status groupBy instead, so neither is double-counted.
-      completedOpenLeadCounts(this.prisma, callerIds),
+      // Still-open leads completed since their assignment (the customer reached)
+      // — the Calling Panel's rule. Terminal leads are counted from the status
+      // groupBy instead, so neither is double-counted.
+      completedOpenLeadCounts(this.prisma, callerIds, reached),
       this.prisma.activity.findMany({
         where: { userId: { in: callerIds }, action: { in: COMPLETION_ACTIONS }, createdAt: { gte: today } },
         select: { userId: true, createdAt: true },

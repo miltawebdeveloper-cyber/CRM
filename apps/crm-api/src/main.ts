@@ -3,13 +3,14 @@ import { RequestMethod, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { NextFunction, Request, Response } from 'express';
+import express from 'express';
 import { AppModule } from './app.module.js';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter.js';
 
 async function bootstrap() {
   // rawBody: true exposes req.rawBody so webhook HMAC signatures can be verified
   // against the exact bytes the provider signed.
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true, bodyParser: false });
 
   // Behind the hosting platform's proxy every request arrives FROM the proxy,
   // so without this `req.ip` was the proxy's address: rate limits, the
@@ -38,15 +39,13 @@ async function bootstrap() {
     next();
   });
 
-  // Request body size. Bulk lead import POSTs every parsed row in ONE request, so
-  // the parsers accept up to 10 MB (Express's 100 kB default failed a few hundred
-  // rows with 413). But that ceiling applied to EVERY route — including the
-  // public, unauthenticated webhook and sign-in routes — so anyone could make the
-  // server parse 10 MB of JSON per request. Now only the routes that genuinely
-  // carry large arrays get 10 MB; everything else is refused above 1 MB before
-  // the body is read. (useBodyParser keeps req.rawBody for webhook signatures.)
+  // Request body size. A 25 MB spreadsheet expands substantially when its rows
+  // are sent as JSON, so large-array routes need a higher parser ceiling for
+  // imports of tens of thousands of leads. Other routes stay capped at 1 MB,
+  // including chunked requests without a Content-Length header.
   const LARGE_BODY_PATHS = ['/api/leads/import', '/api/leads/bulk-', '/api/assignments'];
   const DEFAULT_BODY_LIMIT = 1024 * 1024;
+  const LARGE_JSON_BODY_LIMIT = '100mb';
   app.use((req: Request, res: Response, next: NextFunction) => {
     const declared = Number(req.headers['content-length'] ?? 0);
     if (declared > DEFAULT_BODY_LIMIT && !LARGE_BODY_PATHS.some((p) => req.path.startsWith(p))) {
@@ -55,7 +54,15 @@ async function bootstrap() {
     }
     next();
   });
-  app.useBodyParser('json', { limit: '10mb' });
+  const captureRawBody = (req: Request, _res: Response, buffer: Buffer) => {
+    (req as Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer);
+  };
+  const defaultJsonParser = express.json({ limit: DEFAULT_BODY_LIMIT, verify: captureRawBody });
+  const largeJsonParser = express.json({ limit: LARGE_JSON_BODY_LIMIT, verify: captureRawBody });
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const parser = LARGE_BODY_PATHS.some((p) => req.path.startsWith(p)) ? largeJsonParser : defaultJsonParser;
+    parser(req, res, next);
+  });
   app.useBodyParser('urlencoded', { limit: '10mb', extended: true });
 
   // SEC-007 — validate all inputs, strip unknown props

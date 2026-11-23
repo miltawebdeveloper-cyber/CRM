@@ -13,11 +13,13 @@ import { COMPLETION_ACTIONS, completedOpenLeadCounts, productiveSeconds } from '
 import { queueStatusOf } from './queue-status.js';
 import { ABANDONED_STATUS, COUNTED_CALL, FAILED_STATUSES, MISSED_STATUSES, REACHED_CATEGORIES, connectedCall, isConnectedCall, reachedOutcomeSlugs } from './call-status.js';
 import { contactedLeadWhere } from '../../common/lead-contacted.js';
+import { assignedDays, assignmentState, readPendingMode, reachedTimes } from '../assignments/assignment-progress.js';
 import {
   businessDay,
   businessDayEnd,
   businessDayStart,
   businessWeekdayHour,
+  dayInZone,
   endOfBusinessDay,
   formatInZone,
   parseFutureInZone,
@@ -1020,7 +1022,9 @@ export class CallsService {
    * counted from what the rep holds right now, so they survive a page refresh, a
    * logout and a new shift, and they move the moment a lead is assigned, worked or
    * reassigned. `assigned = completed + pending` always holds, because "completed"
-   * is defined as a subset of the assigned leads rather than as a tally of calls.
+   * is defined as a subset of the assigned leads rather than as a tally of calls:
+   * closed or rejected, or the customer reached since the lead was assigned —
+   * the queue's own rule, so a No Answer leaves the call pending here as there.
    *
    * Productive time and the averages are today's, since they describe a sitting
    * rather than a stock.
@@ -1030,14 +1034,16 @@ export class CallsService {
     const mine: Prisma.LeadWhereInput = { assignedToId: callerId, deletedAt: null };
     const terminal = { status: { in: [LeadStatus.closed, LeadStatus.rejected] } };
 
+    const reached = await reachedOutcomeSlugs(this.prisma);
     const [assigned, closedOff, workedOpen, todaysWork, todaysCalls] = await Promise.all([
       this.prisma.lead.count({ where: mine }),
       // A lead that reached a terminal status is finished whether or not it was
       // dispositioned from this panel (a manager may have closed it).
       this.prisma.lead.count({ where: { ...mine, ...terminal } }),
-      // Still-open leads this rep has saved at least once. Terminal leads are
-      // excluded there, so the two counts can never double-count the same lead.
-      completedOpenLeadCounts(this.prisma, [callerId]),
+      // Still-open leads completed since their assignment (the customer reached).
+      // Terminal leads are excluded there, so the two counts can never
+      // double-count the same lead.
+      completedOpenLeadCounts(this.prisma, [callerId], reached),
       // Today's saves — both the "completed today" count and the processing half
       // of productive time are derived from these.
       this.prisma.activity.findMany({
@@ -2066,11 +2072,24 @@ export class CallsService {
   // exactly one employee, so nothing else may widen this — it is the query that
   // decides whose leads land in whose panel.
   //
+  // WHAT'S IN IT: the rep's OPEN ASSIGNMENTS, not their whole book. A call given
+  // for today and not yet completed (see assignment-progress: completed = the
+  // customer was reached since it was assigned, or the lead is closed) is in;
+  // one completed on an earlier day is out for good, until a callback, a meeting
+  // or a manager brings it back. A call whose day has passed unfinished is
+  // PENDING: it stays in only when the managers' setting is Automatic (the
+  // carry-forward moves it to the next working day); in Manual it waits on the
+  // Pending Calls list for a manager instead. A call given for a later day waits
+  // for that day. Appointments — callbacks and Zoom meetings — are in whatever
+  // their assignment says, as are leads worked today (the panel's receipt card
+  // needs the one just saved; it's labelled completed and the panel hides it).
+  //
   // Single queue ordering:
   //   0 — Callback leads due today (sorted by scheduled time callbackAt asc)
   //   1 — Zoom meetings scheduled for today (sorted by meeting time scheduledAt asc)
   //   2 — active/ongoing calls (newest first)
-  //   3 — regular calling queue (backlog, ascending lead sequence order)
+  //   3 — assigned calls, date-wise: the day each was assigned (oldest first),
+  //       then import order within the day
   //   4 — future scheduled Callbacks and Zoom meetings (sorted by scheduled date asc)
   //   5 — completed calls / closed leads (bottom)
   async myLeads(callerId: string) {
@@ -2110,6 +2129,8 @@ export class CallsService {
             meetingId: true,
           },
         },
+        // The day the lead is scheduled for — its active assignment's stamp.
+        assignments: { where: { isActive: true }, orderBy: { assignedAt: 'desc' }, take: 1, select: { assignedAt: true } },
       },
       // Import order — the sequence the leads arrived in. NOT `leadId: 'asc'`: a
       // string sort would make the cap below keep L-2026-1000..1099 and drop
@@ -2156,9 +2177,17 @@ export class CallsService {
       if (w.leadId && !workedByLead.has(w.leadId)) workedByLead.set(w.leadId, w.createdAt);
     }
 
-    const enriched = leads.map((l) => {
+    // Where each assigned call stands — see assignment-progress.
+    const mode = await readPendingMode(this.prisma);
+    const stamps = leads.flatMap((l) => (l.assignments?.[0] ? [l.assignments[0].assignedAt.getTime()] : []));
+    const since = new Date(Math.min(startOfDay.getTime(), ...stamps));
+    const reachedAt = await reachedTimes(this.prisma, leads.map((l) => l.id), since, await reachedOutcomeSlugs(this.prisma));
+    const assignedOn = await assignedDays(this.prisma, leads);
+
+    const enriched = leads.map(({ assignments, ...l }) => {
       const call = latestByLead.get(l.id) ?? null;
       const nextZoom = l.zoomMeetings?.[0] ?? null;
+      const active = assignments?.[0]?.assignedAt ?? null;
       return {
         ...l,
         lastCallAt: call?.startTime ?? null,
@@ -2167,9 +2196,25 @@ export class CallsService {
         /** When this rep last saved the lead today — null if they haven't. */
         lastWorkedAt: workedByLead.get(l.id) ?? null,
         nextZoomMeeting: nextZoom,
+        /** The day it was last assigned for, by a person — what a pending call keeps. */
+        assignedOn: assignedOn.get(l.id) ?? null,
+        /** The day its active assignment is for (moved on by the carry-forward). */
+        scheduledFor: active ? dayInZone(active, l.timezone) : null,
+        assignmentState: assignmentState({ assignedAt: active, timezone: l.timezone, leadStatus: l.status, reachedAt: reachedAt.get(l.id), now }),
       };
     });
     type Row = (typeof enriched)[number];
+
+    /** Is this lead on the rep's queue today? (The rules are in the note above.) */
+    const onQueue = (l: Row) => {
+      if (l.lastCallAt && !l.lastCallEndedAt) return true; // a live call
+      if (l.lastWorkedAt || l.lastCallEndedAt) return true; // worked today: the receipt card
+      if (l.status === 'closed' || l.status === 'rejected') return true; // closed today (the query keeps only those)
+      if ((l.callbackAt && !l.callbackCompletedAt) || l.nextZoomMeeting) return true; // an appointment
+      if (l.assignmentState === 'today') return true;
+      if (l.assignmentState === 'pending') return mode === 'automatic';
+      return false; // completed on an earlier day, or given for a later one
+    };
 
     /** When a finished lead was finished — the call ending, or the save. */
     const finishedAt = (l: Row) =>
@@ -2217,7 +2262,7 @@ export class CallsService {
      */
     // The lifecycle status travels with each lead, so the panel renders what the
     // server decided instead of reaching its own verdict from the raw stamps.
-    const ordered = enriched.map((l) => ({ ...l, queueStatus: queueStatus(l) }));
+    const ordered = enriched.filter(onQueue).map((l) => ({ ...l, queueStatus: queueStatus(l) }));
 
     return ordered.sort((a, b) => {
       const ra = rank(a);
@@ -2241,7 +2286,10 @@ export class CallsService {
       // Finished leads sit at the bottom, most recently finished first, so the
       // agent can see what they just did without it re-entering the run.
       if (ra === 5) return (finishedAt(b) ?? 0) - (finishedAt(a) ?? 0) || byId;
-      return byId; // band 3 — the backlog, strictly in import order
+      // Band 3 — assigned calls, date-wise: the day each was assigned, oldest
+      // first, then import order within a day. (A lead from before assignments
+      // were recorded has no day and counts as the oldest.)
+      return (a.assignedOn ?? '').localeCompare(b.assignedOn ?? '') || byId;
     });
   }
 }

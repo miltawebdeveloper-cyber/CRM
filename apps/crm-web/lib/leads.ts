@@ -90,6 +90,14 @@ export interface Lead {
    * expecting the call.
    */
   queueStatus?: 'new' | 'in_progress' | 'completed';
+  /**
+   * The day this call was assigned for, by a person (`yyyy-mm-dd`, the lead's
+   * calendar) — kept when the overnight carry-forward moves an unfinished call
+   * on, so the queue can say "Assigned Nov 21". Calling-queue endpoint only.
+   */
+  assignedOn?: string | null;
+  /** The day its active assignment is for. Calling-queue endpoint only. */
+  scheduledFor?: string | null;
   nextZoomMeeting?: {
     id: string;
     title: string | null;

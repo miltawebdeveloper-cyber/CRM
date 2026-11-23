@@ -1,4 +1,4 @@
-import { describe, expect, it, jest } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { AssignmentType } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AssignmentCarryForwardService } from './assignment-carry-forward.service.js';
@@ -22,17 +22,42 @@ describe('AssignmentCarryForwardService', () => {
     assignments: { assignedAt: Date }[];
   };
 
-  function harness(leads: LeadRow[]) {
+  /**
+   * `mode` is the managers' Pending Calls setting; `reached` lists outcome rows
+   * (lead, when, outcome) the way the outcome log holds them.
+   */
+  function harness(
+    leads: LeadRow[],
+    { mode, reached = [] }: { mode?: 'automatic' | 'manual'; reached?: { leadId: string; at: string; outcome: string }[] } = {},
+  ) {
     const createMany = jest.fn(async (_a: { data: Array<Record<string, unknown>> }) => ({ count: _a.data.length }));
     const updateMany = jest.fn(async (_a: unknown) => ({ count: 1 }));
     const findMany = jest.fn(async (_a: unknown) => leads);
     const prisma = {
       lead: { findMany },
       assignment: { createMany, updateMany },
+      appSetting: { findUnique: jest.fn(async () => (mode ? { key: 'calling:pending-mode', value: { mode } } : null)) },
+      // Call Back is a reached outcome; No Answer isn't.
+      outcome: { findMany: jest.fn(async () => [{ slug: 'call_back' }]) },
+      activity: {
+        findMany: jest.fn(async () => reached.map((r) => ({ leadId: r.leadId, createdAt: new Date(r.at), newValue: r.outcome }))),
+      },
       $transaction: jest.fn(async (ops: unknown[]) => ops),
     } as unknown as PrismaService;
     return { service: new AssignmentCarryForwardService(prisma), createMany, updateMany, findMany };
   }
+
+  // Most of these cases are about zones and appointments, not the week; they
+  // read the real clock or a pinned weekday. Every day is a working day for
+  // them, and the week has its own cases below.
+  const savedWorkingDays = process.env.WORKING_DAYS;
+  beforeEach(() => {
+    process.env.WORKING_DAYS = '0,1,2,3,4,5,6';
+  });
+  afterEach(() => {
+    if (savedWorkingDays === undefined) delete process.env.WORKING_DAYS;
+    else process.env.WORKING_DAYS = savedWorkingDays;
+  });
 
   /** An open lead nobody has reached, stamped for the day it was assigned. */
   const lead = (id: string, tz: string | null, assignedAt: string, over: Partial<LeadRow> = {}): LeadRow => ({
@@ -259,5 +284,84 @@ describe('AssignmentCarryForwardService', () => {
     expect(res).toMatchObject({ carried: 0, callers: 0 });
     expect(createMany).not.toHaveBeenCalled();
     expect(updateMany).not.toHaveBeenCalled();
+  });
+
+  // ── The managers' setting, the working week, and "completed" ──
+
+  it('does nothing in Manual — a pending call keeps its original date for a manager', async () => {
+    const { service, createMany, findMany } = harness([lead('a', 'EST', '2026-08-01T12:00:00Z')], { mode: 'manual' });
+    const res = await service.run();
+    expect(res).toMatchObject({ mode: 'manual', carried: 0 });
+    expect(findMany).not.toHaveBeenCalled();
+    expect(createMany).not.toHaveBeenCalled();
+    expect(await service.preview()).toBe(0);
+  });
+
+  it('is Automatic until a manager chooses otherwise', async () => {
+    const { service } = harness([lead('a', 'EST', '2026-08-01T12:00:00Z')]);
+    const res = await service.run();
+    expect(res).toMatchObject({ mode: 'automatic', carried: 1 });
+  });
+
+  it('waits for the next working day: nothing moves on a Saturday, Friday’s call moves on Monday', async () => {
+    process.env.WORKING_DAYS = ''; // the default week, Monday to Friday
+    const friday = '2026-08-14T15:00:00Z';
+    const sat = harness([lead('a', 'EST', friday)]);
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-15T15:00:00Z')); // Saturday in New York
+    try {
+      const res = await sat.service.run();
+      expect(res).toMatchObject({ carried: 0, notAWorkingDay: 1 });
+      expect(sat.createMany).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+    const mon = harness([lead('a', 'EST', friday)]);
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-17T13:00:00Z')); // Monday 09:00 EDT
+    try {
+      expect((await mon.service.run()).carried).toBe(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('leaves a call alone once the customer was reached since it was assigned', async () => {
+    // Assigned on the 13th, reached that afternoon (Call Back is a reached
+    // outcome): the call is done, so it isn't tomorrow's pending work.
+    const { service, createMany } = harness([lead('a', 'EST', '2026-08-13T13:00:00Z')], {
+      reached: [{ leadId: 'a', at: '2026-08-13T18:00:00Z', outcome: 'call_back' }],
+    });
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-14T15:00:00Z'));
+    try {
+      const res = await service.run();
+      expect(res).toMatchObject({ carried: 0, completed: 1 });
+      expect(createMany).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('still carries a call whose only "reach" came before this assignment, or was No Answer', async () => {
+    const { service } = harness(
+      [lead('old', 'EST', '2026-08-13T13:00:00Z'), lead('rang', 'EST', '2026-08-13T13:00:00Z')],
+      {
+        reached: [
+          { leadId: 'old', at: '2026-08-01T15:00:00Z', outcome: 'call_back' }, // an earlier assignment's
+          { leadId: 'rang', at: '2026-08-13T18:00:00Z', outcome: 'no_answer' }, // tried, nobody reached
+        ],
+      },
+    );
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-14T15:00:00Z'));
+    try {
+      expect((await service.run()).carried).toBe(2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('reads the ACTIVE assignment, so a call given for a later day is left there', async () => {
+    const { service, findMany } = harness([]);
+    await service.run();
+    const select = (findMany.mock.calls[0][0] as { select: { assignments: { where: unknown } } }).select;
+    expect(select.assignments.where).toEqual({ isActive: true });
   });
 });

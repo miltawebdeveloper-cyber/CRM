@@ -1,4 +1,4 @@
-import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsBoolean, IsEnum, IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsBoolean, IsEnum, IsIn, IsOptional, IsString, IsUUID, Matches, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsTimezoneCode } from '../../../common/validators/is-timezone-code.validator.js';
@@ -130,4 +130,37 @@ export class AutoAssignDto {
   @IsOptional()
   @IsString()
   batchName?: string;
+}
+
+/** The managers' choice for calls nobody finished on their day. */
+export class PendingModeDto {
+  @ApiProperty({ enum: ['automatic', 'manual'] })
+  @IsIn(['automatic', 'manual'])
+  mode: 'automatic' | 'manual';
+}
+
+export class PendingQueryDto {
+  @ApiPropertyOptional({ description: 'Only this employee’s pending calls' })
+  @IsOptional()
+  @IsUUID()
+  callerId?: string;
+}
+
+/** Give pending calls to an employee for a day — the same one, or another. */
+export class RescheduleDto {
+  @ApiProperty({ type: [String] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(5000)
+  @IsUUID('4', { each: true })
+  leadIds: string[];
+
+  @ApiPropertyOptional({ description: 'Who gets them. Omit to keep each with the employee it is with.' })
+  @IsOptional()
+  @IsUUID()
+  callerId?: string;
+
+  @ApiProperty({ description: 'The day, yyyy-mm-dd, read on each lead’s own calendar' })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'day must be a date like 2026-11-24' })
+  day: string;
 }

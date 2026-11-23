@@ -21,6 +21,9 @@ import { Prisma } from '@crm/database';
  */
 export const COMPLETION_ACTIONS = ['call_completed', 'lead_processed'];
 
+/** Every activity row a saved outcome writes — a save, a call, or a correction. `newValue` is the outcome's slug. */
+export const DISPOSITION_ACTIONS = ['call_completed', 'lead_processed', 'outcome_updated'];
+
 /**
  * Longest pause that still reads as one continuous sitting. A longer gap means
  * the agent stepped away, so the time is not counted as productive.
@@ -38,34 +41,45 @@ export const FIRST_LEAD_MS = 60 * 1000;
 type RawClient = { $queryRaw<T = unknown>(query: Prisma.Sql): Promise<T> };
 
 /**
- * Per user: how many of the leads they CURRENTLY hold, and that are still open,
- * they have already worked at least once.
+ * Per user: how many of the leads they CURRENTLY hold, still open, are COMPLETED
+ * — the customer was reached (an outcome in a reached group, `reached`) since
+ * the lead's active assignment was made. The same rule as the Calling Panel
+ * queue and Pending Calls (assignments/assignment-progress): a call that rang
+ * out, went to voicemail or was never answered is still owed, so it's pending,
+ * not completed, however many times it was dialled.
  *
  * Terminal leads are deliberately excluded — those are counted from the lead's
  * status instead, so the two halves of "completed" can never count the same lead
- * twice. `l.assigned_to = a.user_id` is what ties the work to the current owner:
- * a lead someone else worked before it was handed over is genuinely still pending
- * for whoever holds it now.
+ * twice. Measured from the ACTIVE assignment, so a lead reached under an earlier
+ * assignment — before it was handed over, or before a manager gave it again for
+ * a new day — is genuinely still pending for whoever holds it now.
  *
- * Raw because this is a COUNT(DISTINCT …) per user, which neither `groupBy` nor
- * `distinct` can express without dragging every matching activity row into
- * memory — and the activity table only ever grows.
+ * Raw because it compares each lead's outcomes with its own assignment's time
+ * and counts per owner, which neither `groupBy` nor `distinct` can express
+ * without dragging every matching activity row into memory — and the activity
+ * table only ever grows.
  */
 export async function completedOpenLeadCounts(
   prisma: RawClient,
   userIds: string[],
+  reached: readonly string[],
 ): Promise<Map<string, number>> {
-  if (userIds.length === 0) return new Map();
+  if (userIds.length === 0 || reached.length === 0) return new Map();
   const rows = await prisma.$queryRaw<{ user_id: string; n: bigint }[]>(Prisma.sql`
-    SELECT a.user_id AS user_id, COUNT(DISTINCT a.lead_id) AS n
-    FROM activities a
-    JOIN leads l ON l.id = a.lead_id
-    WHERE a.user_id IN (${Prisma.join(userIds)})
-      AND a.action IN (${Prisma.join(COMPLETION_ACTIONS)})
+    SELECT l.assigned_to AS user_id, COUNT(DISTINCT l.id) AS n
+    FROM leads l
+    LEFT JOIN assignments s ON s.lead_id = l.id AND s.is_active
+    WHERE l.assigned_to IN (${Prisma.join(userIds)})
       AND l.deleted_at IS NULL
-      AND l.assigned_to = a.user_id
       AND l.status NOT IN ('closed', 'rejected')
-    GROUP BY a.user_id
+      AND EXISTS (
+        SELECT 1 FROM activities a
+        WHERE a.lead_id = l.id
+          AND a.action IN (${Prisma.join(DISPOSITION_ACTIONS)})
+          AND a.new_value IN (${Prisma.join([...reached])})
+          AND (s.assigned_at IS NULL OR a.created_at >= s.assigned_at)
+      )
+    GROUP BY l.assigned_to
   `);
   return new Map(rows.map((r) => [r.user_id, Number(r.n)]));
 }

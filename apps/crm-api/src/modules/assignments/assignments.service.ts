@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { AssignmentType, Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { stampFor } from './assignment-progress.js';
 import { UNSET_TIMEZONE_LABEL, sameDayInZone, startOfBusinessDay } from '../../common/timezone.js';
 import { ManualAssignDto, AutoAssignDto, AssignStrategy, BatchAssignDto } from './dto/assignment.dto.js';
 import { sameDayConfirmError } from '../leads/leads.service.js';
@@ -61,6 +62,10 @@ export class AssignmentsService {
    *
    * Leads already owned by the SAME caller are not "taken" from anyone, so they
    * pass through untouched (assignMany stays idempotent).
+   *
+   * `schedule` gives the calls FOR A DAY other than today — the Pending Calls
+   * list's "reassign with a new date". The day is read on each lead's own
+   * calendar (see `stampFor`); a day already gone there is refused for that lead.
    */
   async assignMany(
     leadIds: string[],
@@ -69,11 +74,12 @@ export class AssignmentsService {
     batchName?: string,
     allowReassign = false,
     confirmSameDayReassign = false,
+    schedule?: { day: string; remark?: string },
   ) {
     // Snapshot prior owners so we can label new assignment vs. reassignment.
     const prior = await this.prisma.lead.findMany({
       where: { id: { in: leadIds } },
-      select: { id: true, leadId: true, assignedToId: true, callStatus: true, assignedTo: { select: { name: true } } },
+      select: { id: true, leadId: true, assignedToId: true, callStatus: true, timezone: true, assignedTo: { select: { name: true } } },
     });
     const caller = await this.prisma.user.findUnique({ where: { id: callerId }, select: { name: true } });
     const priorById = new Map(prior.map((p) => [p.id, p]));
@@ -136,6 +142,20 @@ export class AssignmentsService {
     const confirmedSameDay = new Set(sameDay.map((l) => l.leadId));
     leadIds = leadIds.filter((id) => !blocked.has(id));
 
+    // When each call is FOR. Without a schedule that's now — today, as always.
+    const now = new Date();
+    const stampOf = new Map<string, Date>();
+    if (schedule) {
+      for (const id of [...leadIds]) {
+        const at = stampFor(schedule.day, priorById.get(id)?.timezone ?? null, now);
+        if (at) stampOf.set(id, at);
+        else {
+          skipped.push({ id, leadId: priorById.get(id)?.leadId ?? id, assignedTo: `nobody — ${schedule.day} has already gone in its time zone` });
+          leadIds = leadIds.filter((x) => x !== id);
+        }
+      }
+    }
+
     if (leadIds.length === 0) {
       return { assigned: 0, callerId, skipped };
     }
@@ -178,6 +198,7 @@ export class AssignmentsService {
           const notes = [
             batchName ? `Batch: ${batchName}` : null,
             confirmedSameDay.has(leadId) ? 'Same-day reassignment, confirmed by the assigner' : null,
+            schedule ? `${schedule.remark ?? 'Scheduled'} — for ${schedule.day}` : null,
           ].filter(Boolean);
           return {
             leadId,
@@ -187,6 +208,7 @@ export class AssignmentsService {
             batchName,
             type: moved ? AssignmentType.reassignment : AssignmentType.new_assignment,
             remarks: notes.length ? notes.join(' · ') : null,
+            ...(stampOf.has(leadId) ? { assignedAt: stampOf.get(leadId) } : {}),
           };
         }),
       });
@@ -209,6 +231,22 @@ export class AssignmentsService {
             };
           }),
       });
+      if (schedule) {
+        await tx.activity.createMany({
+          data: ids
+            .filter((leadId) => priorById.get(leadId)?.assignedToId === callerId)
+            .map((leadId) => ({
+              leadId,
+              userId: assignedById,
+              action: 'lead_rescheduled',
+              oldValue: null,
+              newValue: schedule.day,
+              remarks: `${schedule.remark ?? 'Scheduled'} — same employee (${caller?.name ?? 'caller'}), for ${schedule.day}`,
+              callStatus: priorById.get(leadId)?.callStatus ?? null,
+              assignedToId: callerId,
+            })),
+        });
+      }
       return ids;
     });
 

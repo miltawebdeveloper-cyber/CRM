@@ -29,7 +29,7 @@ export interface CheckFieldsState {
 /** Server message if there is one, else the transport error. */
 function errorText(err: unknown): string {
   const res = (err as { response?: { status?: number; data?: { message?: string | string[] } } })?.response;
-  if (res?.status === 413) return 'The file is too large to send in one request. Split it into smaller batches and import again.';
+  if (res?.status === 413) return 'The import request exceeds the API size limit. Split the file into smaller batches and try again.';
   const msg = res?.data?.message;
   if (Array.isArray(msg)) return msg.join(', ');
   return msg ?? (err as Error)?.message ?? 'Unknown error.';

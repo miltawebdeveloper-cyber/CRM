@@ -29,6 +29,15 @@ describe('CallsService.myLeads — queue status', () => {
     callbackAt?: Date | null;
     callbackCompletedAt?: Date | null;
     zoomAt?: Date | null;
+    /** The active assignment's stamp — the day the call is given for. None = assigned before history was kept. */
+    assignedAt?: Date | null;
+  }
+
+  /** The rest of the world a queue read needs: the managers' setting and the outcome log. */
+  interface World {
+    mode?: 'automatic' | 'manual';
+    /** Outcomes saved on a lead, as the outcome log holds them. Call Back is a reached outcome. */
+    outcomes?: { leadId: string; when: Date; outcome: string }[];
   }
 
   /**
@@ -40,6 +49,7 @@ describe('CallsService.myLeads — queue status', () => {
     leads: LeadFixture[],
     worked: { leadId: string; when: Date }[] = [],
     calls: { leadId: string; startTime: Date; endTime: Date | null }[] = [],
+    world: World = {},
   ) {
     const prisma = {
       lead: {
@@ -48,9 +58,11 @@ describe('CallsService.myLeads — queue status', () => {
             id: l.id,
             importSeq: i + 1,
             status: l.status ?? 'new',
+            timezone: 'EST',
             callbackAt: l.callbackAt ?? null,
             callbackCompletedAt: l.callbackCompletedAt ?? null,
             zoomMeetings: l.zoomAt ? [{ id: `z-${l.id}`, scheduledAt: l.zoomAt, status: 'scheduled' }] : [],
+            assignments: l.assignedAt ? [{ assignedAt: l.assignedAt }] : [],
           })),
         ),
       },
@@ -60,7 +72,19 @@ describe('CallsService.myLeads — queue status', () => {
         ),
       },
       activity: {
-        findMany: jest.fn(async () => worked.map((w) => ({ leadId: w.leadId, createdAt: w.when }))),
+        // Two reads: today's saves (the receipt card), and the outcome log since
+        // the calls were assigned (asks by outcome — "was anyone reached?").
+        findMany: jest.fn(async (args: { where?: { newValue?: unknown } }) =>
+          args.where?.newValue
+            ? (world.outcomes ?? []).map((o) => ({ leadId: o.leadId, createdAt: o.when, newValue: o.outcome }))
+            : worked.map((w) => ({ leadId: w.leadId, createdAt: w.when })),
+        ),
+      },
+      appSetting: { findUnique: jest.fn(async () => (world.mode ? { key: 'calling:pending-mode', value: { mode: world.mode } } : null)) },
+      outcome: { findMany: jest.fn(async () => [{ slug: 'call_back' }]) },
+      // The day each lead was assigned for, by a person.
+      assignment: {
+        findMany: jest.fn(async () => leads.filter((l) => l.assignedAt).map((l) => ({ leadId: l.id, assignedAt: l.assignedAt }))),
       },
     } as unknown as PrismaService;
 
@@ -170,6 +194,9 @@ describe('CallsService.myLeads — queue status', () => {
       lead: { findMany },
       call: { findMany: jest.fn(async () => []) },
       activity: { findMany: jest.fn(async () => []) },
+      appSetting: { findUnique: jest.fn(async () => null) },
+      outcome: { findMany: jest.fn(async () => []) },
+      assignment: { findMany: jest.fn(async () => []) },
     } as unknown as PrismaService;
     const service = new CallsService(prisma, {} as NotificationsService, {} as OutcomesService, {} as CommunicationsService);
 
@@ -181,5 +208,90 @@ describe('CallsService.myLeads — queue status', () => {
       status: { in: ['closed', 'rejected'] },
       closedAt: { lt: expect.any(Date) },
     });
+  });
+});
+
+/**
+ * Your Queue is the rep's open assignments: today's calls not yet completed.
+ * A completed call (the customer reached since it was assigned) leaves for good;
+ * a call whose day passed unfinished is pending — on the queue in Automatic,
+ * with the managers in Manual; a call given for a later day waits for it.
+ */
+describe('CallsService.myLeads — open assignments', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const run = (leads: Array<Record<string, unknown>>, world: { mode?: 'automatic' | 'manual'; outcomes?: { leadId: string; when: Date; outcome: string }[] } = {}) => {
+    const prisma = {
+      lead: {
+        findMany: jest.fn(async () =>
+          leads.map((l, i) => ({
+            importSeq: i + 1, status: 'contacted', timezone: 'EST', callbackAt: null, callbackCompletedAt: null, zoomMeetings: [],
+            ...l,
+            assignments: l.assignedAt ? [{ assignedAt: l.assignedAt }] : [],
+          })),
+        ),
+      },
+      call: { findMany: jest.fn(async () => []) },
+      activity: {
+        findMany: jest.fn(async (args: { where?: { newValue?: unknown } }) =>
+          args.where?.newValue ? (world.outcomes ?? []).map((o) => ({ leadId: o.leadId, createdAt: o.when, newValue: o.outcome })) : [],
+        ),
+      },
+      appSetting: { findUnique: jest.fn(async () => (world.mode ? { value: { mode: world.mode } } : null)) },
+      outcome: { findMany: jest.fn(async () => [{ slug: 'call_back' }]) },
+      assignment: {
+        findMany: jest.fn(async () => leads.filter((l) => l.assignedAt).map((l) => ({ leadId: l.id, assignedAt: l.assignedAt }))),
+      },
+    } as unknown as PrismaService;
+    return new CallsService(prisma, {} as NotificationsService, {} as OutcomesService, {} as CommunicationsService).myLeads('caller-1');
+  };
+  const ids = async (...args: Parameters<typeof run>) => (await run(...args)).map((r) => r.id);
+  const now = () => new Date();
+  const daysAgo = (n: number) => new Date(Date.now() - n * DAY);
+
+  it('keeps today’s call, and drops one completed on an earlier day', async () => {
+    const got = await ids(
+      [
+        { id: 'today', assignedAt: now() },
+        { id: 'done', assignedAt: daysAgo(3) },
+      ],
+      { outcomes: [{ leadId: 'done', when: daysAgo(2), outcome: 'call_back' }] },
+    );
+    expect(got).toEqual(['today']);
+  });
+
+  it('keeps a call that rang out — No Answer doesn’t complete it', async () => {
+    const got = await ids([{ id: 'rang', assignedAt: daysAgo(2) }], { outcomes: [{ leadId: 'rang', when: daysAgo(2), outcome: 'no_answer' }] });
+    expect(got).toEqual(['rang']);
+  });
+
+  it('shows a pending call in Automatic and holds it back in Manual', async () => {
+    const pending = [{ id: 'p', assignedAt: daysAgo(2) }];
+    expect(await ids(pending, { mode: 'automatic' })).toEqual(['p']);
+    expect(await ids(pending, { mode: 'manual' })).toEqual([]);
+    // Automatic is what a CRM that never chose gets.
+    expect(await ids(pending)).toEqual(['p']);
+  });
+
+  it('waits for the day a call was given for', async () => {
+    expect(await ids([{ id: 'later', assignedAt: new Date(Date.now() + 3 * DAY) }])).toEqual([]);
+  });
+
+  it('keeps an appointment on the queue even when the call itself was completed', async () => {
+    const got = await ids(
+      [{ id: 'cb', assignedAt: daysAgo(2), callbackAt: new Date(Date.now() + DAY) }],
+      { outcomes: [{ leadId: 'cb', when: daysAgo(2), outcome: 'call_back' }] },
+    );
+    expect(got).toEqual(['cb']);
+  });
+
+  it('lists assigned calls date-wise: the oldest assignment day first, import order within a day', async () => {
+    const rows = await run([
+      { id: 'a', assignedAt: now() },
+      { id: 'b', assignedAt: daysAgo(2) },
+      { id: 'c', assignedAt: now() },
+      { id: 'd', assignedAt: daysAgo(1) },
+    ]);
+    expect(rows.map((r) => r.id)).toEqual(['b', 'd', 'a', 'c']);
+    expect(rows.every((r) => typeof r.assignedOn === 'string')).toBe(true);
   });
 });

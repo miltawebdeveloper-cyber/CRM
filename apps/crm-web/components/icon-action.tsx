@@ -8,7 +8,8 @@ type IconActionProps = {
   /** The action's name — shown on hover, focus or tap, and read by screen readers. */
   label: string;
   /** `primary` keeps the page's main action filled, so it still stands out among icons. */
-  variant?: 'default' | 'primary';
+  /** `ghost`: no border or fill until hover — for actions repeated on every row of a list. */
+  variant?: 'default' | 'primary' | 'ghost';
   disabled?: boolean;
   /** Spins the icon while the action runs (a sync, say). */
   busy?: boolean;
@@ -42,7 +43,9 @@ export function IconAction(props: IconActionProps) {
   const box =
     variant === 'primary'
       ? 'bg-primary text-primary-foreground shadow-sm hover:opacity-90'
-      : 'border bg-card text-foreground hover:bg-muted';
+      : variant === 'ghost'
+        ? 'text-muted-foreground hover:bg-muted hover:text-foreground'
+        : 'border bg-card text-foreground hover:bg-muted';
   const cls = `grid ${size === 'md' ? 'h-9 w-9' : 'h-8 w-8'} place-items-center rounded-md transition-colors disabled:pointer-events-none disabled:opacity-50 ${box}`;
   const icon = <Icon className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} aria-hidden />;
 

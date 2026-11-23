@@ -225,7 +225,45 @@ export const assignmentsApi = {
   // that changed hands before the write, come back counted in `skipped`.
   unassign: async (leadIds: string[]): Promise<{ unassigned: number; skipped: number }> =>
     (await api.post('/assignments/unassign', { leadIds })).data,
+
+  // ── Pending calls: assigned calls whose day passed unfinished ──
+  /** What happens to them: Automatic (next working day, same employee) or Manual (a manager decides). */
+  pendingMode: async (): Promise<{ mode: PendingMode }> => (await api.get('/assignments/pending-mode')).data,
+  setPendingMode: async (mode: PendingMode): Promise<{ mode: PendingMode }> => (await api.put('/assignments/pending-mode', { mode })).data,
+  /** Employee-wise, then date-wise. Managers only. */
+  pending: async (callerId?: string): Promise<PendingCallsResult> =>
+    (await api.get('/assignments/pending', { params: callerId ? { callerId } : {} })).data,
+  /** Give pending calls to an employee for a day (yyyy-mm-dd on each lead's calendar). No `callerId` keeps each with its employee. */
+  reschedule: async (body: { leadIds: string[]; callerId?: string; day: string }): Promise<{ assigned: number; skipped: { id: string; leadId: string; assignedTo: string }[] }> =>
+    (await api.post('/assignments/pending/reschedule', body)).data,
 };
+
+export type PendingMode = 'automatic' | 'manual';
+export interface PendingCall {
+  /** The lead's uuid. */
+  id: string;
+  leadId: string;
+  businessName: string;
+  contactName: string | null;
+  phone: string | null;
+  state: string | null;
+  timezone: string | null;
+  owner: { id: string; name: string };
+  /** The day it was assigned for, by a person — kept, never moved. */
+  assignedOn: string | null;
+  /** The day its active assignment is for. */
+  scheduledFor: string;
+  /** Outcomes saved since it was assigned (none reached the customer). */
+  attempts: number;
+  lastOutcome: string | null;
+  lastAttemptAt: string | null;
+}
+export interface PendingCallsResult {
+  mode: PendingMode;
+  items: PendingCall[];
+  /** The read stopped at its cap; there may be more. */
+  truncated: boolean;
+}
 
 // ─────────────────────────── Calls ─────────────────────────────
 /**
