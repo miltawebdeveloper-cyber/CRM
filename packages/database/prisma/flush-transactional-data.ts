@@ -57,6 +57,11 @@ const KEEP = [
   'targets',
   // Cron leases. Infrastructure, not data; at worst a stale row skips one tick.
   'scheduler_locks',
+  // The admin-managed country and time-zone lists (Settings). Configuration,
+  // like the outcome list: imports and the lead form validate against them.
+  // They were spared only by being unrecognised; now it is deliberate.
+  'countries',
+  'timezone_options',
 ] as const;
 
 /**
@@ -110,6 +115,12 @@ const FLUSH = [
   // Webhook event ids already handled (dedupe window, a week). Pure delivery
   // history; the provider never re-sends events this old.
   'webhook_events',
+  // The chunked import's staging (20261125100000): uploaded rows, the check's
+  // verdicts, and each import's created ids for Undo — all about leads a flush
+  // removes, so an Undo after a flush would have nothing left to act on.
+  'lead_import_sessions',
+  'lead_import_rows',
+  'lead_import_duplicates',
 ] as const;
 
 /** Prisma's own migration ledger. Touching it would strand the database. */
