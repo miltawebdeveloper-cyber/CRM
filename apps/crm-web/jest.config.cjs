@@ -40,7 +40,9 @@ module.exports = {
   testMatch: ['**/?(*.)+(spec|test).ts?(x)'],
   // Mirrors the `@/*` path alias in tsconfig, so tests import modules by the
   // same name the app does.
-  moduleNameMapper: { '^@/(.*)$': '<rootDir>/$1' },
+  // `next/dynamic` → a stand-in that renders the loading placeholder: the real
+  // one runs `import()`, which this CommonJS setup can't (see the stub).
+  moduleNameMapper: { '^next/dynamic$': '<rootDir>/test-support/next-dynamic.tsx', '^@/(.*)$': '<rootDir>/$1' },
   transform: {
     '^.+\\.tsx?$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.jest.json' }],
   },

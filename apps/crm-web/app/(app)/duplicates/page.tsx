@@ -7,6 +7,7 @@ import { leadsApi, type DuplicateGroup, type DuplicateScanOptions } from '@/lib/
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageHead } from '@/components/page-head';
 import { leadDate, zoneNote } from '@/lib/timezone';
+import { invalidateLeadBook } from '@/lib/sync';
 
 /** Server message if there is one, else the transport error. */
 function errorText(err: unknown): string {
@@ -55,10 +56,10 @@ export default function DuplicatesPage() {
    */
   const [undoable, setUndoable] = useState<{ ids: string[]; count: number } | null>(null);
 
+  // A purged duplicate leaves every module, reps' queues included — the
+  // Calling Panel kept showing it until now.
   const refreshAfterChange = () => {
-    qc.invalidateQueries({ queryKey: ['leads'] });
-    qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
-    qc.invalidateQueries({ queryKey: ['lead-duplicates'] });
+    invalidateLeadBook(qc);
   };
 
   // Reversible, unlike every other delete in the CRM: the rows are archived, not

@@ -12,6 +12,7 @@ import { StatusPill } from '@/components/status-pill';
 import { DateFilter, FilterSelect, SearchInput, optionsFrom } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { inDateBounds, EMPTY_DATE_FILTER, type DateFilterValue } from '@/lib/date-filters';
+import { invalidateLeadBook } from '@/lib/sync';
 
 type View = 'board' | 'list';
 const VIEWS = [{ label: 'Board', value: 'board' as View }, { label: 'List', value: 'list' as View }];
@@ -44,7 +45,7 @@ export default function PipelinePage() {
   const removeLeads = useMutation({
     mutationFn: async (rows: Lead[]) => { for (const l of rows) await leadsApi.remove(l.id); },
     meta: { successMessage: 'Lead(s) deleted' },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['leads'] }),
+    onSuccess: () => invalidateLeadBook(qc),
   });
 
   // Timezone → State → City: each level's options narrow to the picks above it.

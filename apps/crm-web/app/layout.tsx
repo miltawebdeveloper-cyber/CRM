@@ -20,7 +20,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: PALETTE_BOOT_SCRIPT }} />
         <script dangerouslySetInnerHTML={{ __html: DENSITY_BOOT_SCRIPT }} />
       </head>
-      <body>
+      {/* Browser extensions (Grammarly and the like) stamp their own attributes
+          on <body> before React loads, which React reports as a hydration
+          mismatch on every page. This silences that one element only — its
+          children are still checked. */}
+      <body suppressHydrationWarning>
         <Providers>{children}</Providers>
       </body>
     </html>

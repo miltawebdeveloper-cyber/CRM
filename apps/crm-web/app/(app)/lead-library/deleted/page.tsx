@@ -3,7 +3,8 @@
 import { IconAction } from '@/components/icon-action';
 import { useMemo, useState } from 'react';
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, RotateCcw, Trash2 } from 'lucide-react';
+import { ArrowLeft, Loader2, RotateCcw, Trash2 } from 'lucide-react';
+import { useLeadScrollSentinel } from '@/lib/use-infinite-leads';
 import { leadsApi, type ArchivedLead } from '@/lib/leads';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/display-settings';
@@ -13,6 +14,7 @@ import { PageHead } from '@/components/page-head';
 import { SearchInput } from '@/components/filter-controls';
 import { DataTable, type ColumnDef } from '@/components/data-table';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { invalidateLeadBook } from '@/lib/sync';
 
 const PAGE_SIZE = 100;
 
@@ -41,16 +43,11 @@ export default function RecentlyDeletedPage() {
   });
   const rows = useMemo(() => list.data?.pages.flatMap((p) => p.rows) ?? [], [list.data]);
   const total = list.data?.pages[0]?.total ?? 0;
+  // Scrolling to the end of the rows loads the next page — no button.
+  const sentinelRef = useLeadScrollSentinel(list);
 
   // Restoring or purging changes the book itself, so every view of it refreshes.
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: ['leads'] });
-    qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
-    qc.invalidateQueries({ queryKey: ['assignments-summary'] });
-    qc.invalidateQueries({ queryKey: ['caller-leads'] });
-    qc.invalidateQueries({ queryKey: ['caller-dash'] });
-    qc.invalidateQueries({ queryKey: ['lead-duplicates'] });
-  };
+  const refresh = () => invalidateLeadBook(qc);
 
   const restore = useMutation({
     mutationFn: (ids: string[]) => leadsApi.bulkRestore(ids),
@@ -114,7 +111,7 @@ export default function RecentlyDeletedPage() {
               ? 'Nothing deleted'
               : rows.length >= total
                 ? `${total.toLocaleString()} lead${total === 1 ? '' : 's'}`
-                : `${rows.length.toLocaleString()} of ${total.toLocaleString()} loaded`
+                : `${rows.length.toLocaleString()} of ${total.toLocaleString()} loaded — scroll for more`
         }
         loading={list.isLoading}
         refreshing={list.isFetching && !list.isLoading && !list.isFetchingNextPage}
@@ -122,6 +119,7 @@ export default function RecentlyDeletedPage() {
         selectable
         dragSelect
         uppercaseHeaders
+        endRef={sentinelRef}
         bulkActions={(selected, clear) => (
           <>
             <button
@@ -143,18 +141,13 @@ export default function RecentlyDeletedPage() {
         )}
       />
 
-      {list.hasNextPage && (
-        <div className="mt-3 flex justify-center">
-          <button
-            type="button"
-            onClick={() => list.fetchNextPage()}
-            disabled={list.isFetchingNextPage}
-            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12px] font-semibold hover:bg-muted disabled:opacity-50"
-          >
-            {list.isFetchingNextPage ? 'Loading more…' : `Load more (${(total - rows.length).toLocaleString()} left)`}
-          </button>
-        </div>
-      )}
+      {/* No "Load more" button: scrolling to the end of the rows loads the next
+          page, as on the Lead Library itself (DataTable's `endRef`). */}
+      <div role="status" aria-live="polite" className="mt-3 flex min-h-[28px] items-center justify-center gap-2 text-[11.5px] text-muted-foreground">
+        {list.isFetchingNextPage && (
+          <><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Loading more…</>
+        )}
+      </div>
 
       {purging && (
         <ConfirmDialog

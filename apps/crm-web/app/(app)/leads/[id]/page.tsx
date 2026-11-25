@@ -16,7 +16,7 @@ import { ZoomTimeline } from '@/components/zoom-timeline';
 import { FollowupSequence } from '@/components/followup-sequence';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { api } from '@/lib/api';
-import { invalidateLeadComment } from '@/lib/sync';
+import { invalidateLeadComment, invalidateLeadBook } from '@/lib/sync';
 import { formatDateTime, formatTime } from '@/lib/display-settings';
 import { leadDate, leadDateTime, wallClockInLeadZone } from '@/lib/timezone';
 import { countryOfZone, timezoneLabel, useLeadTimezones, zoneMatchesCountry } from '@/lib/timezone';
@@ -92,10 +92,10 @@ export default function LeadDetailPage() {
       // ['lead'], ['leads'], ['lead-comments'], ['caller-leads'] and
       // ['activities']; see lib/sync.ts.
       invalidateLeadComment(qc);
-      // The edit form can reassign the lead (`caller`) and can close it, so the
-      // owner's assignment summary and KPI cards move with this save too.
-      qc.invalidateQueries({ queryKey: ['assignments-summary'] });
-      qc.invalidateQueries({ queryKey: ['caller-dash'] });
+      // The edit form can reassign the lead (`caller`) and can close it, so
+      // every view of the book moves with this save too — the owner's queue
+      // and cards, Pending Calls, the counts (see lib/sync.ts).
+      invalidateLeadBook(qc);
       setEditing(false);
     },
   });

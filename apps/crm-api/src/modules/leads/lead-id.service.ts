@@ -1,6 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { businessDay } from '../../common/timezone.js';
+
+/**
+ * The year a Lead ID is numbered in — the year on the BUSINESS calendar
+ * (BUSINESS_TIMEZONE, Eastern by default), not on the server's clock.
+ *
+ * The numbering restarts at `L-YYYY-1` when this changes. Read from the server's
+ * clock it turned over at the server's midnight: on a machine in India that is
+ * 1:30 pm Eastern on 31 December, so leads created that afternoon were already
+ * numbered as next year's. Every other date in the CRM — the business day,
+ * reports, assignment and calling — runs on the business calendar, so the Lead
+ * ID year does too.
+ */
+export const leadIdYear = (at: Date = new Date()): number => Number(businessDay(at).slice(0, 4));
 
 /**
  * The one place a Lead ID is minted.
@@ -26,6 +40,13 @@ import { PrismaService } from '../../prisma/prisma.service.js';
  * sequence, since a rolled-back transaction does not return the number it took;
  * gaps are harmless, because only the relative order is ever read.
  */
+/** The counter one bulk run numbers its leads from — see `LeadIdService.createManyInRun`. */
+export interface LeadIdRun {
+  year?: number;
+  /** The number the next lead gets; null means "read the sequence first". */
+  next?: number | null;
+}
+
 @Injectable()
 export class LeadIdService {
   private readonly logger = new Logger(LeadIdService.name);
@@ -55,14 +76,17 @@ export class LeadIdService {
    *
    * Numbering is per-year, which is what the `L-YYYY-N` format means and what
    * this CRM has always done: on 1 January the prefix changes and the sequence
-   * starts again at 1. Ids stay unique because the year is part of the id.
+   * starts again at 1 — nothing carries over, because only ids with THIS
+   * year's prefix are counted. "1 January" is midnight on the business
+   * calendar (see `leadIdYear`). Ids stay unique because the year is part of
+   * the id.
    *
    * Only ids that match the canonical shape count toward the maximum, so a
    * legacy `L-M8XK2P9` or a seeded `L-00001` can neither be parsed as a
    * sequence number nor hold the counter back.
    */
   async next(client: Pick<PrismaService, '$queryRaw'> = this.prisma): Promise<string> {
-    const year = new Date().getFullYear();
+    const year = leadIdYear();
     const prefix = `L-${year}-`;
     // NB: the start position must be cast to ::int. A bound parameter arrives as
     // text, and `SUBSTRING(x FROM <text>)` is read as the POSIX-regex form
@@ -78,6 +102,66 @@ export class LeadIdService {
         AND lead_id ~ ${'^L-' + year + '-[0-9]+$'}
     `);
     return `${prefix}${(rows[0]?.max_seq ?? 0) + 1}`;
+  }
+
+  /**
+   * Create a batch of an import's leads in ONE insert, numbered from a counter
+   * the run carries — the import's fast path.
+   *
+   * `next()` reads MAX over every `L-YYYY-…` id, a scan of the table. Paying it
+   * for every lead — as `create` does — slowed a big import in proportion to
+   * the book: 50,000 rows took the better part of an hour. Here the sequence is
+   * read once per run, a thousand leads go in a single multi-row INSERT under
+   * one lock, and the numbers are handed out in file order (so `importSeq`,
+   * filled on insert, keeps file order too).
+   *
+   * Still safe against everything else creating leads meanwhile: the lock
+   * serialises numbering against every other creator, and each batch commits on
+   * its own, so another creator's `next()` sees the batch's last id and takes
+   * the one after it. The run's counter then collides with that on the unique
+   * Lead ID index, which rolls the batch back and re-reads the sequence — never
+   * a duplicate id. An item carrying its own `leadId` (a sheet's Lead ID
+   * column) keeps it.
+   *
+   * Returns the created leads in the order of `items`.
+   */
+  async createManyInRun(
+    items: Array<{ build: (leadId: string) => Prisma.LeadCreateManyInput; leadId?: string }>,
+    run: LeadIdRun,
+  ) {
+    if (!items.length) return [];
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.prisma.$transaction(
+          async (tx) => {
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LeadIdService.LOCK_KEY})`;
+            const year = leadIdYear();
+            if (run.next == null || run.year !== year) {
+              const id = await this.next(tx);
+              run.year = year;
+              run.next = Number(id.slice(`L-${year}-`.length));
+            }
+            let next = run.next;
+            const data = items.map((it) => it.build(it.leadId || `L-${year}-${next++}`));
+            const created = await tx.lead.createManyAndReturn({
+              data,
+              select: { id: true, leadId: true, status: true, callStatus: true, assignedToId: true },
+            });
+            run.next = next;
+            const byLeadId = new Map(created.map((c) => [c.leadId, c]));
+            return data.map((d) => byLeadId.get(d.leadId)!);
+          },
+          // A thousand-row insert is well under a second, but not on a busy
+          // machine under the default 5 s ceiling for every batch of a long run.
+          { timeout: 120_000, maxWait: 60_000 },
+        );
+      } catch (e) {
+        const collided = e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';
+        if (!collided || attempt >= LeadIdService.MAX_ATTEMPTS) throw e;
+        this.logger.warn(`Lead ID collision in a batch on attempt ${attempt}; re-reading the sequence`);
+        run.next = null;
+      }
+    }
   }
 
   /**

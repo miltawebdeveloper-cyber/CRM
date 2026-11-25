@@ -324,6 +324,8 @@ export interface LeadListQuery {
   sortBy?: string;
   sortDir?: 'asc' | 'desc';
   idsOnly?: boolean;
+  /** Every matching lead, compact — see `leadsApi.selection`. */
+  selection?: boolean;
 }
 
 /** One page, and how many rows there are behind it. */
@@ -337,7 +339,7 @@ export interface LeadPage {
 const LIST_KEYS: (keyof LeadListQuery)[] = [
   'mine', 'closed', 'fromLeadId', 'toLeadId', 'limit', 'q', 'status', 'state', 'city', 'country',
   'timezone', 'callStatus', 'assigned', 'followUp', 'contact', 'employeeId', 'createdFrom', 'createdTo', 'dateField', 'closedFrom', 'closedTo',
-  'closedBy', 'page', 'pageSize', 'sortBy', 'sortDir', 'idsOnly',
+  'closedBy', 'page', 'pageSize', 'sortBy', 'sortDir', 'idsOnly', 'selection',
 ];
 
 /** Query params for a lead list request — blanks dropped, strings trimmed. */
@@ -448,6 +450,13 @@ export interface DuplicateScanResult {
   groups: DuplicateGroup[];
 }
 
+/**
+ * A bulk request over a "Select all" can carry tens of thousands of leads,
+ * which is seconds of work on the server — past the app's usual 15-second
+ * ceiling for a click. Small batches keep the usual one.
+ */
+export const bulkTimeout = (ids: unknown[]) => (ids.length > 1000 ? { timeout: 10 * 60_000 } : undefined);
+
 export const leadsApi = {
   // `mine` narrows the result to the caller's OWN assigned leads whatever their
   // role — managers included, who otherwise see every lead. Employees are scoped
@@ -475,8 +484,20 @@ export const leadsApi = {
    * Paging and sort are dropped: they don't change what is counted.
    */
   summary: async (opts?: LeadListQuery, signal?: AbortSignal): Promise<LeadListSummary> => {
-    const { page: _p, pageSize: _ps, limit: _l, sortBy: _sb, sortDir: _sd, idsOnly: _i, ...filters } = opts ?? {};
+    const { page: _p, pageSize: _ps, limit: _l, sortBy: _sb, sortDir: _sd, idsOnly: _i, selection: _s, ...filters } = opts ?? {};
     return (await api.get('/leads/summary', { params: listParams(filters), signal })).data;
+  },
+
+  /**
+   * EVERY lead matching the filters (up to 200,000), in the grid's order — for
+   * "Select all" on a grid that has loaded only its first pages. Compact: each
+   * carries the id, Lead ID, company, status, owner, place and zone — what the
+   * bulk actions (Delete, Assign, Unassign) read — not every column.
+   */
+  selection: async (opts: LeadListQuery): Promise<Lead[]> => {
+    const { page: _p, pageSize: _ps, limit: _l, idsOnly: _i, ...filters } = opts;
+    const res = await api.get('/leads', { params: listParams({ ...filters, selection: true }), timeout: 2 * 60_000 });
+    return (res.data as LeadPage).rows;
   },
 
   /** The rows alone, for callers that want a bounded list and no page state. */
@@ -522,14 +543,18 @@ export const leadsApi = {
   commentHistory: async (id: string): Promise<LeadComment[]> => (await api.get(`/leads/${id}/comments`)).data,
   /** Delete many leads in one transaction — PERMANENT, cascades to calls, notes
    *  and activities. Import rollback posts the import's createdIds here. */
-  bulkDelete: async (ids: string[]): Promise<{ deleted: number }> => (await api.post('/leads/bulk-delete', { ids })).data,
+  // A large list — "Undo import" on a file of tens of thousands — deletes every
+  // lead and what hangs off it in one transaction, which can outlast the usual
+  // 15 seconds; ordinary selections keep the normal limit.
+  bulkDelete: async (ids: string[]): Promise<{ deleted: number }> =>
+    (await api.post('/leads/bulk-delete', { ids }, bulkTimeout(ids))).data,
   /** Remove many leads reversibly — the duplicate purge. Returns the ids it
    *  actually archived, which is what `bulkRestore` undoes. */
   bulkArchive: async (ids: string[]): Promise<{ archived: number; ids: string[] }> =>
-    (await api.post('/leads/bulk-archive', { ids })).data,
+    (await api.post('/leads/bulk-archive', { ids }, bulkTimeout(ids))).data,
   /** Put an archived batch back. */
   bulkRestore: async (ids: string[]): Promise<{ restored: number }> =>
-    (await api.post('/leads/bulk-restore', { ids })).data,
+    (await api.post('/leads/bulk-restore', { ids }, bulkTimeout(ids))).data,
   /** Archived leads, newest deletion first — the Library's Recently deleted view. */
   archived: async (opts: { q?: string; page?: number; pageSize?: number }, signal?: AbortSignal): Promise<ArchivedLeadPage> =>
     (await api.get('/leads/archived', { params: { ...(opts.q?.trim() ? { q: opts.q.trim() } : {}), page: opts.page, pageSize: opts.pageSize }, signal })).data,

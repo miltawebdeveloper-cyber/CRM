@@ -301,23 +301,16 @@ export default function ClosedLeadsPage() {
         emptyText="No onboarding leads match the current filters."
         prefs={prefs}
         selectable={false}
+        endRef={sentinelRef}
       />
 
-      {/* Same end-of-list marker as Lead Management: scrolling to it brings the
-          next chunk, and the button covers anyone who never reaches it. */}
-      <div ref={sentinelRef} className="mt-3 flex items-center justify-center gap-3 py-2">
-        {hasNextPage ? (
-          <button
-            type="button"
-            onClick={() => leadsQuery.fetchNextPage()}
-            // Off while the rows belong to the outgoing query — see Lead Management.
-            disabled={isFetchingNextPage || leadsQuery.isPlaceholderData}
-            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12px] font-semibold hover:bg-muted disabled:opacity-50"
-          >
-            {isFetchingNextPage ? 'Loading more…' : `Load more (${(total - leads.length).toLocaleString()} left)`}
-          </button>
+      {/* Same as Lead Management: no "Load more" button — scrolling to the end
+          of the rows brings the next chunk (DataTable's `endRef`). */}
+      <div role="status" aria-live="polite" className="mt-3 flex min-h-[28px] items-center justify-center gap-2 text-[11.5px] text-muted-foreground">
+        {isFetchingNextPage ? (
+          <><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Loading more onboarding leads…</>
         ) : (
-          total > 0 && <p className="text-[11.5px] text-muted-foreground">All {total.toLocaleString()} onboarding leads loaded.</p>
+          !hasNextPage && total > 0 && <>All {total.toLocaleString()} onboarding leads loaded.</>
         )}
       </div>
 

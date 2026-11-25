@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Import as ImportIcon, Plus, Clock, MapPin, Building2, Globe, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, AlertTriangle, CalendarClock, Percent, Target, Zap, Undo2, Loader2, Trash2 } from 'lucide-react';
+import { FileUp as ImportIcon, Plus, Clock, MapPin, Building2, Globe, PhoneCall, Tag, UserPlus, User as UserIcon, X, Hourglass, AlertTriangle, CalendarClock, Percent, Target, Zap, Undo2, Loader2, Trash2 } from 'lucide-react';
 import { leadsApi, type CreateLeadInput, type DuplicateMatch, type Lead, type LeadListQuery } from '@/lib/leads';
 import { LeadActivityDrawer } from '@/components/lead-activity-log';
 import { LeadAssignDialog } from '@/components/lead-assign-dialog';
@@ -26,6 +26,7 @@ import { SavedViewsMenu } from '@/components/saved-views-menu';
 import { LeadOutcomeFilter, LeadQuickFilters } from '@/components/lead-filters';
 import { useDebounced } from '@/lib/use-debounced';
 import { useInfiniteLeads, useLeadScrollSentinel } from '@/lib/use-infinite-leads';
+import { invalidateLeadBook } from '@/lib/sync';
 
 /**
  * Lead Library — the master lead database.
@@ -218,14 +219,7 @@ export default function LeadLibraryPage() {
     placeholderData: keepPreviousData,
   });
 
-  const refreshAfterRemoval = () => {
-    qc.invalidateQueries({ queryKey: ['leads'] });
-    qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
-    qc.invalidateQueries({ queryKey: ['assignments-summary'] });
-    qc.invalidateQueries({ queryKey: ['caller-leads'] });
-    qc.invalidateQueries({ queryKey: ['caller-dash'] });
-    qc.invalidateQueries({ queryKey: ['lead-duplicates'] });
-  };
+  const refreshAfterRemoval = () => invalidateLeadBook(qc);
 
   /**
    * Bulk delete ARCHIVES — the same reversible removal the Duplicate Leads purge
@@ -273,7 +267,9 @@ export default function LeadLibraryPage() {
     meta: { successMessage: 'Lead created' },
     onSuccess: (lead) => {
       setDupBlock(null);
-      qc.invalidateQueries({ queryKey: ['leads'] });
+      // A new lead counts everywhere at once — the cards, Duplicate Leads, and
+      // an employee's queue when it was created already assigned.
+      invalidateLeadBook(qc);
       router.push(`/leads/${lead.id}`);
     },
     onError: (err) => {
@@ -351,7 +347,7 @@ export default function LeadLibraryPage() {
                 See components/icon-action. */}
             {/* Where deleted leads go — restorable, or removable for good by an admin. */}
             <IconAction icon={Trash2} label="Recently deleted" href="/lead-library/deleted" />
-            <IconAction icon={ImportIcon} label="Import CSV" href="/import" />
+            <IconAction icon={ImportIcon} label="Import CSV / Excel" href="/import" />
             {/* The whole filtered list, however long — see lib/use-lead-export. */}
             <LeadExportButtons query={listQuery} fileBase="lead-library" disabled={total === 0} />
             {/* Route/nav are already manager-only; the check here is defense in
@@ -559,6 +555,10 @@ export default function LeadLibraryPage() {
         fillViewport
         selectable
         dragSelect
+        // The header box selects every lead matching the filters, not just the
+        // pages scrolled into view — see DataTable's `selectAllMatching`.
+        selectAllMatching={{ total, noun: 'leads', resetKey: JSON.stringify(listQuery), load: () => leadsApi.selection(listQuery) }}
+        endRef={sentinelRef}
         sort={sort}
         onSortChange={setSort}
         uppercaseHeaders
@@ -575,18 +575,13 @@ export default function LeadLibraryPage() {
         )}
       />
 
-      <div ref={sentinelRef} className="mt-3 flex items-center justify-center gap-3 py-2">
-        {hasNextPage ? (
-          <button
-            type="button"
-            onClick={() => leadsQuery.fetchNextPage()}
-            disabled={isFetchingNextPage || leadsQuery.isPlaceholderData}
-            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12px] font-semibold hover:bg-muted disabled:opacity-50"
-          >
-            {isFetchingNextPage ? 'Loading more…' : `Load more (${(total - leads.length).toLocaleString()} left)`}
-          </button>
+      {/* No "Load more" button: scrolling to the end of the rows loads the next
+          page (the marker is inside the table — DataTable's `endRef`). */}
+      <div role="status" aria-live="polite" className="mt-3 flex min-h-[28px] items-center justify-center gap-2 text-[11.5px] text-muted-foreground">
+        {isFetchingNextPage ? (
+          <><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Loading more leads…</>
         ) : (
-          total > 0 && <p className="text-[11.5px] text-muted-foreground">All {total.toLocaleString()} leads loaded.</p>
+          !hasNextPage && total > 0 && <>All {total.toLocaleString()} leads loaded.</>
         )}
       </div>
 

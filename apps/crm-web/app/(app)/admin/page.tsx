@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { Users, Activity, Database, Import as ImportIcon, Download, Trash2, type LucideIcon } from 'lucide-react';
+import { Users, Activity, Database, Upload as ImportIcon, Download, Trash2, type LucideIcon } from 'lucide-react';
 import { activitiesApi, metricsApi } from '@/lib/crm';
 import { api } from '@/lib/api';
 import { PageHead } from '@/components/page-head';

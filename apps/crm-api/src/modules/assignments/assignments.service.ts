@@ -7,6 +7,14 @@ import { ManualAssignDto, AutoAssignDto, AssignStrategy, BatchAssignDto } from '
 import { sameDayConfirmError } from '../leads/leads.service.js';
 
 /**
+ * Transaction ceiling for the bulk writes — archive, restore, delete, assign,
+ * unassign. Prisma's default is 5 seconds, and "Select all" can now hand these
+ * every lead matching a filter: tens of thousands at once, which is seconds of
+ * work, not milliseconds. Normal-sized batches finish long before either limit.
+ */
+const BULK_TX = { timeout: 120_000, maxWait: 10_000 };
+
+/**
  * The earliest instant that could still be "today" in any US zone we serve.
  *
  * A pre-filter, never the rule. The server is on IST and the leads are American,
@@ -248,7 +256,7 @@ export class AssignmentsService {
         });
       }
       return ids;
-    });
+    }, BULK_TX);
 
     // Anything the guard refused was claimed by someone else between the check and
     // the write. Reported like any other skip rather than counted as assigned.
@@ -323,7 +331,7 @@ export class AssignmentsService {
         }),
       });
       return freeIds;
-    });
+    }, BULK_TX);
 
     return { unassigned: freed.length, skipped: ids.length - freed.length };
   }

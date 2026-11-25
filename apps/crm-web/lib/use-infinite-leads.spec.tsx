@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { describe, expect, it, jest, beforeEach } from '@jest/globals';
-import { renderHook, waitFor, act } from '@testing-library/react';
+import { render, renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import React from 'react';
@@ -37,7 +37,7 @@ jest.mock('@/lib/leads', () => ({
   },
 }));
 
-import { useInfiniteLeads, LEAD_CHUNK } from './use-infinite-leads';
+import { useInfiniteLeads, useLeadScrollSentinel, LEAD_CHUNK } from './use-infinite-leads';
 
 /**
  * A provider holding ONE client for the life of a test.
@@ -214,5 +214,51 @@ describe('useInfiniteLeads', () => {
     renderHook(() => useInfiniteLeads({ closed: false }, { enabled: false }), { wrapper: makeWrapper() });
     await new Promise((r) => setTimeout(r, 20));
     expect(fetchPage).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The tables have no "Load more" button: reaching the end marker IS how the
+ * next chunk is asked for. An observer reports only changes in visibility, so
+ * a marker still on screen once a chunk has landed (a tall window, a short
+ * chunk) would never fire again — the list would stall with no way on. The
+ * sentinel re-arms after every chunk instead.
+ */
+describe('useLeadScrollSentinel', () => {
+  let observed = 0;
+  beforeEach(() => {
+    observed = 0;
+    // An observer whose target is always in view: it reports so on observe().
+    (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver = class {
+      constructor(private cb: (e: Array<{ isIntersecting: boolean }>) => void) {}
+      observe() {
+        observed++;
+        this.cb([{ isIntersecting: true }]);
+      }
+      disconnect() {}
+    };
+  });
+
+  function Harness(props: { hasNextPage: boolean; isFetchingNextPage: boolean; fetchNextPage: () => void }) {
+    const ref = useLeadScrollSentinel({ ...props, isPlaceholderData: false });
+    return React.createElement('div', { ref });
+  }
+
+  it('asks again for each chunk while the end of the rows stays in view', () => {
+    const fetchNextPage = jest.fn();
+    const view = render(React.createElement(Harness, { hasNextPage: true, isFetchingNextPage: false, fetchNextPage }));
+    expect(fetchNextPage).toHaveBeenCalledTimes(1);
+
+    // The chunk is on its way, then lands with the marker still on screen.
+    view.rerender(React.createElement(Harness, { hasNextPage: true, isFetchingNextPage: true, fetchNextPage }));
+    view.rerender(React.createElement(Harness, { hasNextPage: true, isFetchingNextPage: false, fetchNextPage }));
+    expect(fetchNextPage).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops at the end of the list', () => {
+    const fetchNextPage = jest.fn();
+    render(React.createElement(Harness, { hasNextPage: false, isFetchingNextPage: false, fetchNextPage }));
+    expect(observed).toBe(0);
+    expect(fetchNextPage).not.toHaveBeenCalled();
   });
 });

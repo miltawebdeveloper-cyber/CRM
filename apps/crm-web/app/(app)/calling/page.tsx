@@ -11,12 +11,7 @@ import { toast } from '@/lib/toast';
 import { zoomApi } from '@/lib/zoom';
 import { leadsApi, type Lead } from '@/lib/leads';
 import { activeQueue, isLeadCompleted } from '@/lib/queue-view';
-import { CallsMade } from '@/components/calls-made';
-import { CallsAnalytics } from '@/components/calls-analytics';
-import { CallRecordings } from '@/components/call-recordings';
-import { SmsHistory } from '@/components/sms-history';
-import { PendingCalls } from '@/components/pending-calls';
-import { MissedCalls } from '@/components/missed-calls';
+import dynamic from 'next/dynamic';
 import { PageTabs } from '@/components/page-tabs';
 import { PageHead, Avatar } from '@/components/page-head';
 import { StatusPill } from '@/components/status-pill';
@@ -33,6 +28,48 @@ import { LeadCommentTrail, useLeadCommentCount } from '@/components/lead-comment
 import { invalidateCallActivity } from '@/lib/sync';
 import { useShortcutHint } from '@/components/command-palette';
 import { formatTime } from '@/lib/display-settings';
+
+/**
+ * The tabs beside the panel, fetched on demand. A caller opens this page for the
+ * panel, and the other tabs were roughly half its code — Analytics alone brings
+ * the charting library — so loading them up front held the panel back on every
+ * visit. `warmTabs` fetches them in the background once the panel is up, so
+ * switching to one is still immediate.
+ */
+const tabModules = {
+  made: () => import('@/components/calls-made'),
+  analytics: () => import('@/components/calls-analytics'),
+  recordings: () => import('@/components/call-recordings'),
+  missed: () => import('@/components/missed-calls'),
+  sms: () => import('@/components/sms-history'),
+  pending: () => import('@/components/pending-calls'),
+};
+function TabLoading() {
+  return (
+    <div className="grid min-h-[240px] place-items-center rounded-2xl border bg-card text-muted-foreground shadow-sm">
+      <Loader2 className="h-5 w-5 animate-spin" aria-label="Loading" />
+    </div>
+  );
+}
+const CallsMade = dynamic(() => tabModules.made().then((m) => m.CallsMade), { ssr: false, loading: TabLoading });
+const CallsAnalytics = dynamic(() => tabModules.analytics().then((m) => m.CallsAnalytics), { ssr: false, loading: TabLoading });
+const CallRecordings = dynamic(() => tabModules.recordings().then((m) => m.CallRecordings), { ssr: false, loading: TabLoading });
+const MissedCalls = dynamic(() => tabModules.missed().then((m) => m.MissedCalls), { ssr: false, loading: TabLoading });
+const SmsHistory = dynamic(() => tabModules.sms().then((m) => m.SmsHistory), { ssr: false, loading: TabLoading });
+const PendingCalls = dynamic(() => tabModules.pending().then((m) => m.PendingCalls), { ssr: false, loading: TabLoading });
+
+/** Fetch every tab's code in the background, once the browser is idle. */
+function warmTabs(): () => void {
+  const warm = () => {
+    for (const load of Object.values(tabModules)) void load().catch(() => undefined);
+  };
+  if (typeof window.requestIdleCallback === 'function') {
+    const id = window.requestIdleCallback(warm, { timeout: 4000 });
+    return () => window.cancelIdleCallback(id);
+  }
+  const id = window.setTimeout(warm, 1500);
+  return () => window.clearTimeout(id);
+}
 
 /**
  * How often the panel re-reads its two live sources. The queue is checked more
@@ -145,6 +182,8 @@ export default function CallingPage() {
   // Which view is showing. The dialer's state lives here, so switching tabs and
   // back doesn't disturb an in-progress call.
   const [tab, setTab] = useState<'panel' | 'made' | 'analytics' | 'recordings' | 'missed' | 'sms' | 'pending'>('panel');
+  // The other tabs' code, fetched once the panel has drawn — see `tabModules`.
+  useEffect(() => warmTabs(), []);
   // A number clicked on the Analytics tab opens its calls here, in Calls Made,
   // already filtered. `n` remounts Calls Made so a second click re-applies it.
   // Choosing a tab yourself clears it, so Calls Made opens unfiltered as before.

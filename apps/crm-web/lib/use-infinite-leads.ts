@@ -124,5 +124,9 @@ export function useLeadScrollSentinel(q: {
     // to be replaced — the one way this list could show two filters at once.
     if (hasNextPage && !isFetchingNextPage && !isPlaceholderData) fetchNextPage();
   }, [hasNextPage, isFetchingNextPage, isPlaceholderData, fetchNextPage]);
-  return useReachedEnd(fetchMore, hasNextPage && !isPlaceholderData);
+  // Off while a chunk is on its way, and armed again once it lands. An observer
+  // reports only CHANGES in visibility, so with the marker still in view after
+  // a chunk arrived (a tall screen, a short chunk) it would never fire again
+  // and the list would stall; re-arming makes it look afresh each time.
+  return useReachedEnd(fetchMore, hasNextPage && !isPlaceholderData && !isFetchingNextPage);
 }

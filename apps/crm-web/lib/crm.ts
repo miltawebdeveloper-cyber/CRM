@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { Lead } from './leads';
+import { bulkTimeout, type Lead } from './leads';
 import type { CallbackStatus } from './callbacks';
 import { waitForJob, type BackgroundJob } from './jobs';
 
@@ -215,16 +215,16 @@ export const assignmentsApi = {
   // without it, leads already assigned today come back as a refusal carrying
   // SAME_DAY_CONFIRM_CODE, which is the cue to ask before retrying with it.
   manual: async (body: { leadIds: string[]; callerId: string; batchName?: string; skipAssigned?: boolean; allowReassign?: boolean; confirmSameDayReassign?: boolean }): Promise<{ assigned: number; callerId: string }> =>
-    (await api.post('/assignments', body)).data,
+    (await api.post('/assignments', body, bulkTimeout(body.leadIds))).data,
   // Manual multi-employee distribution: each allocation names a caller and the exact leads they receive.
   batch: async (body: { allocations: { callerId: string; leadIds: string[] }[]; batchName?: string; allowReassign?: boolean; confirmSameDayReassign?: boolean }): Promise<{ assigned: number; perCaller: Record<string, number> }> =>
-    (await api.post('/assignments/batch', body)).data,
+    (await api.post('/assignments/batch', body, bulkTimeout(body.allocations.flatMap((a) => a.leadIds)))).data,
   auto: async (body: { callerIds: string[]; strategy: 'equal' | 'state' | 'timezone'; timezone?: string; state?: string }) =>
     (await api.post('/assignments/auto', body)).data,
   // Return leads to the unassigned pool (Lead Library). Leads with no owner, or
   // that changed hands before the write, come back counted in `skipped`.
   unassign: async (leadIds: string[]): Promise<{ unassigned: number; skipped: number }> =>
-    (await api.post('/assignments/unassign', { leadIds })).data,
+    (await api.post('/assignments/unassign', { leadIds }, bulkTimeout(leadIds))).data,
 
   // ── Pending calls: assigned calls whose day passed unfinished ──
   /** What happens to them: Automatic (next working day, same employee) or Manual (a manager decides). */
@@ -1273,10 +1273,14 @@ export interface ImportResult {
   updated: number;
   skipped: number;
   totalRows: number;
+  /** The first few thousand row errors; `errorCount` is how many there were in all. */
   errors: { row: number; reason: string }[];
+  errorCount: number;
+  /** The import session — what Undo removes the created leads of. */
+  sessionId: string;
+  /** How many leads this import CREATED (Undo removes these, never the updated ones). */
+  createdCount: number;
   /** Rows whose "Assigned To" employee was matched and applied. */
-  /** Ids of leads this import created — post these to rollback exactly this batch. */
-  createdIds: string[];
   assignedSuccessfully: number;
   /** Rows naming an employee that couldn't be matched, or a lead already owned. */
   assignmentFailed: number;
@@ -1349,7 +1353,13 @@ export interface ImportCheckResult {
   willCreateRecords: number;
   /** Duplicate rows that were ruled on in a previous run of this same review. */
   decidedBefore: number;
+  /** Duplicates whose remembered ruling is "import" — the default for the rows not yet shown. */
+  rememberedImport: number;
+  /** The duplicate rows loaded so far — a page at a time, in file order. */
   duplicateRows: ImportDuplicateRow[];
+  /** How many duplicate rows there are in all. */
+  duplicateRowsTotal: number;
+  sessionId: string;
 }
 export interface LeadRow {
   businessName: string;
@@ -1397,46 +1407,133 @@ export interface ImportMatchOptions {
   /** Compare business name + city + state, all three together. */
   matchLocation?: boolean;
 }
-export const importApi = {
+/**
+ * The rows as they go over the wire: blank fields left out. The API writes only
+ * the columns a row fills, so an empty string and a missing key mean the same
+ * thing to it — and dropping them takes about a third off a large file
+ * (50,000 rows: 33 MB → 24 MB).
+ */
+const compactRows = (rows: LeadRow[]): LeadRow[] =>
+  rows.map((r) => Object.fromEntries(Object.entries(r).filter(([, v]) => v !== undefined && v !== null && v !== '')) as LeadRow);
+
+/** Rows per upload request: about 2.5 MB, comfortably inside any proxy's limit. */
+const UPLOAD_CHUNK_ROWS = 5000;
+/** Chunks in flight at once — enough to keep the line busy, few enough to be polite. */
+const UPLOAD_PARALLEL = 3;
+const UPLOAD_ATTEMPTS = 3;
+
+/** A request retried on a dropped connection or a server error — never on a 4xx, which won't change. */
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (attempt >= UPLOAD_ATTEMPTS || (status && status < 500)) throw err;
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
+    }
+  }
+}
+
+/** What a finished duplicate check reports (its rows are paged separately). */
+export interface ImportCheckSummary {
+  sessionId: string;
+  total: number;
+  newRecords: number;
+  duplicateRecords: number;
+  willUpdateRecords: number;
+  willCreateRecords: number;
+  decidedBefore: number;
+  /** Duplicates whose remembered ruling is "import". */
+  rememberedImport: number;
+}
+
+/** How the duplicates are treated: all imported, all skipped, or per the review. */
+export type ImportRunMode = 'all' | 'skip_duplicates' | 'decisions';
+
+/**
+ * The chunked import — files of any size.
+ *
+ * The rows go up a few thousand at a time into a session on the server, rather
+ * than as one request the size of the file (which capped a file at about
+ * 150,000 rows and could take minutes to send before anything happened). The
+ * duplicate check, the import and Undo then run as background jobs over the
+ * staged rows, and the review pages through the duplicates instead of the
+ * browser holding all of them.
+ */
+export const importSessionApi = {
+  /** Upload the rows; resolves with the session's id. */
+  upload: async (rows: LeadRow[], onProgress?: (sent: number, total: number) => void): Promise<string> => {
+    const { id } = (await api.post('/leads/import/sessions', { totalRows: rows.length })).data as { id: string };
+    const starts: number[] = [];
+    for (let k = 0; k < rows.length; k += UPLOAD_CHUNK_ROWS) starts.push(k);
+    let sent = 0;
+    onProgress?.(0, rows.length);
+    const worker = async () => {
+      for (let start = starts.shift(); start !== undefined; start = starts.shift()) {
+        const chunk = compactRows(rows.slice(start, start + UPLOAD_CHUNK_ROWS));
+        await withRetry(() => api.post(`/leads/import/sessions/${id}/rows`, { start, rows: chunk }, { timeout: 2 * 60_000 }));
+        sent += chunk.length;
+        onProgress?.(sent, rows.length);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(UPLOAD_PARALLEL, starts.length) }, worker));
+    return id;
+  },
+
+  /** Run the duplicate check over an uploaded file and wait for it. */
+  check: async (sessionId: string, match: ImportMatchOptions = {}): Promise<ImportCheckSummary> => {
+    const started = (await api.post(`/leads/import/sessions/${sessionId}/check`, match)).data as BackgroundJob;
+    const job = await waitForJob<ImportCheckSummary>(`/leads/import/sessions/jobs/${started.id}`);
+    if (job.status !== 'completed' || !job.result) throw new Error(job.error ?? 'The duplicate check stopped before it finished.');
+    return job.result;
+  },
+
+  /** A page of the check's duplicate rows, in file order. */
+  duplicates: async (sessionId: string, offset: number, limit = 200): Promise<{ total: number; offset: number; rows: ImportDuplicateRow[] }> =>
+    (await api.get(`/leads/import/sessions/${sessionId}/duplicates`, { params: { offset, limit } })).data,
+
   /**
-   * Import. `skipDuplicates` leaves out rows matching an existing lead (or an
-   * earlier file row).
-   *
-   * The server runs the import as a background job (so a large file can't be
-   * cut off by a proxy timeout); this starts it and waits for it, reporting
-   * progress, and resolves with the same summary the import always returned.
-   * If the job fails after creating some leads, it resolves with those leads'
-   * ids and the reason, so "Undo import" can still remove the partial batch.
+   * Import the uploaded file and wait for it, reporting progress. `decisions`
+   * and `keepFields` are keyed by row index and need only name the rows the
+   * reviewer touched; every other duplicate follows its default. If the job
+   * stops after creating some leads, this resolves with how many, so Undo can
+   * still remove them.
    */
-  bulk: async (
-    rows: LeadRow[],
-    skipDuplicates = false,
-    skipRowIndexes?: number[],
-    match: ImportMatchOptions = {},
+  run: async (
+    sessionId: string,
+    body: { mode: ImportRunMode; decisions?: Record<number, 'import' | 'skip'>; keepFields?: Record<number, string[]> },
     onProgress?: (processed: number, total: number) => void,
   ): Promise<ImportResult> => {
-    const started = (await api.post('/leads/import', { rows, skipDuplicates, skipRowIndexes, ...match })).data as BackgroundJob;
-    const job = await waitForJob<ImportResult & { interrupted?: boolean }>(`/leads/import/jobs/${started.id}`, onProgress);
+    const started = (await api.post(`/leads/import/sessions/${sessionId}/import`, body)).data as BackgroundJob;
+    const job = await waitForJob<ImportResult & { interrupted?: boolean }>(`/leads/import/sessions/jobs/${started.id}`, onProgress);
     if (job.status === 'completed' && job.result) return job.result;
-    const createdIds = job.result?.createdIds ?? [];
+    const createdCount = job.result?.createdCount ?? 0;
     const reason = job.error ?? 'The import stopped before it finished.';
-    if (!createdIds.length) throw new Error(reason);
+    if (!createdCount) throw new Error(reason);
     return {
-      imported: createdIds.length,
+      sessionId,
+      imported: createdCount,
       updated: 0,
       skipped: 0,
-      totalRows: rows.length,
-      errors: [{ row: 0, reason: `Import stopped part way (${reason}). ${createdIds.length} lead(s) were created before it stopped — use Undo to remove them, then import the file again.` }],
-      createdIds,
+      totalRows: job.total,
+      errors: [{ row: 0, reason: `Import stopped part way (${reason}). ${createdCount.toLocaleString()} lead(s) were created before it stopped — use Undo to remove them, then import the file again.` }],
+      errorCount: 1,
+      createdCount,
       assignedSuccessfully: 0,
       assignmentFailed: 0,
       newRecords: 0,
       duplicateRecords: 0,
     };
   },
-  /** Pre-import scan — no writes. Flags rows duplicating an existing lead by selected fields. */
-  check: async (rows: LeadRow[], match: ImportMatchOptions = {}): Promise<ImportCheckResult> =>
-    (await api.post('/leads/import/check', { rows, ...match })).data,
+
+  /** Remove the leads an import created (never the ones it updated) and wait for it. */
+  undo: async (sessionId: string, onProgress?: (processed: number, total: number) => void): Promise<{ removed: number }> => {
+    const started = (await api.post(`/leads/import/sessions/${sessionId}/undo`)).data as BackgroundJob;
+    const job = await waitForJob<{ removed: number }>(`/leads/import/sessions/jobs/${started.id}`, onProgress);
+    if (job.status !== 'completed' || !job.result) throw new Error(job.error ?? 'Undo stopped before it finished — run it again to remove the rest.');
+    return job.result;
+  },
 };
 
 /** Format seconds as "5h 10m" / "2m 40s". */

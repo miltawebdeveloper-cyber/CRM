@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Clock, MapPin, Building2, Globe, Zap, Percent, RefreshCw, PhoneCall, UserPlus, UserMinus, User as UserIcon, Hourglass, CalendarClock } from 'lucide-react';
+import { Clock, MapPin, Building2, Globe, Zap, Percent, RefreshCw, PhoneCall, UserPlus, UserMinus, User as UserIcon, Hourglass, CalendarClock, Loader2 } from 'lucide-react';
 import { leadsApi, type Lead, type LeadListQuery } from '@/lib/leads';
 import { LeadAssignDialog } from '@/components/lead-assign-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -27,6 +27,7 @@ import { SavedViewsMenu } from '@/components/saved-views-menu';
 import { useDebounced } from '@/lib/use-debounced';
 import { useInfiniteLeads, useLeadScrollSentinel } from '@/lib/use-infinite-leads';
 import { pushToast } from '@/lib/toast';
+import { invalidateLeadBook } from '@/lib/sync';
 
 /**
  * What the date filter beside this one is filtering on.
@@ -192,11 +193,7 @@ export default function LeadsPage() {
   const unassign = useMutation({
     mutationFn: (rows: Lead[]) => assignmentsApi.unassign(rows.map((l) => l.id)),
     onSuccess: (r) => {
-      qc.invalidateQueries({ queryKey: ['leads'] });
-      qc.invalidateQueries({ queryKey: ['assignments-summary'] });
-      qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
-      qc.invalidateQueries({ queryKey: ['caller-leads'] });
-      qc.invalidateQueries({ queryKey: ['caller-dash'] });
+      invalidateLeadBook(qc);
       pushToast(
         'success',
         `${r.unassigned.toLocaleString()} lead${r.unassigned === 1 ? '' : 's'} returned to the Lead Library` +
@@ -425,10 +422,10 @@ export default function LeadsPage() {
         // Drag across rows to select a run of leads, then assign them in one go —
         // far quicker than ticking hundreds of boxes after a bulk import.
         dragSelect
-        // A lead has exactly one owner, so one that already belongs to someone is
-        // locked out of selection entirely — that keeps it out of select-all and
-        // drag sweeps, which is where a bulk assignment would otherwise quietly
-        // take it off them.
+        // The header box selects every lead matching the filters, not just the
+        // pages scrolled into view — see DataTable's `selectAllMatching`.
+        selectAllMatching={{ total, noun: 'leads', resetKey: JSON.stringify(listQuery), load: () => leadsApi.selection(listQuery) }}
+        endRef={sentinelRef}
         sort={sort}
         onSortChange={setSort}
         // Lead Management headings read as capitals; the underlying column names stay
@@ -460,25 +457,14 @@ export default function LeadsPage() {
         ) : undefined}
       />
 
-      {/* End of the list. The marker is what asks for the next chunk when it
-          scrolls into view; the button beside it is for anyone who never
-          reaches it — a keyboard user, or a viewport the observer can't see
-          into. Both do the same thing, so neither is the only way through. */}
-      <div ref={sentinelRef} className="mt-3 flex items-center justify-center gap-3 py-2">
-        {hasNextPage ? (
-          <button
-            type="button"
-            onClick={() => leadsQuery.fetchNextPage()}
-            // Also off while the rows on screen belong to the outgoing query —
-            // paging that one on would append its chunk 2 to a list about to be
-            // replaced by a different filter's chunk 1.
-            disabled={isFetchingNextPage || leadsQuery.isPlaceholderData}
-            className="inline-flex items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12px] font-semibold hover:bg-muted disabled:opacity-50"
-          >
-            {isFetchingNextPage ? 'Loading more…' : `Load more (${(total - leads.length).toLocaleString()} left)`}
-          </button>
+      {/* No "Load more" button: scrolling to the end of the rows loads the next
+          chunk — the marker is inside the table's own scroll box (DataTable's
+          `endRef`), where the rows are actually scrolled. */}
+      <div role="status" aria-live="polite" className="mt-3 flex min-h-[28px] items-center justify-center gap-2 text-[11.5px] text-muted-foreground">
+        {isFetchingNextPage ? (
+          <><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> Loading more leads…</>
         ) : (
-          total > 0 && <p className="text-[11.5px] text-muted-foreground">All {total.toLocaleString()} leads loaded.</p>
+          !hasNextPage && total > 0 && <>All {total.toLocaleString()} leads loaded.</>
         )}
       </div>
 

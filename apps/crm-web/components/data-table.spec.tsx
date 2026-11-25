@@ -241,6 +241,102 @@ describe('DataTable', () => {
     });
   });
 
+  /**
+   * Lead lists load a page at a time as you scroll, so "select all" used to tick
+   * only the rows loaded so far — 100 of 12,000. With `selectAllMatching` the
+   * header box reaches every lead matching the filters.
+   */
+  describe('select all, beyond the rows loaded', () => {
+    const everything = rows(250);
+    const loaded = everything.slice(0, 100);
+    function deferred<V>() {
+      let resolve!: (v: V) => void;
+      const promise = new Promise<V>((r) => { resolve = r; });
+      return { promise, resolve };
+    }
+
+    it('ticks the loaded rows at once, then every matching row, and hands all of them to the bulk action', async () => {
+      const fetch = deferred<Row[]>();
+      const load = jest.fn(() => fetch.promise);
+      const bulk = jest.fn((r: Row[]) => <button type="button">Assign {r.length}</button>);
+      const { container } = render(
+        <DataTable
+          tableKey="t30"
+          columns={columns}
+          rows={loaded}
+          getRowKey={(r) => r.id}
+          bulkActions={bulk}
+          selectAllMatching={{ total: 250, noun: 'leads', resetKey: 'q1', load }}
+        />,
+      );
+
+      fireEvent.click(container.querySelector('thead input[type="checkbox"]')!);
+      expect(load).toHaveBeenCalledTimes(1);
+      // While it fetches, the actions wait — they would reach only 100 rows.
+      expect(screen.getByText(/Selecting all 250 leads/)).toBeDefined();
+      expect(screen.queryByText(/^Assign/)).toBeNull();
+
+      await React.act(async () => fetch.resolve(everything));
+      expect(screen.getByText('All 250 leads selected')).toBeDefined();
+      expect(screen.getByText('Assign 250')).toBeDefined();
+    });
+
+    it('does not fetch when every matching row is already loaded', () => {
+      const load = jest.fn(async () => everything);
+      const { container } = render(
+        <DataTable tableKey="t31" columns={columns} rows={loaded} getRowKey={(r) => r.id} selectAllMatching={{ total: 100, load }} />,
+      );
+      fireEvent.click(container.querySelector('thead input[type="checkbox"]')!);
+      expect(load).not.toHaveBeenCalled();
+      expect(screen.getByText('100 selected')).toBeDefined();
+    });
+
+    it('drops a fetch that lands after the selection was cleared', async () => {
+      const fetch = deferred<Row[]>();
+      const { container } = render(
+        <DataTable
+          tableKey="t32"
+          columns={columns}
+          rows={loaded}
+          getRowKey={(r) => r.id}
+          selectAllMatching={{ total: 250, noun: 'leads', load: () => fetch.promise }}
+        />,
+      );
+      fireEvent.click(container.querySelector('thead input[type="checkbox"]')!);
+      fireEvent.click(screen.getByLabelText('Clear selection'));
+      await React.act(async () => fetch.resolve(everything));
+      expect(screen.queryByText(/selected/)).toBeNull();
+    });
+
+    it('lets go of the whole-result selection when the filters change', async () => {
+      const props = { tableKey: 't33', columns, getRowKey: (r: Row) => r.id };
+      const { container, rerender } = render(
+        <DataTable {...props} rows={loaded} selectAllMatching={{ total: 250, noun: 'leads', resetKey: 'q1', load: async () => everything }} />,
+      );
+      fireEvent.click(container.querySelector('thead input[type="checkbox"]')!);
+      await React.act(async () => undefined);
+      expect(screen.getByText('All 250 leads selected')).toBeDefined();
+
+      // A narrower filter: the 250 no longer describe what the table shows.
+      rerender(<DataTable {...props} rows={loaded.slice(0, 10)} selectAllMatching={{ total: 10, noun: 'leads', resetKey: 'q2', load: async () => everything }} />);
+      expect(screen.getByText('10 selected')).toBeDefined();
+    });
+  });
+
+  describe('the end-of-rows marker', () => {
+    it('sits inside the scroll box, and is hidden while the table search narrows the rows', () => {
+      const ref = React.createRef<HTMLDivElement>();
+      render(<DataTable tableKey="t40" columns={columns} rows={rows(5)} getRowKey={(r) => r.id} endRef={ref} />);
+      expect(ref.current).not.toBeNull();
+      expect(ref.current!.className).not.toContain('hidden');
+
+      fireEvent.click(screen.getByLabelText(/search/i));
+      fireEvent.change(screen.getByPlaceholderText('Search this table…'), { target: { value: 'Lead 3' } });
+      // Still mounted (the observer keeps its target), just out of play.
+      expect(ref.current!.className).toContain('hidden');
+    });
+  });
+
   describe('the table search', () => {
     it('narrows the rows and says what did the narrowing', () => {
       render(

@@ -1,7 +1,7 @@
 'use client';
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { SlidersHorizontal, GripVertical, X, RotateCcw, Pencil, Trash2, ArrowUp, ArrowDown, ChevronsUpDown, Search } from 'lucide-react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
+import { SlidersHorizontal, GripVertical, X, RotateCcw, Pencil, Trash2, ArrowUp, ArrowDown, ChevronsUpDown, Search, Loader2 } from 'lucide-react';
 import { filterRows, useColumnPrefs, type ColumnDef, type ColumnPrefs, type SortState } from '@/lib/use-column-prefs';
 import { gridState, isGridBusy } from '@/lib/table-state';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -95,6 +95,24 @@ interface DataTableProps<T> {
    */
   isRowSelectable?: (row: T) => boolean;
   rowNotSelectableReason?: (row: T) => string;
+  /**
+   * The whole result behind a table that holds only part of it — one that loads
+   * more as you scroll. With it, ticking the header box selects EVERY matching
+   * row, not just the ones loaded so far: the loaded rows tick at once, `load`
+   * fetches the rest (a compact row is enough, as long as it carries what the
+   * bulk actions read), and from then on Delete and the bulk actions get all of
+   * them. `resetKey` — the filters, say — retires that selection when it
+   * changes, since it no longer describes what the table is showing.
+   */
+  selectAllMatching?: { total: number; load: () => Promise<T[]>; noun?: string; resetKey?: string };
+  /**
+   * A marker placed at the very end of the rows, INSIDE the table's own scroll
+   * box — for a list that loads more as you scroll (see `useLeadScrollSentinel`).
+   * A marker below the table never came into view on a `fillViewport` table,
+   * whose rows scroll inside it, so the list stopped growing unless someone
+   * clicked a "Load more" button; this one is reached by scrolling the rows.
+   */
+  endRef?: Ref<HTMLDivElement>;
   /**
    * Active sort, owned by the page rather than the table. The page sorts `rows`
    * itself (via `sortRows`) so that exports can reuse exactly the order on screen
@@ -242,6 +260,8 @@ export function DataTable<T>({
   dragSelect,
   isRowSelectable,
   rowNotSelectableReason,
+  selectAllMatching,
+  endRef,
   sort,
   onSortChange,
   uppercaseHeaders,
@@ -282,9 +302,34 @@ export function DataTable<T>({
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [deleting, setDeleting] = useState(false);
 
-  // selectedRows filters against the current rows, so keys for rows that have
-  // been filtered out simply don't count — no separate pruning needed.
-  const selectedRows = useMemo(() => rows.filter((r) => selected.has(getRowKey(r))), [rows, selected, getRowKey]);
+  /**
+   * "Select all" across the whole result (`selectAllMatching`): every matching
+   * row once fetched, filed under the `resetKey` it was fetched for. A changed
+   * key retires it without an effect — `matchingRows` simply stops answering —
+   * and a fetch that lands after the filters moved on is ignored the same way.
+   */
+  const matchKey = selectAllMatching?.resetKey;
+  const [matching, setMatching] = useState<{ key: string | undefined; rows: T[] } | null>(null);
+  const [allLoad, setAllLoad] = useState<{ key: string | undefined; token: object; error?: string } | null>(null);
+  // The fetch in flight, as of the last commit — so one that lands after the
+  // selection was cleared, or a newer one started, knows to drop its answer.
+  const allLoadNow = useRef(allLoad);
+  useEffect(() => {
+    allLoadNow.current = allLoad;
+  }, [allLoad]);
+  const matchingRows = matching && matching.key === matchKey ? matching.rows : null;
+  const loadingAll = !!allLoad && allLoad.key === matchKey && !allLoad.error;
+  const loadAllError = allLoad && allLoad.key === matchKey ? allLoad.error : undefined;
+
+  // The rows on screen that are ticked. Keys for rows that have been filtered
+  // out simply don't count — no separate pruning needed.
+  const loadedSelected = useMemo(() => rows.filter((r) => selected.has(getRowKey(r))), [rows, selected, getRowKey]);
+  // What the bulk actions act on: every matching row still ticked once "Select
+  // all" has fetched them, otherwise the ticked rows on screen.
+  const selectedRows = useMemo(
+    () => (matchingRows ? matchingRows.filter((r) => selected.has(getRowKey(r))) : loadedSelected),
+    [matchingRows, selected, getRowKey, loadedSelected],
+  );
   // Rows the caller allows picking. Select-all and drag operate on these only, so
   // a locked row can never be swept into a bulk action by accident.
   const canSelectRow = (row: T) => (isRowSelectable ? isRowSelectable(row) : true);
@@ -292,9 +337,39 @@ export function DataTable<T>({
     () => (isRowSelectable ? rows.filter(isRowSelectable) : rows),
     [rows, isRowSelectable],
   );
-  const allSelected = pickableRows.length > 0 && selectedRows.length === pickableRows.length;
-  const someSelected = selectedRows.length > 0 && !allSelected;
-  const clearSelection = () => setSelected(new Set());
+  const allSelected = pickableRows.length > 0 && loadedSelected.length === pickableRows.length;
+  const someSelected = loadedSelected.length > 0 && !allSelected;
+  // Clearing also retires a "Select all" still in flight: it lands on nothing.
+  const clearSelection = () => {
+    setAllLoad(null);
+    setMatching(null);
+    setSelected(new Set());
+  };
+
+  /** Fetch every matching row and tick them all — see `selectAllMatching`. */
+  const selectEveryMatch = async () => {
+    if (!selectAllMatching) return;
+    const request = { key: matchKey, token: {} };
+    setAllLoad(request);
+    allLoadNow.current = request;
+    const stillWanted = () => allLoadNow.current?.token === request.token;
+    try {
+      const every = await selectAllMatching.load();
+      if (!stillWanted()) return;
+      setMatching({ key: request.key, rows: every });
+      setSelected(new Set((isRowSelectable ? every.filter(isRowSelectable) : every).map(getRowKey)));
+      setAllLoad(null);
+    } catch (err) {
+      if (!stillWanted()) return;
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+        (err as Error)?.message ??
+        'Could not load every matching row.';
+      setAllLoad({ ...request, error: message });
+    }
+  };
+  // More rows match than are loaded, and nothing on screen narrows them further.
+  const moreThanLoaded = !!selectAllMatching && !query && selectAllMatching.total > rows.length;
   // Stable across renders: it is handed to every body row, and a fresh closure
   // each render would re-render all of them (see `TableRow`). The updater form
   // is what makes that safe — it never needs to close over the current set.
@@ -305,7 +380,23 @@ export function DataTable<T>({
       return next;
     });
   }, []);
-  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(pickableRows.map(getRowKey)));
+  /**
+   * The header box. Ticked → clear everything. Otherwise tick every loaded row
+   * at once and, when more rows match than are loaded, fetch and tick those too
+   * — "select all" means all the leads, not the first page of them.
+   */
+  const toggleAll = () => {
+    if (allSelected && (!matchingRows || selectedRows.length === matchingRows.length)) {
+      clearSelection();
+      return;
+    }
+    if (matchingRows) {
+      setSelected(new Set((isRowSelectable ? matchingRows.filter(isRowSelectable) : matchingRows).map(getRowKey)));
+      return;
+    }
+    setSelected(new Set(pickableRows.map(getRowKey)));
+    if (moreThanLoaded) void selectEveryMatch();
+  };
 
   // ── Drag-to-select ──
   // Every extension of the drag is applied against the selection as it was when
@@ -588,8 +679,29 @@ export function DataTable<T>({
             {/* Selection actions — edit/delete symbols above the table, top-right. */}
             {selectionOn && selectedRows.length > 0 && (
               <div className="flex items-center gap-2 rounded-md border bg-primary/5 px-2.5 py-1">
-                <span className="text-[12.5px] font-semibold">{selectedRows.length} selected</span>
-                {onEditSelected && (
+                <span className="text-[12.5px] font-semibold tabular-nums" role="status" aria-live="polite">
+                  {loadingAll ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      Selecting all {selectAllMatching!.total.toLocaleString()} {selectAllMatching!.noun ?? 'rows'}…
+                    </span>
+                  ) : matchingRows && selectedRows.length === matchingRows.length ? (
+                    `All ${selectedRows.length.toLocaleString()} ${selectAllMatching?.noun ?? 'rows'} selected`
+                  ) : (
+                    `${selectedRows.length.toLocaleString()} selected`
+                  )}
+                </span>
+                {loadAllError && (
+                  <span className="text-[11.5px] text-[var(--tone-red-fg)]">
+                    Couldn&apos;t select them all — {loadAllError}{' '}
+                    <button type="button" onClick={() => void selectEveryMatch()} className="font-semibold underline">
+                      Retry
+                    </button>
+                  </span>
+                )}
+                {/* Held back while "Select all" is still fetching: an action
+                    taken now would reach only the rows already loaded. */}
+                {!loadingAll && onEditSelected && (
                   <button
                     onClick={() => onEditSelected(selectedRows)}
                     disabled={selectedRows.length !== 1}
@@ -600,7 +712,7 @@ export function DataTable<T>({
                     <Pencil className="h-4 w-4" />
                   </button>
                 )}
-                {onDeleteSelected && (
+                {!loadingAll && onDeleteSelected && (
                   <button
                     onClick={runDelete}
                     disabled={deleting}
@@ -611,7 +723,7 @@ export function DataTable<T>({
                     <Trash2 className="h-4 w-4" />
                   </button>
                 )}
-                {bulkActions?.(selectedRows, clearSelection)}
+                {!loadingAll && bulkActions?.(selectedRows, clearSelection)}
                 <button onClick={clearSelection} title="Clear selection" aria-label="Clear selection" className="grid h-8 w-8 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground">
                   <X className="h-4 w-4" />
                 </button>
@@ -821,6 +933,12 @@ export function DataTable<T>({
             </tfoot>
           )}
         </table>
+        {/* End of the rows, inside the scroll box: scrolling to it loads the next page. */}
+        {/* Hidden — but kept mounted, so the page's observer keeps watching it —
+            while the table search narrows the rows: a handful of matches would
+            leave the end in view, and it would load page after page until the
+            whole book was in the browser. Clearing the search shows it again. */}
+        {endRef && <div ref={endRef} aria-hidden className={query ? 'hidden' : 'h-px'} />}
       </div>
 
       <CustomizePanel open={panelOpen} onClose={() => setPanelOpen(false)} prefs={prefs} />

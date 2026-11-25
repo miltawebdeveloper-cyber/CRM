@@ -1,14 +1,20 @@
 'use client';
 
 import { IconAction } from '@/components/icon-action';
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Import as ImportIcon, Check, AlertTriangle, Undo2, Filter, Loader2, Download, GitCompare, History, Info, FileDown, FileSpreadsheet } from 'lucide-react';
-import * as XLSX from 'xlsx';
-import { importApi, type LeadRow, type ImportCheckResult, type ImportMatchedLead } from '@/lib/crm';
-import { leadsApi } from '@/lib/leads';
+import { Upload as ImportIcon, Check, AlertTriangle, Undo2, Filter, Loader2, Download, GitCompare, History, Info, FileDown, FileSpreadsheet } from 'lucide-react';
+/**
+ * The Excel reader/writer, fetched the first time a workbook is opened or the
+ * template downloaded. It is the biggest library in the app (about 140 KB
+ * compressed) and the page needs it for neither of its other jobs — a CSV, a
+ * paste, the review — so it no longer holds up the page opening.
+ */
+const loadXlsx = () => import('xlsx');
+import { importSessionApi, type LeadRow, type ImportCheckResult, type ImportDuplicateRow, type ImportMatchedLead, type ImportRunMode } from '@/lib/crm';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageHead } from '@/components/page-head';
+import { invalidateLeadBook } from '@/lib/sync';
 import { downloadCsv } from '@/lib/export';
 import { formatDate } from '@/lib/display-settings';
 import { timezoneCodes, zoneMatchesCountry } from '@/lib/timezone';
@@ -309,6 +315,24 @@ const SAMPLE = [TEMPLATE_HEADERS, ...TEMPLATE_EXAMPLE].map((r) => r.map(csvCell)
 const TEMPLATE_FILENAME = 'ranger-crm-lead-import-template';
 
 /**
+ * Duplicate rows the review loads at a time. Re-running a file of tens of
+ * thousands could flag every row, and a table that long froze the page; the
+ * review fetches this many, offers the next lot on request, and the bulk
+ * Import / Skip buttons speak for the rest.
+ */
+const REVIEW_PAGE = 200;
+
+/**
+ * Pasted text longer than this is not echoed back into the paste box. A big
+ * file's CSV is tens of MB, and a textarea holding it makes every keystroke on
+ * the page crawl; the preview below shows what was read.
+ */
+const RAW_ECHO_LIMIT = 200_000;
+
+/** The default for a duplicate nobody has ruled on yet: its remembered ruling, else skip. */
+const defaultDecision = (d: ImportDuplicateRow): 'import' | 'skip' => (d.priorDecision?.decision === 'import' ? 'import' : 'skip');
+
+/**
  * The template as a workbook: a "Leads" sheet holding the header row alone, and
  * a "Field guide" sheet carrying the notes and the worked example.
  *
@@ -318,7 +342,8 @@ const TEMPLATE_FILENAME = 'ranger-crm-lead-import-template';
  * cannot reach the CRM from there either: the uploader reads a workbook's FIRST
  * sheet, so anything on the guide is inert.
  */
-function downloadTemplateXlsx() {
+async function downloadTemplateXlsx() {
+  const XLSX = await loadXlsx();
   const wb = XLSX.utils.book_new();
 
   const leads = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS]);
@@ -417,53 +442,82 @@ export default function ImportPage() {
   }, [file, mapping]);
 
   /**
-   * The rows as they will actually be sent, with every field the reviewer chose
-   * to keep from the CRM blanked out.
+   * The fields the reviewer chose to keep from the CRM, per row, as the import
+   * takes them.
    *
-   * Blanking is the whole mechanism: the import writes a column only when the
-   * row carries a value for it, so an empty field leaves whatever the lead
-   * already had. That means a merge needs no second write path and cannot drift
-   * from the import's own update rules — it IS the import's update rules, handed
-   * a narrower row.
+   * The server leaves each one out of its row, and leaving a field out is the
+   * whole mechanism: the import writes a column only when the row carries a
+   * value for it, so a missing field leaves whatever the lead already had. A
+   * merge needs no second write path and cannot drift from the import's own
+   * update rules — it IS the import's update rules, handed a narrower row.
    */
-  const rowsToSend = useMemo(() => {
-    const touched = Object.entries(mergeKeep).filter(([, keep]) => keep.size > 0);
-    if (touched.length === 0) return rows;
-    const copy = rows.map((r) => ({ ...r }));
-    for (const [idx, keep] of touched) {
-      const row = copy[Number(idx)] as unknown as Record<string, unknown>;
-      if (!row) continue;
-      for (const field of keep) row[field] = undefined;
-    }
-    return copy;
-  }, [rows, mergeKeep]);
+  const keepFields = useMemo(() => {
+    const out: Record<number, string[]> = {};
+    for (const [idx, keep] of Object.entries(mergeKeep)) if (keep.size > 0) out[Number(idx)] = [...keep];
+    return out;
+  }, [mergeKeep]);
+
+  /**
+   * The file as uploaded to the server, for the rows it was uploaded from.
+   * Re-checking under different rules reuses it; changing the file or the
+   * column mapping (a new `rows`) uploads again, and so does a file that has
+   * been imported, whose staged copy the server has let go of.
+   */
+  const session = useRef<{ rows: LeadRow[]; id: string } | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
 
   // Rows written so far. The import runs as a background job on the server, so
   // a large file reports its progress instead of an indefinite spinner.
   const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
   const importMut = useMutation({
-    mutationFn: (params: { skipDuplicates?: boolean; skipRowIndexes?: number[] }) =>
-      importApi.bulk(rowsToSend, params.skipDuplicates, params.skipRowIndexes, matchOptions, (done, total) =>
+    mutationFn: (params: { mode: ImportRunMode; decisions?: Record<number, 'import' | 'skip'> }) => {
+      const id = session.current?.id;
+      if (!id) throw new Error('Check the file for duplicates first.');
+      return importSessionApi.run(id, { mode: params.mode, decisions: params.decisions, keepFields }, (done, total) =>
         setImportProgress({ done, total }),
-      ),
+      );
+    },
     onSettled: () => setImportProgress(null),
     // An import's "Assigned To" column hands leads straight to employees, so it
     // moves the same things a manual assignment does. Nothing was refreshed here
     // at all, which left every lead list and the Calling Panel showing the book as
     // it was before the file landed.
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['leads'] });
-      qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
-      qc.invalidateQueries({ queryKey: ['assignments-summary'] });
-      qc.invalidateQueries({ queryKey: ['caller-leads'] });
-      qc.invalidateQueries({ queryKey: ['caller-dash'] });
+      // Imported: the server has let go of the staged copy.
+      session.current = null;
+      invalidateLeadBook(qc);
     },
   });
 
   const [dupResult, setDupResult] = useState<ImportCheckResult | null>(null);
 
+  /** Upload the file unless this exact file is already up, then run the check over it. */
+  const uploadAndCheck = async (): Promise<ImportCheckResult> => {
+    let id = session.current?.rows === rows ? session.current.id : null;
+    if (!id) {
+      id = await importSessionApi.upload(rows, (done, total) => setUploadProgress({ done, total }));
+      session.current = { rows, id };
+    }
+    setUploadProgress(null);
+    const summary = await importSessionApi.check(id, matchOptions);
+    const first = summary.duplicateRecords > 0 ? await importSessionApi.duplicates(id, 0, REVIEW_PAGE) : { total: 0, rows: [] };
+    return { ...summary, duplicateRows: first.rows, duplicateRowsTotal: first.total };
+  };
+
   const check = useMutation({
-    mutationFn: () => importApi.check(rows, matchOptions),
+    mutationFn: async () => {
+      try {
+        return await uploadAndCheck();
+      } catch (err) {
+        // The staged copy expired or was already used (a 404 or 409 for the
+        // session): upload the file again, once, rather than make the user.
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (!session.current || (status !== 404 && status !== 409)) throw err;
+        session.current = null;
+        return uploadAndCheck();
+      }
+    },
+    onSettled: () => setUploadProgress(null),
     onSuccess: (res) => {
       if (res.duplicateRecords > 0) {
         setDupResult(res);
@@ -473,11 +527,9 @@ export default function ImportPage() {
         // ruled on before opens on that ruling instead — re-answering the same
         // question from scratch every time the file is re-run is the work this
         // is here to save. It is still only a default; changing it is what gets
-        // remembered next.
+        // remembered next. Rows not loaded yet get the same default server-side.
         const initialDecisions: Record<number, 'import' | 'skip'> = {};
-        for (const d of res.duplicateRows) {
-          initialDecisions[d.index] = d.priorDecision?.decision === 'import' ? 'import' : 'skip';
-        }
+        for (const d of res.duplicateRows) initialDecisions[d.index] = defaultDecision(d);
         setDupDecisions(initialDecisions);
       } else {
         // A clean file has nothing to review, so it must not leave a result behind:
@@ -485,8 +537,24 @@ export default function ImportPage() {
         // the page on every clean import, which the user then had to dismiss to see
         // that the import had already succeeded underneath it.
         setDupResult(null);
-        importMut.mutate({ skipDuplicates: false });
+        importMut.mutate({ mode: 'all' });
       }
+    },
+  });
+
+  /** The next page of duplicate rows, added to the review with their default decisions. */
+  const loadMoreDuplicates = useMutation({
+    mutationFn: () => {
+      if (!dupResult || !session.current) throw new Error('Check the file for duplicates first.');
+      return importSessionApi.duplicates(session.current.id, dupResult.duplicateRows.length, REVIEW_PAGE);
+    },
+    onSuccess: (page) => {
+      setDupResult((prev) => (prev ? { ...prev, duplicateRows: [...prev.duplicateRows, ...page.rows], duplicateRowsTotal: page.total } : prev));
+      setDupDecisions((prev) => {
+        const next = { ...prev };
+        for (const d of page.rows) if (!(d.index in next)) next[d.index] = defaultDecision(d);
+        return next;
+      });
     },
   });
 
@@ -497,13 +565,14 @@ export default function ImportPage() {
   const importing = check.isPending || importMut.isPending;
 
   const [confirmRollback, setConfirmRollback] = useState(false);
+  const [undoProgress, setUndoProgress] = useState<{ done: number; total: number } | null>(null);
   const rollback = useMutation({
-    mutationFn: (ids: string[]) => leadsApi.bulkDelete(ids),
+    mutationFn: (sessionId: string) => importSessionApi.undo(sessionId, (done, total) => setUndoProgress({ done, total })),
+    onSettled: () => setUndoProgress(null),
     meta: { successMessage: 'Imported leads removed' },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['leads'] });
-      qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
-    },
+    // The removed leads leave every module — reps' queues included, when the
+    // file's "Assigned To" column had handed them out.
+    onSuccess: () => invalidateLeadBook(qc),
   });
 
   /**
@@ -531,10 +600,11 @@ export default function ImportPage() {
   }, [file, mapping]);
 
   function load(text: string) {
-    setRaw(text);
+    setRaw(text.length > RAW_ECHO_LIMIT ? '' : text);
     const parsed = parseFile(text);
     setFile(parsed);
     setMapping(autoMap(parsed.headers));
+    session.current = null;
     importMut.reset();
     rollback.reset();
     setConfirmRollback(false);
@@ -558,7 +628,7 @@ export default function ImportPage() {
   function loadFile(file: File) {
     const isExcel = /\.(xlsx|xls)$/i.test(file.name);
     if (!isExcel) { file.text().then(load); return; }
-    file.arrayBuffer().then((buf) => {
+    Promise.all([file.arrayBuffer(), loadXlsx()]).then(([buf, XLSX]) => {
       const wb = XLSX.read(buf, { type: 'array' });
       const sheet = wb.Sheets[wb.SheetNames[0]];
       load(XLSX.utils.sheet_to_csv(sheet));
@@ -587,7 +657,7 @@ export default function ImportPage() {
   // Bulk Actions
   const handleImportAllLeads = () => {
     setDupResult(null);
-    importMut.mutate({ skipDuplicates: false });
+    importMut.mutate({ mode: 'all' });
   };
 
   const handleImportAllDuplicates = () => {
@@ -598,7 +668,7 @@ export default function ImportPage() {
     }
     setDupDecisions(decisions);
     setDupResult(null);
-    importMut.mutate({ skipDuplicates: false });
+    importMut.mutate({ mode: 'all' });
   };
 
   const handleSkipAllDuplicates = () => {
@@ -609,20 +679,36 @@ export default function ImportPage() {
     }
     setDupDecisions(decisions);
     setDupResult(null);
-    importMut.mutate({ skipDuplicates: true });
+    importMut.mutate({ mode: 'skip_duplicates' });
   };
 
-  const handleCustomImport = (skipRowIndexes: number[]) => {
-    setDupResult(null);
-    importMut.mutate({ skipDuplicates: false, skipRowIndexes });
-  };
+  /**
+   * What "Complete Import" will do with every duplicate, not just the loaded
+   * ones: the rows not loaded yet follow their default, and the check counted
+   * how many of those default to import (`rememberedImport`).
+   */
+  const decisionCounts = useMemo(() => {
+    if (!dupResult) return { importing: 0, skipping: 0 };
+    let shownImport = 0;
+    let shownDefaultImport = 0;
+    for (const d of dupResult.duplicateRows) {
+      if ((dupDecisions[d.index] ?? 'skip') === 'import') shownImport++;
+      if (defaultDecision(d) === 'import') shownDefaultImport++;
+    }
+    const importing = shownImport + Math.max(0, dupResult.rememberedImport - shownDefaultImport);
+    return { importing, skipping: dupResult.duplicateRowsTotal - importing };
+  }, [dupResult, dupDecisions]);
 
+  /**
+   * The review's own choices for the rows it loaded; the server gives every
+   * duplicate not loaded yet the same default these rows opened on.
+   */
   const handleApplyCurrentDecisions = () => {
     if (!dupResult) return;
-    const skipIndexes = dupResult.duplicateRows
-      .filter((d) => (dupDecisions[d.index] ?? 'skip') === 'skip')
-      .map((d) => d.index);
-    handleCustomImport(skipIndexes);
+    const decisions: Record<number, 'import' | 'skip'> = {};
+    for (const d of dupResult.duplicateRows) decisions[d.index] = dupDecisions[d.index] ?? 'skip';
+    setDupResult(null);
+    importMut.mutate({ mode: 'decisions', decisions });
   };
 
   return (
@@ -637,7 +723,7 @@ export default function ImportPage() {
         <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[var(--brand-edge)] bg-background p-[34px] text-center transition-colors hover:border-[var(--brand-lime)]">
           <div className="mb-3 grid h-[52px] w-[52px] place-items-center rounded-[14px] bg-[var(--brand-surface)] text-[var(--brand-on-surface)]"><ImportIcon className="h-6 w-6" /></div>
           <div className="font-semibold">Drop your file here or <span className="text-primary">browse</span></div>
-          <div className="mt-1 text-[12px] text-muted-foreground">CSV or Excel (.xlsx/.xls) up to 25MB</div>
+          <div className="mt-1 text-[12px] text-muted-foreground">CSV or Excel (.xlsx/.xls) — large files upload in parts, with progress</div>
           <div className="mt-1 text-[11.5px] text-muted-foreground">Don&apos;t have a file yet? Download the template above.</div>
           <input type="file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) loadFile(f); }} />
         </label>
@@ -838,16 +924,18 @@ export default function ImportPage() {
       {rows.length > 0 && (
         <div className="mt-[18px] overflow-hidden rounded-2xl border bg-card shadow-sm">
           <div className="flex items-center justify-between border-b px-[18px] py-4">
-            <div><h3 className="font-display text-[14px] font-semibold">Preview</h3><div className="text-xs text-muted-foreground">{rows.length} rows · first 10 shown</div></div>
+            <div><h3 className="font-display text-[14px] font-semibold">Preview</h3><div className="text-xs text-muted-foreground">{rows.length.toLocaleString()} rows · first 10 shown</div></div>
             <button onClick={startImport} disabled={importing} className="inline-flex items-center gap-2 rounded-md bg-primary px-[15px] py-[9px] text-[12.5px] font-semibold text-primary-foreground disabled:opacity-60">
               {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImportIcon className="h-4 w-4" />}
               {check.isPending
-                ? 'Checking Duplicates…'
+                ? uploadProgress && uploadProgress.total > 0
+                  ? `Uploading… ${uploadProgress.done.toLocaleString()} / ${uploadProgress.total.toLocaleString()}`
+                  : 'Checking Duplicates…'
                 : importMut.isPending
                   ? importProgress && importProgress.total > 0
                     ? `Importing… ${importProgress.done.toLocaleString()} / ${importProgress.total.toLocaleString()}`
                     : 'Importing…'
-                  : `Import ${rows.length} Leads`}
+                  : `Import ${rows.length.toLocaleString()} Leads`}
             </button>
           </div>
           <div className="overflow-x-auto">
@@ -1108,12 +1196,31 @@ export default function ImportPage() {
                 })}
               </tbody>
             </table>
+            {dupResult.duplicateRows.length < dupResult.duplicateRowsTotal && (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2 text-[12px] text-muted-foreground">
+                <p>
+                  Showing the first <b className="text-foreground tabular-nums">{dupResult.duplicateRows.length.toLocaleString()}</b> of{' '}
+                  <b className="text-foreground tabular-nums">{dupResult.duplicateRowsTotal.toLocaleString()}</b> duplicates.
+                  The rest keep their default — skip, or what was decided about them last time. <b className="text-foreground">Import All Duplicates</b>,{' '}
+                  <b className="text-foreground">Skip All Duplicates</b> and <b className="text-foreground">Import All Leads</b> above apply to every one of them.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => loadMoreDuplicates.mutate()}
+                  disabled={loadMoreDuplicates.isPending || importing}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-md border bg-card px-3 py-1.5 text-[12px] font-semibold text-foreground hover:bg-muted disabled:opacity-60"
+                >
+                  {loadMoreDuplicates.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Show next {Math.min(REVIEW_PAGE, dupResult.duplicateRowsTotal - dupResult.duplicateRows.length).toLocaleString()}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Footer Bar */}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-muted/40 px-6 py-4">
             <div className="text-xs text-muted-foreground">
-              Selected decisions: <b className="text-foreground">{dupResult.duplicateRows.filter((d) => dupDecisions[d.index] === 'import').length}</b> to import, <b className="text-foreground">{dupResult.duplicateRows.filter((d) => (dupDecisions[d.index] ?? 'skip') === 'skip').length}</b> to skip.
+              Selected decisions: <b className="text-foreground tabular-nums">{decisionCounts.importing.toLocaleString()}</b> to import, <b className="text-foreground tabular-nums">{decisionCounts.skipping.toLocaleString()}</b> to skip.
             </div>
 
             <div className="flex items-center gap-3">
@@ -1148,22 +1255,35 @@ export default function ImportPage() {
               <> · <span className="font-semibold text-[var(--tone-red-fg-2)]">Assignment failed: {importMut.data.assignmentFailed}</span></>
             )}
           </div>
-          {importMut.data.errors.length > 0 && <ul className="mt-1 list-inside list-disc text-xs">{importMut.data.errors.slice(0, 5).map((e, i) => <li key={`${e.row}-${i}`}>{e.row > 0 ? `Row ${e.row}: ` : ''}{e.reason}</li>)}</ul>}
+          {importMut.data.errors.length > 0 && (
+            <ul className="mt-1 list-inside list-disc text-xs">
+              {importMut.data.errors.slice(0, 5).map((e, i) => <li key={`${e.row}-${i}`}>{e.row > 0 ? `Row ${e.row}: ` : ''}{e.reason}</li>)}
+              {importMut.data.errorCount > 5 && <li className="list-none text-muted-foreground">…and {(importMut.data.errorCount - 5).toLocaleString()} more</li>}
+            </ul>
+          )}
 
-          {importMut.data.createdIds.length > 0 && !rollback.isSuccess && (
+          {importMut.data.createdCount > 0 && !rollback.isSuccess && (
             <div className="mt-2 border-t border-[#bfe0c0] pt-2">
               <button
                 onClick={() => setConfirmRollback(true)}
                 disabled={rollback.isPending}
                 className="inline-flex items-center gap-1.5 rounded-md border border-[var(--tone-red-line)] bg-card px-3 py-1.5 text-[12px] font-semibold text-[var(--tone-red-fg)] hover:bg-[var(--tone-red-bg-2)] disabled:opacity-60"
               >
-                <Undo2 className="h-3.5 w-3.5" /> Undo import ({importMut.data.createdIds.length} added)
+                {rollback.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Undo2 className="h-3.5 w-3.5" />}
+                {rollback.isPending && undoProgress && undoProgress.total > 0
+                  ? `Removing… ${undoProgress.done.toLocaleString()} / ${undoProgress.total.toLocaleString()}`
+                  : `Undo import (${importMut.data.createdCount.toLocaleString()} added)`}
               </button>
             </div>
           )}
           {rollback.isSuccess && (
             <div className="mt-2 border-t border-[#bfe0c0] pt-2 text-xs text-[var(--tone-red-fg-2)]">
-              Removed {rollback.data.deleted} imported lead(s). Existing leads were left unchanged.
+              Removed {rollback.data.removed.toLocaleString()} imported lead(s). Existing leads were left unchanged.
+            </div>
+          )}
+          {rollback.isError && (
+            <div className="mt-2 border-t border-[#bfe0c0] pt-2 text-xs text-[var(--tone-red-fg-2)]">
+              Undo did not finish — {errorText(rollback.error)}
             </div>
           )}
         </div>
@@ -1174,11 +1294,16 @@ export default function ImportPage() {
           title="Cancel Imported Leads"
           message="Are you sure you want to remove all leads imported in this batch? This action cannot be undone."
           confirmLabel="Remove Imported Leads"
-          onConfirm={async () => { await rollback.mutateAsync(importMut.data!.createdIds); }}
+          onConfirm={async () => { await rollback.mutateAsync(importMut.data!.sessionId); }}
           onClose={() => setConfirmRollback(false)}
         />
       )}
 
+      {check.isError && (
+        <div className="mt-4 rounded-md bg-[var(--tone-red-bg)] px-4 py-3 text-sm text-[var(--tone-red-fg-2)]">
+          Couldn&apos;t check the file — nothing was imported. {errorText(check.error)}
+        </div>
+      )}
       {importMut.isError && (
         <div className="mt-4 rounded-md bg-[var(--tone-red-bg)] px-4 py-3 text-sm text-[var(--tone-red-fg-2)]">
           Import failed — nothing was saved. {errorText(importMut.error)}

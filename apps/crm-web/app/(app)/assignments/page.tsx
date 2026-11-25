@@ -7,6 +7,7 @@ import { assignmentsApi, type AssignmentSummary } from '@/lib/crm';
 import { PageHead, Avatar } from '@/components/page-head';
 import { KpiCard, KpiGrid } from '@/components/dashboard/kpi-card';
 import { DataTable, type ColumnDef } from '@/components/data-table';
+import { invalidateLeadBook } from '@/lib/sync';
 
 type Strategy = 'equal' | 'state' | 'timezone';
 type Caller = AssignmentSummary['callers'][number];
@@ -19,14 +20,10 @@ export default function AssignmentsPage() {
   const { data } = useQuery({ queryKey: ['assignments-summary'], queryFn: assignmentsApi.summary });
   const auto = useMutation({
     mutationFn: () => assignmentsApi.auto({ callerIds: [...selected], strategy }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['assignments-summary'] });
-      // Auto-distribution changes who owns what, so the lead lists and the
-      // Calling Panel's queue and cards are stale the moment it succeeds.
-      qc.invalidateQueries({ queryKey: ['leads'] });
-      qc.invalidateQueries({ queryKey: ['caller-leads'] });
-      qc.invalidateQueries({ queryKey: ['caller-dash'] });
-    },
+    // Auto-distribution changes who owns what, so every view of the book —
+    // lead lists, the Calling Panel, Pending Calls, the counts — is stale the
+    // moment it succeeds.
+    onSuccess: () => invalidateLeadBook(qc),
   });
 
   const toggle = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });

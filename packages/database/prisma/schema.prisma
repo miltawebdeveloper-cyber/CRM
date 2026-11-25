@@ -319,7 +319,7 @@ model SchedulerLock {
 /// stands in the way of deleting a user.
 model BackgroundJob {
   id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  /// 'lead_import' | 'quo_sync_all'
+  /// 'lead_import' | 'lead_import_check' | 'lead_import_undo' | 'quo_sync_all'
   kind        String
   /// 'running' | 'completed' | 'failed'
   status      String    @default("running")
@@ -767,6 +767,60 @@ model ImportDuplicateDecision {
   decidedAt   DateTime @default(now()) @map("decided_at")
 
   @@map("import_duplicate_decisions")
+}
+
+/// One file going through the import in pieces. The browser uploads the rows a
+/// few thousand at a time into `lead_import_rows`, so no single request has to
+/// carry the whole file; the duplicate check and the import then run as
+/// background jobs over the staged rows. Kept after the import only for the
+/// ids it created (Undo); the staged rows themselves are deleted once used, and
+/// sessions left behind are swept after a day.
+model LeadImportSession {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdById  String?  @map("created_by_id") @db.Uuid
+  /// 'uploading' | 'checked' | 'importing' | 'imported' | 'failed' | 'undone'
+  status       String   @default("uploading")
+  totalRows    Int      @default(0) @map("total_rows")
+  /// The rules the last duplicate check ran under. The import reuses them, so
+  /// the rows it skips are the ones the review showed.
+  checkOptions Json?    @map("check_options")
+  /// Counts from the last check (total, duplicates, will update / create, …).
+  summary      Json?
+  /// Leads this session's import CREATED — what Undo removes. Never the leads
+  /// it only updated.
+  createdIds   String[] @default([]) @map("created_ids") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  rows       LeadImportRow[]
+  duplicates LeadImportDuplicate[]
+
+  @@index([createdAt])
+  @@map("lead_import_sessions")
+}
+
+/// A staged row of a LeadImportSession: the parsed sheet row, as uploaded.
+model LeadImportRow {
+  sessionId String            @map("session_id") @db.Uuid
+  session   LeadImportSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  /// Position in the file, from 0 — the index every decision refers to.
+  idx       Int
+  data      Json
+
+  @@id([sessionId, idx])
+  @@map("lead_import_rows")
+}
+
+/// The duplicate check's verdict on one staged row, prior decision included —
+/// what the review pages through. Only duplicate rows get one.
+model LeadImportDuplicate {
+  sessionId String            @map("session_id") @db.Uuid
+  session   LeadImportSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  idx       Int
+  result    Json
+
+  @@id([sessionId, idx])
+  @@map("lead_import_duplicates")
 }
 
 /// Audit/feed of work auto-reassigned when a user goes offline (or fails to

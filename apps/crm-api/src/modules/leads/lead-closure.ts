@@ -45,3 +45,16 @@ export function closureCreateFields(
     ...(actorId ? { closedBy: { connect: { id: actorId } } } : {}),
   };
 }
+
+/**
+ * closureCreateFields in scalar form, for a batched `createMany` — which takes
+ * foreign keys as columns, not as `connect`. Same rule, so a lead created by
+ * the bulk import is credited exactly as one created by the form.
+ */
+export function closureCreateScalars(
+  status: LeadStatus | undefined,
+  actorId: string | null,
+): Partial<Prisma.LeadCreateManyInput> {
+  if (status !== LeadStatus.closed) return {};
+  return { closedAt: new Date(), ...(actorId ? { closedById: actorId } : {}) };
+}

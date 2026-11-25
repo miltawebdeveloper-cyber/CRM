@@ -15,6 +15,7 @@ import {
   quickDays, summarizeByOwner, waitingLabel, type AgeTone, type PendingKind,
 } from '@/lib/pending-calls';
 import { toast } from '@/lib/toast';
+import { invalidateLeadBook } from '@/lib/sync';
 
 const MODE_OPTIONS = [
   { label: 'Manual', value: 'manual' as PendingMode },
@@ -108,9 +109,9 @@ export function PendingCalls() {
     return (summary?.callers ?? []).map((c) => ({ id: c.id, name: c.name, pending: pending.get(c.id) ?? 0 }));
   }, [summary, owners]);
 
-  const refresh = () => {
-    for (const key of [['pending-calls'], ['leads'], ['caller-leads'], ['assignments-summary'], ['calendar']]) void qc.invalidateQueries({ queryKey: key });
-  };
+  // A moved call changes whose queue it is in and on which day — every view of
+  // the book, the Calling Panel's cards included (see lib/sync.ts).
+  const refresh = () => invalidateLeadBook(qc);
 
   /** One move, whoever asked for it: a row, a group, the selection or the dialog. */
   const move = useMutation({

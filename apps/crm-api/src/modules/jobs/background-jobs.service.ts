@@ -9,7 +9,7 @@ const HEARTBEAT_MS = 30_000;
 /** Progress writes are coalesced to at most one per this interval. */
 const PROGRESS_WRITE_MS = 1_000;
 
-export type JobKind = 'lead_import' | 'quo_sync_all';
+export type JobKind = 'lead_import' | 'lead_import_check' | 'lead_import_undo' | 'quo_sync_all';
 
 export interface JobContext {
   /** Report progress. Cheap to call often — writes are coalesced. */
@@ -82,9 +82,10 @@ export class BackgroundJobsService implements OnApplicationBootstrap, OnApplicat
    * One job, for its poll. `kind` must match, and non-managers may only read
    * jobs they started.
    */
-  async get(id: string, kind: JobKind, viewer: { id: string; isManager: boolean }): Promise<JobView> {
+  async get(id: string, kind: JobKind | JobKind[], viewer: { id: string; isManager: boolean }): Promise<JobView> {
+    const kinds: string[] = Array.isArray(kind) ? kind : [kind];
     const job = await this.prisma.backgroundJob.findUnique({ where: { id } });
-    if (!job || job.kind !== kind || (!viewer.isManager && job.createdById !== viewer.id)) {
+    if (!job || !kinds.includes(job.kind) || (!viewer.isManager && job.createdById !== viewer.id)) {
       throw new NotFoundException('Job not found');
     }
     return this.view(job);

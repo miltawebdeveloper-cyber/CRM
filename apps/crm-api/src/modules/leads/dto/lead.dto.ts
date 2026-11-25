@@ -1,4 +1,4 @@
-import { ArrayNotEmpty, IsArray, IsBoolean, IsEmail, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min, MinLength } from 'class-validator';
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsBoolean, IsEmail, IsEnum, IsIn, IsInt, IsObject, IsOptional, IsString, IsUUID, Max, Min, MinLength } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { LeadStatus } from '@crm/database';
@@ -709,4 +709,87 @@ export class ListLeadsQueryDto {
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   idsOnly?: boolean;
+
+  /**
+   * Return EVERY matching lead (up to 200,000), compact — for "Select all" on a
+   * grid that has loaded only its first pages. Ignores page, pageSize and limit.
+   */
+  @ApiPropertyOptional({ description: 'Every matching lead, compact, for Select all' })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  selection?: boolean;
+}
+
+/**
+ * Chunked import (see LeadImportSessionService). A file is opened as a session,
+ * its rows uploaded in pieces, then checked and imported over what was staged —
+ * so no single request carries the whole file, whatever its size.
+ */
+export class OpenImportSessionDto {
+  @ApiProperty({ description: 'How many rows the file has; chunks fill positions 0 … totalRows-1' })
+  @IsInt()
+  @Min(1)
+  @Max(2_000_000)
+  totalRows: number;
+}
+
+export class AppendImportRowsDto {
+  @ApiProperty({ description: 'File position of the first row in this chunk, from 0' })
+  @IsInt()
+  @Min(0)
+  start: number;
+
+  @ApiProperty({ type: [CreateLeadDto] })
+  @IsArray()
+  @ArrayNotEmpty()
+  @ArrayMaxSize(10_000)
+  rows: CreateLeadDto[];
+}
+
+/** The duplicate rules a staged file is checked under — the import reuses them. */
+export class CheckImportSessionDto {
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  checkFields?: string[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  ignorePhoneFormatting?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  matchCompanyDomain?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  matchLocation?: boolean;
+}
+
+export class RunImportSessionDto {
+  /**
+   * `all` imports every row, duplicates included. `skip_duplicates` leaves every
+   * duplicate out. `decisions` follows `decisions` for the rows it names and,
+   * for every other duplicate, its remembered ruling — import if it was imported
+   * last time, otherwise skip — which is what the review pre-selects.
+   */
+  @ApiProperty({ enum: ['all', 'skip_duplicates', 'decisions'] })
+  @IsIn(['all', 'skip_duplicates', 'decisions'])
+  mode: 'all' | 'skip_duplicates' | 'decisions';
+
+  /** Row index → 'import' | 'skip', for the duplicates the reviewer ruled on. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  decisions?: Record<string, 'import' | 'skip'>;
+
+  /** Row index → the fields to keep from the CRM (left out of that row's update). */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsObject()
+  keepFields?: Record<string, string[]>;
 }

@@ -10,6 +10,7 @@ import { Avatar } from '@/components/page-head';
 import { ReassignConfirm } from '@/components/reassign-confirm';
 import { pushToast } from '@/lib/toast';
 import { UNSET_TIMEZONE_LABEL } from '@/lib/timezone';
+import { invalidateLeadBook } from '@/lib/sync';
 
 const distinct = (vals: (string | null | undefined)[]) =>
   [...new Set(vals.map((v) => (v ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
@@ -311,12 +312,7 @@ export function LeadAssignDialog({
    * panel would keep showing the pre-assignment book until it next polled.
    */
   const invalidateAfterAssign = () => {
-    qc.invalidateQueries({ queryKey: ['leads'] });
-    qc.invalidateQueries({ queryKey: ['assignments-summary'] });
-    qc.invalidateQueries({ queryKey: ['metrics', 'summary'] });
-    qc.invalidateQueries({ queryKey: ['lead-range'] });
-    qc.invalidateQueries({ queryKey: ['caller-leads'] });
-    qc.invalidateQueries({ queryKey: ['caller-dash'] });
+    invalidateLeadBook(qc);
   };
 
   /**

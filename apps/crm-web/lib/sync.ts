@@ -106,3 +106,39 @@ const LEAD_COMMENT_KEYS: string[][] = [
 export function invalidateLeadComment(qc: QueryClient) {
   for (const queryKey of LEAD_COMMENT_KEYS) qc.invalidateQueries({ queryKey });
 }
+
+/**
+ * Everything drawn from the lead book itself — which leads exist, who holds
+ * them, and the counts built on that. Invalidated after anything that adds,
+ * removes, restores or re-owns leads: an import and its Undo, Delete and
+ * Restore, a duplicate purge, Assign and Unassign, a lead added by hand.
+ *
+ * Each of those used to refresh its own hand-picked list, and the lists had
+ * drifted apart: an import's Undo left the removed leads in reps' Calling Panel
+ * queues, a lead deleted from Duplicate Leads stayed in the queue too, and
+ * nothing that moved a lead refreshed Pending Calls. One list, here, beside the
+ * call-activity one. Only the screens open right now refetch; the rest are
+ * marked stale and read fresh when next opened.
+ */
+const LEAD_BOOK_KEYS: string[][] = [
+  ['leads'], // every lead list — Library, Management, Closed, Recently deleted — their cards and filter options
+  ['lead'], // a single lead's page
+  ['lead-range'], // Assign by range
+  ['lead-duplicates'], // Duplicate Leads
+  ['palette-leads'], // the command palette's lead search
+  ['assignments-summary'], // per-employee counts: Assignments, the Assign dialog, Calendar, Follow-ups
+  ['caller-leads'], // the Calling Panel queue
+  ['caller-dash'], // its KPI cards
+  ['lead-book'], // assigned / completed / balance on the Calling Panel's Analytics tab
+  ['pending-calls'], // the Pending Calls queue
+  ['metrics'], // dashboard cards
+  ['m-states'], // Territories and Analytics by state
+  ['followups'], // a removed lead's follow-ups leave the module…
+  ['calendar'], // …and its callbacks leave the calendar
+  ['callbacks'], // …and the reminders
+  ['team-live'], // manager live view
+];
+
+export function invalidateLeadBook(qc: QueryClient) {
+  for (const queryKey of LEAD_BOOK_KEYS) qc.invalidateQueries({ queryKey });
+}

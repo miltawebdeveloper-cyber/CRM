@@ -61,7 +61,7 @@ export default function FollowupsPage() {
   // is already narrowed to them — one dead option under a heading promising
   // otherwise.
   const { data: summary } = useQuery({
-    queryKey: ['assignment-summary'],
+    queryKey: ['assignments-summary'],
     queryFn: assignmentsApi.summary,
     enabled: isManager,
     retry: false,

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AssignmentType, LeadStatus, Role, Prisma } from '@crm/database';
 import {
   allTimezoneCodes,
@@ -38,9 +38,9 @@ const dayFloor = (v: string) => (/^\d{4}-\d{2}-\d{2}$/.test(v.trim()) ? business
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
 import { ArchivedLeadsQueryDto, CreateLeadDto, ImportLeadsDto, ListLeadsQueryDto, UpdateLeadDto } from './dto/lead.dto.js';
-import { closureCreateFields, closureFields } from './lead-closure.js';
+import { closureCreateFields, closureCreateScalars, closureFields } from './lead-closure.js';
 import { buildMatchKeys, decisionKey, emailDomain, longestWord, type LeadMatchOptions, type MatchableRecord, type MatchSignal } from './lead-dedupe.js';
-import { LeadIdService } from './lead-id.service.js';
+import { LeadIdService, type LeadIdRun } from './lead-id.service.js';
 import { assertLeadAccess, isManagerRole } from '../../common/lead-access.js';
 import { contactedLeadWhere } from '../../common/lead-contacted.js';
 import { reachedOutcomeSlugs } from '../calls/call-status.js';
@@ -82,6 +82,22 @@ export function sameDayConfirmError(leads: { id: string; leadId: string; assigne
 /** Rows a page holds when the caller doesn't say. Enough to fill a screen and
  *  scroll a little; small enough that opening the module is one small response. */
 const DEFAULT_PAGE_SIZE = 50;
+
+/**
+ * Transaction ceiling for the bulk writes — archive, restore, delete, assign,
+ * unassign. Prisma's default is 5 seconds, and "Select all" can now hand these
+ * every lead matching a filter: tens of thousands at once, which is seconds of
+ * work, not milliseconds. Normal-sized batches finish long before either limit.
+ */
+const BULK_TX = { timeout: 120_000, maxWait: 10_000 };
+
+/** The most leads one "Select all" will pick up — past this, narrow the filters. */
+const MAX_SELECTION = 200_000;
+/** What a "Select all" row carries: what the bulk actions read, nothing more. */
+const SELECTION_SELECT = {
+  id: true, leadId: true, businessName: true, status: true, state: true, city: true, country: true,
+  timezone: true, assignedToId: true, assignedTo: { select: { id: true, name: true } },
+} as const;
 
 type ImportLeadMatch = {
   id: string; leadId: string; businessName: string; phone: string; altPhone: string | null;
@@ -225,6 +241,8 @@ const COMPLETENESS_FIELDS = [
 
 @Injectable()
 export class LeadsService {
+  private readonly logger = new Logger(LeadsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
@@ -850,260 +868,338 @@ export class LeadsService {
     // of thousands costs one write instead of thousands.
     const decisions = new Map<string, 'import' | 'skip'>();
 
-    for (let i = 0; i < dto.rows.length; i++) {
-      if (hooks.onProgress && i > 0 && i % 50 === 0) await hooks.onProgress(i);
-      const row = dto.rows[i];
-      const n = i + 1;
-      const phoneKey = (row.phone ?? '').replace(/\D/g, '');
-      const last10 = phoneKey.slice(-10);
+    // Lead IDs for this run, counted up from one read of the sequence — see
+    // LeadIdService.createManyInRun.
+    const idRun: LeadIdRun = {};
+    // History entries ("lead created" / "lead updated"), written a batch at a
+    // time instead of a read and a write per row. Flushed in `finally` too, so a
+    // run that fails part way still leaves the trail for every lead it touched.
+    const BATCH = 1000;
+    const historyLogs: Prisma.ActivityCreateManyInput[] = [];
+    const flushLogs = async () => {
+      if (!historyLogs.length) return;
+      await this.prisma.activity.createMany({ data: historyLogs.splice(0, historyLogs.length) });
+    };
 
-      const isDuplicate = dupByIndex[i]?.duplicate ?? false;
-      if (isDuplicate) {
-        duplicateRecords++;
-        const shouldSkip = dto.skipDuplicates || skipRowSet.has(i);
-        const dk = dupByIndex[i].decisionKey;
-        if (dk) decisions.set(dk, shouldSkip ? 'skip' : 'import');
-        if (shouldSkip) {
-          skipped++;
-          errors.push({ row: n, reason: `Skipped duplicate (matched on ${dupByIndex[i].matchedOn.join(', ')})` });
-          continue;
+    /**
+     * New leads wait here and are written BATCH at a time — one INSERT for a
+     * thousand leads instead of a transaction each (LeadIdService.createManyInRun),
+     * which is what takes a large file from a few hundred rows a second to
+     * thousands. Their assignment rows and history follow in one insert each.
+     *
+     * A later row of the same file can match a lead still waiting here (the same
+     * Lead ID or phone twice). `pendingKeys` spots that, and the batch is written
+     * first, so the second row updates the lead the first one made exactly as it
+     * did when every lead was written on the spot.
+     */
+    const pending: Array<{ build: (leadId: string) => Prisma.LeadCreateManyInput; leadId?: string; assignedToId?: string; keys: string[] }> = [];
+    const pendingKeys = new Set<string>();
+    const flushCreates = async () => {
+      if (!pending.length) return;
+      const batch = pending.splice(0, pending.length);
+      pendingKeys.clear();
+      const created = await this.leadIds.createManyInRun(batch, idRun);
+      const assignments: Prisma.AssignmentCreateManyInput[] = [];
+      created.forEach((lead, k) => {
+        const p = batch[k];
+        imported++;
+        createdIds.push(lead.id);
+        // The same entry `log()` writes, from the lead just created.
+        if (userId) {
+          historyLogs.push({
+            leadId: lead.id, userId, action: 'lead_created', oldValue: null, newValue: lead.status,
+            remarks: 'Imported row created lead', callStatus: lead.callStatus ?? null, assignedToId: lead.assignedToId ?? null,
+          });
         }
-      } else if (skipRowSet.has(i)) {
-        skipped++;
-        errors.push({ row: n, reason: 'Skipped by user choice' });
-        continue;
-      }
-      // No second same-file phone guard here. It compared digits only, so under
-      // an exact-match rule it silently skipped rows the review screen had just
-      // reported as clean — "3055551234" dropped because an earlier row wrote
-      // "+13055551234". Two rows carrying the same number in different formats
-      // now both run, and the second is picked up by the create-or-update lookup
-      // below and applied to the lead the first one made, which is reported as
-      // an update rather than disappearing into the error list.
-
-      // Only the provided (non-empty) columns; missing columns stay untouched.
-      const data: Prisma.LeadUpdateInput = {};
-      const setIf = (key: keyof Prisma.LeadUpdateInput, v?: string) => {
-        if (v != null && String(v).trim() !== '') (data as Record<string, unknown>)[key] = String(v).trim();
-      };
-      setIf('businessName', row.businessName);
-      setIf('phone', row.phone);
-      setIf('email', row.email);
-      setIf('state', row.state);
-      setIf('city', row.city);
-      // Normalize + validate against the live admin-managed list so a stray
-      // value can never crash the import.
-      // A zone belonging to a different country than the row's (India + EST)
-      // is dropped like an unknown code — the lead lands zone-less and gets
-      // asked for one, rather than being called on the wrong clock.
-      const tz = (row.timezone ?? '').trim().toUpperCase();
-      const rowCountry = (row.country ?? '').trim() || null;
-      if (allTimezoneCodes().includes(tz) && zoneMatchesCountry(tz, rowCountry)) data.timezone = tz;
-      const stRaw = (row.status ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
-      const stAlias: Record<string, string> = { closed_won: 'closed', won: 'closed', lost: 'rejected', new_lead: 'new' };
-      const st = stAlias[stRaw] ?? stRaw;
-      if ((Object.values(LeadStatus) as string[]).includes(st)) data.status = st as LeadStatus;
-      setIf('contactName', row.contactName);
-      setIf('industry', row.industry);
-      setIf('title', row.title);
-      setIf('employeeCode', row.employeeCode);
-      setIf('comments', row.comments);
-      setIf('leadCategory', row.leadCategory);
-      setIf('callStatus', row.callStatus);
-      setIf('lostReason', row.lostReason);
-      setIf('leadGenerationId', row.leadGenerationId);
-      setIf('leadSource', row.leadSource);
-      setIf('contactName2', row.contactName2);
-      setIf('altPhone', row.altPhone);
-      setIf('website', row.website);
-      setIf('socialMedia', row.socialMedia);
-      setIf('country', row.country);
-      setIf('companySize', row.companySize);
-      setIf('foundedYear', row.foundedYear);
-      setIf('address', row.address);
-      const fu = row.nextFollowUpDate ? new Date(row.nextFollowUpDate) : undefined;
-      if (fu && !isNaN(fu.getTime())) data.nextFollowUpDate = fu;
-      const fc = row.firstContact ? new Date(row.firstContact) : undefined;
-      if (fc && !isNaN(fc.getTime())) data.firstContact = fc;
-      const lc = row.lastContact ? new Date(row.lastContact) : undefined;
-      if (lc && !isNaN(lc.getTime())) data.lastContact = lc;
-      const md = row.meetingDate ? new Date(row.meetingDate) : undefined;
-      if (md && !isNaN(md.getTime())) data.meetingDate = md;
-      if (row.followupCount != null) data.followupCount = Number(row.followupCount);
-      // Skip completely empty rows (nothing provided at all).
-      if (Object.keys(data).length === 0 && !row.caller?.trim()) continue;
-
-      // ── Auto-assignment from the sheet's "Assigned To" column ──
-      // A named employee that can't be matched is a data error worth surfacing:
-      // silently importing the lead unassigned is how a whole batch ends up
-      // needing manual assignment afterwards, which is exactly what this avoids.
-      const callerCell = row.caller?.trim();
-      const assignedToId = await resolveAssigned(row.caller);
-      if (callerCell && !assignedToId) {
-        errors.push({ row: n, reason: `Employee '${callerCell}' was not found. Please verify the Assigned To value.` });
-        assignFailed++;
-      }
-      const assignRel = assignedToId ? { assignedTo: { connect: { id: assignedToId } } } : {};
-
-      // Match an existing lead by leadId or phone (last 10 digits), if any.
-      let existing: ImportLeadMatch | null = null;
-      const preKnownExisting = dupByIndex[i]?.willUpdate ?? null;
-      if (preKnownExisting) {
-        existing = {
-          ...preKnownExisting,
-          assignedTo: preKnownExisting.assignedTo ?? null,
-          assignedToId: preKnownExisting.assignedToId ?? null,
+        const match: ImportLeadMatch = {
+          id: lead.id, leadId: lead.leadId, businessName: '', phone: '', altPhone: null, email: null, website: null,
+          assignedTo: null, assignedToId: p.assignedToId ?? null, createdAt: new Date(), leadGenerationId: null,
+          leadSource: null, contactName: null, contactName2: null, socialMedia: null, country: null, state: '', city: '',
+          timezone: null, industry: null, companySize: null, foundedYear: null, address: null, callStatus: null,
+          lostReason: null, status: lead.status,
         };
-      } else if (row.leadId) {
-        const leadKey = `lead:${row.leadId}`;
-        existing = importLeadCache.get(leadKey) ?? null;
-      }
-      if (!existing && last10) {
-        const phoneKeyCache = `phone:${last10}`;
-        existing = importLeadCache.get(phoneKeyCache) ?? null;
-      }
-      if (!existing && (last10 || row.leadId)) {
-        existing = await this.prisma.lead.findFirst({
-          where: {
-            deletedAt: null,
-            OR: [...(row.leadId ? [{ leadId: row.leadId }] : []), ...(last10 ? [{ phone: { contains: last10 } }] : [])],
-          },
-          select: { id: true, leadId: true, businessName: true, phone: true, altPhone: true, email: true,
-            website: true, createdAt: true, assignedToId: true, assignedTo: { select: { name: true } },
-            leadGenerationId: true, leadSource: true, contactName: true, contactName2: true,
-            socialMedia: true, country: true, state: true, city: true, timezone: true, industry: true,
-            companySize: true, foundedYear: true, address: true, callStatus: true, lostReason: true,
-            status: true },
-        }) as ImportLeadMatch | null;
-        if (existing) {
-          const cacheKey = row.leadId ? `lead:${row.leadId}` : `phone:${last10}`;
-          importLeadCache.set(cacheKey, existing);
+        for (const key of p.keys) importLeadCache.set(key, match);
+        // A brand-new lead has no prior owner and no active assignment to close,
+        // so this is `recordAssignment` without its read and its update.
+        if (p.assignedToId && userId) {
+          assignments.push({
+            leadId: lead.id, callerId: p.assignedToId, previousCallerId: null, assignedById: userId,
+            batchName: 'Excel import', type: AssignmentType.new_assignment,
+          });
         }
-      }
+      });
+      if (assignments.length) await this.prisma.assignment.createMany({ data: assignments });
+      await flushLogs();
+    };
 
-      if (!existing && data.timezone === undefined && rowCountry && countryDefaults.has(rowCountry)) {
-        // New lead with a country but no zone: the country's default. Only on
-        // create — an update must never swap a zone the lead already has.
-        data.timezone = countryDefaults.get(rowCountry);
-      }
-      if (existing && typeof data.timezone === 'string' && !rowCountry && !zoneMatchesCountry(data.timezone, existing.country)) {
-        delete data.timezone;
-      }
+    // Lead IDs in the file that belong to ARCHIVED leads — looked up once for the
+    // whole file rather than one query per row that carries a Lead ID.
+    const archivedLeadIds = new Set<string>();
+    const fileLeadIds = [...new Set(dto.rows.map((r) => r.leadId).filter((v): v is string => !!v))];
+    for (let k = 0; k < fileLeadIds.length; k += 10_000) {
+      const found = await this.prisma.lead.findMany({
+        where: { leadId: { in: fileLeadIds.slice(k, k + 10_000) }, deletedAt: { not: null } },
+        select: { leadId: true },
+      });
+      for (const f of found) archivedLeadIds.add(f.leadId);
+    }
 
-      if (existing) {
-        // A lead has exactly one owner, so an import must not take one off the
-        // employee already holding it — the sheet updates the lead's fields, but
-        // ownership stays put and the clash is reported.
-        const ownedByOther = !!existing.assignedToId && !!assignedToId && existing.assignedToId !== assignedToId;
-        if (ownedByOther) {
-          errors.push({
-            row: n,
-            reason: `Already assigned to ${existing.assignedTo ?? 'another employee'} — ownership left unchanged.`,
-          });
-          assignFailed++;
-        } else if (assignedToId) {
-          assignOk++;
-        }
-        // The daily restriction, as it applies to an import: a lead handed over
-        // earlier today keeps its owner even if the sheet names someone else, so
-        // a re-import can't shuffle ownership mid-day.
-        //
-        // No confirmation path here, unlike the interactive routes. A file of a
-        // few thousand rows is not something a manager can meaningfully confirm
-        // lead by lead, and one blanket "yes" over a whole import is exactly the
-        // accident the restriction exists to prevent. The row is reported and
-        // ownership left alone; reassigning is then a deliberate act in the UI.
-        const lockedToday = !ownedByOther && !!assignedToId && existing.assignedToId !== assignedToId && (await assignedTodayCached(existing.id));
-        if (lockedToday) {
-          errors.push({
-            row: n,
-            reason: 'Already assigned today — ownership left unchanged. Reassign from Lead Management if this is intended.',
-          });
-          assignFailed++;
-        }
-        const keepOwner = ownedByOther || lockedToday ? {} : assignRel;
-        const changedOwner = !ownedByOther && !lockedToday && !!assignedToId && existing.assignedToId !== assignedToId;
-        // An imported row that closes (or reopens) a lead is credited to the
-        // row's CALLER — the rep the sheet names — never to whoever ran the
-        // import.
-        const closure = closureFields(data.status as LeadStatus | undefined, existing.status as LeadStatus | undefined, assignedToId ?? null);
-        const updatedLead = await this.prisma.lead.update({ where: { id: existing.id }, data: { ...data, ...keepOwner, ...closure } });
-        if (userId) await this.log(updatedLead.id, userId, 'lead_updated', null, null, 'Imported row updated lead');
-        // Record the handover so the daily restriction applies to it from here
-        // on. The previous owner is passed explicitly: the update above has
-        // already put the new one on the lead, so reading it back would record
-        // the handover as having come from the person it went to.
-        if (changedOwner && userId) {
-          await this.recordAssignment(existing.id, assignedToId!, userId, 'Excel import', {
-            previousCallerId: existing.assignedToId ?? null,
-          });
-        }
-        updated++;
-      } else {
-        // A Lead ID held by an ARCHIVED lead. The lookup above only sees live
-        // leads, so this row would otherwise go on to create one — and the Lead
-        // ID index is unique across archived rows too, so that create would throw
-        // and end the whole import part-way. Refused per row instead, saying why
-        // and what to do about it.
-        if (row.leadId) {
-          const archived = await this.prisma.lead.findFirst({
-            where: { leadId: row.leadId, deletedAt: { not: null } },
-            select: { id: true },
-          });
-          if (archived) {
+    try {
+      for (let i = 0; i < dto.rows.length; i++) {
+        if (hooks.onProgress && i > 0 && i % 50 === 0) await hooks.onProgress(i);
+        const row = dto.rows[i];
+        const n = i + 1;
+        const phoneKey = (row.phone ?? '').replace(/\D/g, '');
+        const last10 = phoneKey.slice(-10);
+
+        const isDuplicate = dupByIndex[i]?.duplicate ?? false;
+        if (isDuplicate) {
+          duplicateRecords++;
+          const shouldSkip = dto.skipDuplicates || skipRowSet.has(i);
+          const dk = dupByIndex[i].decisionKey;
+          if (dk) decisions.set(dk, shouldSkip ? 'skip' : 'import');
+          if (shouldSkip) {
             skipped++;
-            errors.push({
-              row: n,
-              reason: `Lead ID ${row.leadId} belongs to a deleted lead. Remove the Lead ID from this row to import it as a new lead.`,
-            });
+            errors.push({ row: n, reason: `Skipped duplicate (matched on ${dupByIndex[i].matchedOn.join(', ')})` });
             continue;
           }
+        } else if (skipRowSet.has(i)) {
+          skipped++;
+          errors.push({ row: n, reason: 'Skipped by user choice' });
+          continue;
         }
-        // No required columns: missing core fields default to empty (fill later).
-        const created = await this.createLead(
-          (leadId) =>
-            ({
-              leadId,
-              businessName: '',
-              phone: '',
-              state: '',
-              city: '',
-              // No `timezone` fallback on purpose. Stamping EST here is how a
-              // row with a blank or unreadable zone became a lead that claimed
-              // to be Eastern, and callbacks against it were booked on the
-              // wrong clock. Left null, the lead reads as unconfigured and the
-              // scheduler asks for a zone before it will book anything.
-              status: LeadStatus.new,
-              ...data,
-              ...assignRel,
-              ...closureCreateFields(data.status as LeadStatus | undefined, assignedToId ?? null),
-              // The sheet's own creation date, for a back catalogue being
-              // brought in. Only on the CREATE branch: the update branch above
-              // builds `data` without ever setting `createdAt`, so a re-import
-              // cannot rewrite the original stamp of a lead already here — which
-              // is the guarantee Lead Management's Created Date & Time rests on.
-              ...this.originalCreatedAt({ createdAt: row.createdAt, timezone: row.timezone } as CreateLeadDto),
-            }) as Prisma.LeadCreateInput,
-          row.leadId,
-        );
-        if (userId) await this.log(created.id, userId, 'lead_created', null, created.status, 'Imported row created lead');
-        imported++;
-        createdIds.push(created.id);
-        if (row.leadId) importLeadCache.set(`lead:${row.leadId}`, { id: created.id, leadId: created.leadId, businessName: '', phone: '', altPhone: null, email: null, website: null, assignedTo: null, assignedToId: assignedToId ?? null, createdAt: new Date(), leadGenerationId: null, leadSource: null, contactName: null, contactName2: null, socialMedia: null, country: null, state: '', city: '', timezone: null, industry: null, companySize: null, foundedYear: null, address: null, callStatus: null, lostReason: null, status: created.status });
-        if (last10) importLeadCache.set(`phone:${last10}`, { id: created.id, leadId: created.leadId, businessName: '', phone: '', altPhone: null, email: null, website: null, assignedTo: null, assignedToId: assignedToId ?? null, createdAt: new Date(), leadGenerationId: null, leadSource: null, contactName: null, contactName2: null, socialMedia: null, country: null, state: '', city: '', timezone: null, industry: null, companySize: null, foundedYear: null, address: null, callStatus: null, lostReason: null, status: created.status });
-        // A brand-new lead has no prior owner, so the sheet's employee always wins.
-        if (assignedToId) {
-          assignOk++;
-          if (userId) await this.recordAssignment(created.id, assignedToId, userId, 'Excel import', { previousCallerId: null });
+        // No second same-file phone guard here. It compared digits only, so under
+        // an exact-match rule it silently skipped rows the review screen had just
+        // reported as clean — "3055551234" dropped because an earlier row wrote
+        // "+13055551234". Two rows carrying the same number in different formats
+        // now both run, and the second is picked up by the create-or-update lookup
+        // below and applied to the lead the first one made, which is reported as
+        // an update rather than disappearing into the error list.
+
+        // Only the provided (non-empty) columns; missing columns stay untouched.
+        const data: Prisma.LeadUpdateInput = {};
+        const setIf = (key: keyof Prisma.LeadUpdateInput, v?: string) => {
+          if (v != null && String(v).trim() !== '') (data as Record<string, unknown>)[key] = String(v).trim();
+        };
+        setIf('businessName', row.businessName);
+        setIf('phone', row.phone);
+        setIf('email', row.email);
+        setIf('state', row.state);
+        setIf('city', row.city);
+        // Normalize + validate against the live admin-managed list so a stray
+        // value can never crash the import.
+        // A zone belonging to a different country than the row's (India + EST)
+        // is dropped like an unknown code — the lead lands zone-less and gets
+        // asked for one, rather than being called on the wrong clock.
+        const tz = (row.timezone ?? '').trim().toUpperCase();
+        const rowCountry = (row.country ?? '').trim() || null;
+        if (allTimezoneCodes().includes(tz) && zoneMatchesCountry(tz, rowCountry)) data.timezone = tz;
+        const stRaw = (row.status ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+        const stAlias: Record<string, string> = { closed_won: 'closed', won: 'closed', lost: 'rejected', new_lead: 'new' };
+        const st = stAlias[stRaw] ?? stRaw;
+        if ((Object.values(LeadStatus) as string[]).includes(st)) data.status = st as LeadStatus;
+        setIf('contactName', row.contactName);
+        setIf('industry', row.industry);
+        setIf('title', row.title);
+        setIf('employeeCode', row.employeeCode);
+        setIf('comments', row.comments);
+        setIf('leadCategory', row.leadCategory);
+        setIf('callStatus', row.callStatus);
+        setIf('lostReason', row.lostReason);
+        setIf('leadGenerationId', row.leadGenerationId);
+        setIf('leadSource', row.leadSource);
+        setIf('contactName2', row.contactName2);
+        setIf('altPhone', row.altPhone);
+        setIf('website', row.website);
+        setIf('socialMedia', row.socialMedia);
+        setIf('country', row.country);
+        setIf('companySize', row.companySize);
+        setIf('foundedYear', row.foundedYear);
+        setIf('address', row.address);
+        const fu = row.nextFollowUpDate ? new Date(row.nextFollowUpDate) : undefined;
+        if (fu && !isNaN(fu.getTime())) data.nextFollowUpDate = fu;
+        const fc = row.firstContact ? new Date(row.firstContact) : undefined;
+        if (fc && !isNaN(fc.getTime())) data.firstContact = fc;
+        const lc = row.lastContact ? new Date(row.lastContact) : undefined;
+        if (lc && !isNaN(lc.getTime())) data.lastContact = lc;
+        const md = row.meetingDate ? new Date(row.meetingDate) : undefined;
+        if (md && !isNaN(md.getTime())) data.meetingDate = md;
+        if (row.followupCount != null) data.followupCount = Number(row.followupCount);
+        // Skip completely empty rows (nothing provided at all).
+        if (Object.keys(data).length === 0 && !row.caller?.trim()) continue;
+
+        // ── Auto-assignment from the sheet's "Assigned To" column ──
+        // A named employee that can't be matched is a data error worth surfacing:
+        // silently importing the lead unassigned is how a whole batch ends up
+        // needing manual assignment afterwards, which is exactly what this avoids.
+        const callerCell = row.caller?.trim();
+        const assignedToId = await resolveAssigned(row.caller);
+        if (callerCell && !assignedToId) {
+          errors.push({ row: n, reason: `Employee '${callerCell}' was not found. Please verify the Assigned To value.` });
+          assignFailed++;
+        }
+        const assignRel = assignedToId ? { assignedTo: { connect: { id: assignedToId } } } : {};
+
+        // Match an existing lead by leadId or phone (last 10 digits), if any.
+        let existing: ImportLeadMatch | null = null;
+        const preKnownExisting = dupByIndex[i]?.willUpdate ?? null;
+        if (preKnownExisting) {
+          existing = {
+            ...preKnownExisting,
+            assignedTo: preKnownExisting.assignedTo ?? null,
+            assignedToId: preKnownExisting.assignedToId ?? null,
+          };
+        } else if ([`lead:${row.leadId}`, `phone:${last10}`].some((k) => pendingKeys.has(k))) {
+          // This row repeats a lead still waiting to be written: write the batch
+          // now, so the lookups below find it.
+          await flushCreates();
+        }
+        if (!existing && row.leadId) {
+          const leadKey = `lead:${row.leadId}`;
+          existing = importLeadCache.get(leadKey) ?? null;
+        }
+        if (!existing && last10) {
+          const phoneKeyCache = `phone:${last10}`;
+          existing = importLeadCache.get(phoneKeyCache) ?? null;
+        }
+        // No database lookup per row. Whether a row updates a lead already in the
+        // CRM was decided for the whole file by `analyzeImport` above — the same
+        // Lead ID / "phone contains the last 10 digits" rule, worked out in one
+        // paged pass over the book — and a lead created earlier in THIS file is in
+        // `importLeadCache`. The per-row `phone contains` query this replaced could
+        // use no index, so every row scanned the whole leads table: a 50,000-row
+        // file did 50,000 full scans of a table growing as it went, and took most
+        // of an hour.
+
+        if (!existing && data.timezone === undefined && rowCountry && countryDefaults.has(rowCountry)) {
+          // New lead with a country but no zone: the country's default. Only on
+          // create — an update must never swap a zone the lead already has.
+          data.timezone = countryDefaults.get(rowCountry);
+        }
+        if (existing && typeof data.timezone === 'string' && !rowCountry && !zoneMatchesCountry(data.timezone, existing.country)) {
+          delete data.timezone;
+        }
+
+        if (existing) {
+          // A lead has exactly one owner, so an import must not take one off the
+          // employee already holding it — the sheet updates the lead's fields, but
+          // ownership stays put and the clash is reported.
+          const ownedByOther = !!existing.assignedToId && !!assignedToId && existing.assignedToId !== assignedToId;
+          if (ownedByOther) {
+            errors.push({
+              row: n,
+              reason: `Already assigned to ${existing.assignedTo ?? 'another employee'} — ownership left unchanged.`,
+            });
+            assignFailed++;
+          } else if (assignedToId) {
+            assignOk++;
+          }
+          // The daily restriction, as it applies to an import: a lead handed over
+          // earlier today keeps its owner even if the sheet names someone else, so
+          // a re-import can't shuffle ownership mid-day.
+          //
+          // No confirmation path here, unlike the interactive routes. A file of a
+          // few thousand rows is not something a manager can meaningfully confirm
+          // lead by lead, and one blanket "yes" over a whole import is exactly the
+          // accident the restriction exists to prevent. The row is reported and
+          // ownership left alone; reassigning is then a deliberate act in the UI.
+          const lockedToday = !ownedByOther && !!assignedToId && existing.assignedToId !== assignedToId && (await assignedTodayCached(existing.id));
+          if (lockedToday) {
+            errors.push({
+              row: n,
+              reason: 'Already assigned today — ownership left unchanged. Reassign from Lead Management if this is intended.',
+            });
+            assignFailed++;
+          }
+          const keepOwner = ownedByOther || lockedToday ? {} : assignRel;
+          const changedOwner = !ownedByOther && !lockedToday && !!assignedToId && existing.assignedToId !== assignedToId;
+          // An imported row that closes (or reopens) a lead is credited to the
+          // row's CALLER — the rep the sheet names — never to whoever ran the
+          // import.
+          const closure = closureFields(data.status as LeadStatus | undefined, existing.status as LeadStatus | undefined, assignedToId ?? null);
+          const updatedLead = await this.prisma.lead.update({ where: { id: existing.id }, data: { ...data, ...keepOwner, ...closure } });
+          // What `log()` would write, from the row the update just returned
+          // rather than read back, and written with the batch.
+          if (userId) {
+            historyLogs.push({
+              leadId: updatedLead.id, userId, action: 'lead_updated', oldValue: null, newValue: null,
+              remarks: 'Imported row updated lead', callStatus: updatedLead.callStatus ?? null, assignedToId: updatedLead.assignedToId ?? null,
+            });
+            if (historyLogs.length >= BATCH) await flushLogs();
+          }
+          // Record the handover so the daily restriction applies to it from here
+          // on. The previous owner is passed explicitly: the update above has
+          // already put the new one on the lead, so reading it back would record
+          // the handover as having come from the person it went to.
+          if (changedOwner && userId) {
+            await this.recordAssignment(existing.id, assignedToId!, userId, 'Excel import', {
+              previousCallerId: existing.assignedToId ?? null,
+            });
+          }
+          updated++;
+        } else {
+          // A Lead ID held by an ARCHIVED lead. The lookup above only sees live
+          // leads, so this row would otherwise go on to create one — and the Lead
+          // ID index is unique across archived rows too, so that create would throw
+          // and end the whole import part-way. Refused per row instead, saying why
+          // and what to do about it.
+          if (row.leadId) {
+            if (archivedLeadIds.has(row.leadId)) {
+              skipped++;
+              errors.push({
+                row: n,
+                reason: `Lead ID ${row.leadId} belongs to a deleted lead. Remove the Lead ID from this row to import it as a new lead.`,
+              });
+              continue;
+            }
+          }
+          // No required columns: missing core fields default to empty (fill later).
+          // Queued, and written with the rest of its batch — see `flushCreates`.
+          pending.push({
+            build: (leadId) =>
+              ({
+                leadId,
+                businessName: '',
+                phone: '',
+                state: '',
+                city: '',
+                // No `timezone` fallback on purpose. Stamping EST here is how a
+                // row with a blank or unreadable zone became a lead that claimed
+                // to be Eastern, and callbacks against it were booked on the
+                // wrong clock. Left null, the lead reads as unconfigured and the
+                // scheduler asks for a zone before it will book anything.
+                status: LeadStatus.new,
+                ...(data as unknown as Partial<Prisma.LeadCreateManyInput>),
+                ...(assignedToId ? { assignedToId } : {}),
+                ...closureCreateScalars(data.status as LeadStatus | undefined, assignedToId ?? null),
+                // The sheet's own creation date, for a back catalogue being
+                // brought in. Only on the CREATE branch: the update branch above
+                // builds `data` without ever setting `createdAt`, so a re-import
+                // cannot rewrite the original stamp of a lead already here — which
+                // is the guarantee Lead Management's Created Date & Time rests on.
+                ...this.originalCreatedAt({ createdAt: row.createdAt, timezone: row.timezone } as CreateLeadDto),
+              }) as Prisma.LeadCreateManyInput,
+            leadId: row.leadId || undefined,
+            assignedToId,
+            keys: [...(row.leadId ? [`lead:${row.leadId}`] : []), ...(last10 ? [`phone:${last10}`] : [])],
+          });
+          for (const key of pending[pending.length - 1].keys) pendingKeys.add(key);
+          // A brand-new lead has no prior owner, so the sheet's employee always wins.
+          if (assignedToId) assignOk++;
+          if (pending.length >= BATCH) await flushCreates();
         }
       }
+      await flushCreates();
+    } finally {
+      await flushLogs().catch(() => undefined);
     }
 
     /**
      * Remember what was ruled, so the next run of the same file does not ask
-     * again. Upserted one key at a time inside a transaction — `createMany` with
-     * skipDuplicates would keep the OLD answer for a key already on file, and a
-     * decision the user has just changed is precisely the one worth keeping.
+     * again. An upsert, not `createMany` with skipDuplicates — that would keep
+     * the OLD answer for a key already on file, and a decision the user has just
+     * changed is precisely the one worth keeping. One statement per few thousand
+     * keys: a file of 100,000 duplicates used to queue 100,000 upserts.
      *
      * Deliberately after the import, and deliberately not fatal: a decision that
      * fails to save costs one repeated question next time, and is not a reason
@@ -1111,17 +1207,20 @@ export class LeadsService {
      */
     if (decisions.size > 0) {
       try {
-        await this.prisma.$transaction(
-          [...decisions].map(([matchKey, decision]) =>
-            this.prisma.importDuplicateDecision.upsert({
-              where: { matchKey },
-              create: { matchKey, decision, decidedById: userId ?? null },
-              update: { decision, decidedById: userId ?? null, decidedAt: new Date() },
-            }),
-          ),
-        );
-      } catch {
-        // Left unlogged-through rather than thrown: see above.
+        const entries = [...decisions];
+        for (let k = 0; k < entries.length; k += 5000) {
+          const chunk = entries.slice(k, k + 5000);
+          // decided_at is a UTC timestamp without zone, as Prisma writes it.
+          await this.prisma.$executeRaw`
+            INSERT INTO import_duplicate_decisions (match_key, decision, decided_by_id, decided_at)
+            SELECT t.k, t.d, ${userId ?? null}::uuid, (now() AT TIME ZONE 'UTC')
+            FROM unnest(${chunk.map(([m]) => m)}::text[], ${chunk.map(([, d]) => d)}::text[]) AS t(k, d)
+            ON CONFLICT (match_key) DO UPDATE
+              SET decision = EXCLUDED.decision, decided_by_id = EXCLUDED.decided_by_id, decided_at = EXCLUDED.decided_at`;
+        }
+      } catch (err) {
+        // Not thrown: see above.
+        this.logger.warn(`Could not remember import decisions: ${(err as Error).message}`);
       }
     }
 
@@ -1415,12 +1514,16 @@ export class LeadsService {
      * change it, and changing it is what gets remembered next.
      */
     const keys = [...new Set(duplicateRows.map((r) => r.decisionKey).filter(Boolean))];
-    const priors = keys.length
-      ? await this.prisma.importDuplicateDecision.findMany({
-          where: { matchKey: { in: keys } },
+    // A few thousand keys a query, not one IN list the size of the file.
+    const priors: Array<{ matchKey: string; decision: string; decidedAt: Date; decidedBy: { name: string } | null }> = [];
+    for (let k = 0; k < keys.length; k += 10_000) {
+      priors.push(
+        ...(await this.prisma.importDuplicateDecision.findMany({
+          where: { matchKey: { in: keys.slice(k, k + 10_000) } },
           select: { matchKey: true, decision: true, decidedAt: true, decidedBy: { select: { name: true } } },
-        })
-      : [];
+        })),
+      );
+    }
     const priorByKey = new Map(priors.map((p) => [p.matchKey, p]));
 
     return {
@@ -1783,6 +1886,19 @@ export class LeadsService {
       return { rows, total: rows.length, page: 1, pageSize: rows.length };
     }
 
+    // "Select all" on a grid that has only loaded its first pages: EVERY lead
+    // matching the filters, in the grid's order, carrying only what the bulk
+    // actions read — the id to act on, and the owner, place and zone the Assign
+    // dialog filters and warns by. A tenth of a full row, so a book of tens of
+    // thousands comes back in one go.
+    if (query.selection) {
+      const rows = await this.prisma.lead.findMany({ where, orderBy, take: MAX_SELECTION + 1, select: SELECTION_SELECT });
+      if (rows.length > MAX_SELECTION) {
+        throw new BadRequestException(`More than ${MAX_SELECTION.toLocaleString()} leads match. Narrow the filters to select them all at once.`);
+      }
+      return { rows, total: rows.length, page: 1, pageSize: rows.length };
+    }
+
     const pageSize = query.pageSize ?? query.limit ?? DEFAULT_PAGE_SIZE;
     const page = Math.max(1, query.page ?? 1);
 
@@ -1858,8 +1974,13 @@ export class LeadsService {
       AND: [base, ...clauses.filter((c): c is Prisma.LeadWhereInput => !!c)],
     });
 
+    // In parallel, not as one batched transaction: a batch runs its statements
+    // one after another on one connection, so the cards waited for the SUM of
+    // seven counts over the whole book (~0.4 s at 110,000 leads) rather than
+    // the slowest of them. They are independent reads; nothing needs them to
+    // share a snapshot.
     const [totalLeads, assignedLeads, contactedLeads, followUpToday, followUpOverdue, neverContacted, contacted] =
-      await this.prisma.$transaction([
+      await Promise.all([
         this.prisma.lead.count({ where }),
         this.prisma.lead.count({ where: assignedWhere }),
         this.prisma.lead.count({ where: { AND: [assignedWhere, CONTACTED] } }),
@@ -2462,7 +2583,7 @@ export class LeadsService {
           })),
         });
       }
-    });
+    }, BULK_TX);
 
     // The ids go back so the caller can offer an undo for exactly this batch,
     // rather than for "whatever was archived recently".
@@ -2503,7 +2624,7 @@ export class LeadsService {
           },
         });
       }
-    });
+    }, BULK_TX);
 
     if (user) {
       await this.prisma.activity.createMany({
@@ -2605,7 +2726,7 @@ export class LeadsService {
           },
         });
       }
-    });
+    }, BULK_TX);
 
     return { deleted: found.length };
   }
