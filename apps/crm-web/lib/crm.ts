@@ -1421,6 +1421,14 @@ const UPLOAD_CHUNK_ROWS = 5000;
 /** Chunks in flight at once — enough to keep the line busy, few enough to be polite. */
 const UPLOAD_PARALLEL = 3;
 const UPLOAD_ATTEMPTS = 3;
+/**
+ * The import's own small requests — open, start the check, a page of
+ * duplicates, start the import or Undo. Each is quick on an idle server, but
+ * one already working through a big file can take well past the app's usual
+ * 15 seconds to get to them, and failing the whole import over a slow answer
+ * (as it did on the live server) is the wrong trade.
+ */
+const IMPORT_CALL = { timeout: 2 * 60_000 };
 
 /** A request retried on a dropped connection or a server error — never on a 4xx, which won't change. */
 async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
@@ -1464,7 +1472,7 @@ export type ImportRunMode = 'all' | 'skip_duplicates' | 'decisions';
 export const importSessionApi = {
   /** Upload the rows; resolves with the session's id. */
   upload: async (rows: LeadRow[], onProgress?: (sent: number, total: number) => void): Promise<string> => {
-    const { id } = (await api.post('/leads/import/sessions', { totalRows: rows.length })).data as { id: string };
+    const { id } = (await api.post('/leads/import/sessions', { totalRows: rows.length }, IMPORT_CALL)).data as { id: string };
     const starts: number[] = [];
     for (let k = 0; k < rows.length; k += UPLOAD_CHUNK_ROWS) starts.push(k);
     let sent = 0;
@@ -1483,7 +1491,7 @@ export const importSessionApi = {
 
   /** Run the duplicate check over an uploaded file and wait for it. */
   check: async (sessionId: string, match: ImportMatchOptions = {}): Promise<ImportCheckSummary> => {
-    const started = (await api.post(`/leads/import/sessions/${sessionId}/check`, match)).data as BackgroundJob;
+    const started = (await api.post(`/leads/import/sessions/${sessionId}/check`, match, IMPORT_CALL)).data as BackgroundJob;
     const job = await waitForJob<ImportCheckSummary>(`/leads/import/sessions/jobs/${started.id}`);
     if (job.status !== 'completed' || !job.result) throw new Error(job.error ?? 'The duplicate check stopped before it finished.');
     return job.result;
@@ -1491,7 +1499,7 @@ export const importSessionApi = {
 
   /** A page of the check's duplicate rows, in file order. */
   duplicates: async (sessionId: string, offset: number, limit = 200): Promise<{ total: number; offset: number; rows: ImportDuplicateRow[] }> =>
-    (await api.get(`/leads/import/sessions/${sessionId}/duplicates`, { params: { offset, limit } })).data,
+    (await api.get(`/leads/import/sessions/${sessionId}/duplicates`, { params: { offset, limit }, ...IMPORT_CALL })).data,
 
   /**
    * Import the uploaded file and wait for it, reporting progress. `decisions`
@@ -1505,7 +1513,7 @@ export const importSessionApi = {
     body: { mode: ImportRunMode; decisions?: Record<number, 'import' | 'skip'>; keepFields?: Record<number, string[]> },
     onProgress?: (processed: number, total: number) => void,
   ): Promise<ImportResult> => {
-    const started = (await api.post(`/leads/import/sessions/${sessionId}/import`, body)).data as BackgroundJob;
+    const started = (await api.post(`/leads/import/sessions/${sessionId}/import`, body, IMPORT_CALL)).data as BackgroundJob;
     const job = await waitForJob<ImportResult & { interrupted?: boolean }>(`/leads/import/sessions/jobs/${started.id}`, onProgress);
     if (job.status === 'completed' && job.result) return job.result;
     const createdCount = job.result?.createdCount ?? 0;
@@ -1529,7 +1537,7 @@ export const importSessionApi = {
 
   /** Remove the leads an import created (never the ones it updated) and wait for it. */
   undo: async (sessionId: string, onProgress?: (processed: number, total: number) => void): Promise<{ removed: number }> => {
-    const started = (await api.post(`/leads/import/sessions/${sessionId}/undo`)).data as BackgroundJob;
+    const started = (await api.post(`/leads/import/sessions/${sessionId}/undo`, undefined, IMPORT_CALL)).data as BackgroundJob;
     const job = await waitForJob<{ removed: number }>(`/leads/import/sessions/jobs/${started.id}`, onProgress);
     if (job.status !== 'completed' || !job.result) throw new Error(job.error ?? 'Undo stopped before it finished — run it again to remove the rest.');
     return job.result;

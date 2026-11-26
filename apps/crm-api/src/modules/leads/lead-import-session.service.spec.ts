@@ -16,7 +16,7 @@ describe('LeadImportSessionService', () => {
   const admin = { id: 'admin-1', role: Role.admin };
   const leader = { id: 'leader-1', role: Role.team_leader };
 
-  function harness(session: Record<string, unknown>, opts: { staged?: number; duplicates?: Array<{ idx: number; prior: string | null }> } = {}) {
+  function harness(session: Record<string, unknown>, opts: { staged?: number; duplicates?: Array<{ idx: number; prior: string | null }>; busy?: boolean } = {}) {
     let current = { id: 's1', createdById: 'admin-1', status: 'checked', totalRows: 4, checkOptions: { checkFields: ['phone'] }, createdIds: [] as string[], ...session };
     const staged = Array.from({ length: opts.staged ?? (current.totalRows as number) }, (_, idx) => ({
       idx,
@@ -55,6 +55,8 @@ describe('LeadImportSessionService', () => {
     // Runs the job inline and hands back what it returned — or, as the real
     // runner does, a failed job rather than a thrown error.
     const jobs = {
+      // Another import already running, when `busy`.
+      activeOf: jest.fn(async () => (opts.busy ? { id: "other-job", kind: "lead_import_check", status: "running" } : null)),
       start: jest.fn(async (_k: string, _u: string, _t: number, run: (ctx: unknown) => Promise<unknown>) => {
         try {
           return await run({ progress: async () => undefined, onFailure: () => undefined });
@@ -123,5 +125,49 @@ describe('LeadImportSessionService', () => {
     expect(h.removeMany.mock.calls.map((c) => (c[0] as string[]).length)).toEqual([5000, 5000, 2000]);
     expect(res).toEqual({ sessionId: 's1', removed: 12_000 });
     expect(h.current()).toMatchObject({ status: 'undone', createdIds: [] });
+  });
+});
+
+/**
+ * One heavy import job at a time. On the live server a check that outlived the
+ * page kept running, every retry uploaded the file again and started another
+ * beside it, and the API slowed to 18–39 seconds a request for everyone.
+ */
+describe('LeadImportSessionService — one import at a time', () => {
+  const admin = { id: 'admin-1', role: Role.admin };
+  function harness(busy: boolean, status = 'checked') {
+    const current = { id: 's1', createdById: 'admin-1', status, totalRows: 1, checkOptions: {}, createdIds: [] as string[] };
+    const prisma = {
+      leadImportSession: {
+        findUnique: jest.fn(async () => current),
+        create: jest.fn(async () => ({ id: 'new', status: 'uploading', totalRows: 1 })),
+        updateMany: jest.fn(async () => ({ count: 1 })),
+        update: jest.fn(async () => current),
+        deleteMany: jest.fn(async () => ({ count: 0 })),
+      },
+    } as unknown as PrismaService;
+    const jobs = {
+      activeOf: jest.fn(async () => (busy ? { id: 'other-job' } : null)),
+      start: jest.fn(async () => ({ id: 'job', status: 'running' })),
+    } as unknown as BackgroundJobsService & { start: jest.Mock };
+    return { service: new LeadImportSessionService(prisma, {} as LeadsService, jobs), jobs, prisma };
+  }
+  const locked = (p: Promise<unknown>) => expect(p).rejects.toMatchObject({ status: 423 });
+
+  it('refuses to open a new upload while another import runs — before any row is sent', async () => {
+    const h = harness(true);
+    await locked(h.service.open(50_000, admin));
+    expect((h.prisma.leadImportSession as unknown as { create: jest.Mock }).create).not.toHaveBeenCalled();
+  });
+
+  it('refuses to start a check or an import beside one already running', async () => {
+    await locked(harness(true, 'uploading').service.startCheck('s1', {}, admin));
+    const h = harness(true);
+    await locked(h.service.startImport('s1', { mode: 'all' }, admin));
+    expect(h.jobs.start).not.toHaveBeenCalled();
+  });
+
+  it('opens normally when nothing else is running', async () => {
+    await expect(harness(false).service.open(10, admin)).resolves.toMatchObject({ id: 'new' });
   });
 });

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, Role } from '@crm/database';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { BackgroundJobsService } from '../jobs/background-jobs.service.js';
@@ -52,6 +52,8 @@ export class LeadImportSessionService {
 
   /** Open a session for a file of `totalRows` rows. */
   async open(totalRows: number, viewer: Viewer) {
+    // Refused here, before a single row is uploaded, rather than after.
+    await this.assertNoImportRunning();
     await this.sweep();
     return this.prisma.leadImportSession.create({
       data: { createdById: viewer.id, totalRows },
@@ -78,6 +80,7 @@ export class LeadImportSessionService {
   /** Run the duplicate check over the staged file, as a background job. */
   async startCheck(id: string, opts: CheckImportSessionDto, viewer: Viewer) {
     const s = await this.own(id, viewer);
+    await this.assertNoImportRunning();
     await this.claim(id, ['uploading', 'checked'], 'checking', 'The duplicate check for this file is already running, or the file has been imported.');
     try {
       return await this.jobs.start('lead_import_check', viewer.id, s.totalRows, async () => {
@@ -128,6 +131,7 @@ export class LeadImportSessionService {
   /** Import the staged file, as a background job, under the rules it was checked with. */
   async startImport(id: string, body: RunImportSessionDto, viewer: Viewer) {
     const s = await this.own(id, viewer);
+    await this.assertNoImportRunning();
     await this.claim(id, ['checked'], 'importing', s.status === 'checked' ? 'This file is already being imported.' : statusMessage(s.status));
     const createdIds: string[] = [];
     try {
@@ -209,6 +213,29 @@ export class LeadImportSessionService {
   }
 
   // ── internals ─────────────────────────────────────────────────────────────
+
+  /**
+   * One heavy import job at a time, CRM-wide.
+   *
+   * A check or an import holds the file and its verdicts in memory and works
+   * the CPU for as long as it runs. Two at once on a small server doubled that
+   * — and the browser made it easy: a check that outlived the page's patience
+   * kept running on the server, and every retry uploaded the file again and
+   * started another one beside it. The live API then took 18–39 seconds to
+   * answer anything, for every user. So a second one waits its turn instead.
+   * A job whose process died stops counting once its heartbeat goes stale.
+   */
+  private async assertNoImportRunning() {
+    const running = await this.jobs.activeOf(['lead_import_check', 'lead_import', 'lead_import_undo']);
+    if (running) {
+      // 423 Locked, not 409: the page treats a 409 as 'this upload is used up'
+      // and uploads the file again, which is the last thing a busy server needs.
+      throw new HttpException(
+        'Another import is being checked or imported right now. Try again when it finishes — running two at once slows the CRM down for everyone.',
+        HttpStatus.LOCKED,
+      );
+    }
+  }
 
   private async own(id: string, viewer: Viewer) {
     const s = await this.prisma.leadImportSession.findUnique({ where: { id } });

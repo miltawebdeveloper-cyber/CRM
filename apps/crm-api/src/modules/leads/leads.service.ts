@@ -91,6 +91,19 @@ const DEFAULT_PAGE_SIZE = 50;
  */
 const BULK_TX = { timeout: 120_000, maxWait: 10_000 };
 
+/**
+ * Hand the event loop back between slices of a long in-memory pass over a file.
+ *
+ * Node answers requests on one thread, so a check or import working through a
+ * file of tens of thousands of rows in one go answers nothing else until it is
+ * done — every user's next click waits behind it. On a small cloud container
+ * that was measured at 12–28 seconds per request while a 50,000-row file was
+ * being checked. Pausing every YIELD_EVERY rows keeps each stretch to a few
+ * milliseconds here and well under a second there; the work itself is unchanged.
+ */
+const YIELD_EVERY = 1000;
+const yieldToEventLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
+
 /** The most leads one "Select all" will pick up — past this, narrow the filters. */
 const MAX_SELECTION = 200_000;
 /** What a "Select all" row carries: what the bulk actions read, nothing more. */
@@ -594,7 +607,13 @@ export class LeadsService {
     // Keys this file actually asks about. Built first so the scan below can
     // throw away every lead that answers none of them, which is what keeps the
     // memory here proportional to the FILE rather than to the lead book.
-    const rowKeys = rows.map(keysOf);
+    // Built in slices so a big file never holds the server for long (see
+    // `yieldToEventLoop`); the result is the same as `rows.map(keysOf)`.
+    const rowKeys: ReturnType<typeof keysOf>[] = [];
+    for (let i = 0; i < rows.length; i++) {
+      if (i && i % YIELD_EVERY === 0) await yieldToEventLoop();
+      rowKeys.push(keysOf(rows[i]));
+    }
     const wantPhone = new Set<string>();
     const wantEmail = new Set<string>();
     const wantDomain = new Set<string>();
@@ -719,7 +738,7 @@ export class LeadsService {
     const seenEmail = new Set<string>();
     const seenDomain = new Set<string>();
     const seenLocation = new Set<string>();
-    const perRow = rows.map((r, index) => {
+    const analyseRow = (r: CreateLeadDto, index: number) => {
       const k = rowKeys[index];
       const on: MatchSignal[] = [];
       // Every DISTINCT lead this row collides with, keyed by lead id. A row can
@@ -788,7 +807,14 @@ export class LeadsService {
         // What this row is filed under when a decision about it is remembered.
         decisionKey: decisionKey(r),
       };
-    });
+    };
+    // A row at a time, letting other requests through every YIELD_EVERY rows —
+    // see `yieldToEventLoop`.
+    const perRow: ReturnType<typeof analyseRow>[] = [];
+    for (let index = 0; index < rows.length; index++) {
+      if (index && index % YIELD_EVERY === 0) await yieldToEventLoop();
+      perRow.push(analyseRow(rows[index], index));
+    }
 
     const duplicateRecords = perRow.filter((r) => r.duplicate).length;
     const willUpdateRecords = perRow.filter((r) => r.willUpdate).length;
@@ -947,6 +973,9 @@ export class LeadsService {
     try {
       for (let i = 0; i < dto.rows.length; i++) {
         if (hooks.onProgress && i > 0 && i % 50 === 0) await hooks.onProgress(i);
+        // Rows that are skipped or only queued touch no database, so a long run of
+        // them would otherwise hold the server — see `yieldToEventLoop`.
+        if (i > 0 && i % YIELD_EVERY === 0) await yieldToEventLoop();
         const row = dto.rows[i];
         const n = i + 1;
         const phoneKey = (row.phone ?? '').replace(/\D/g, '');

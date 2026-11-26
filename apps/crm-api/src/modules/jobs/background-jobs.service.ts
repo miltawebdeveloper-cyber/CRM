@@ -70,9 +70,9 @@ export class BackgroundJobsService implements OnApplicationBootstrap, OnApplicat
   }
 
   /** The most recent live job of a kind, if one is running — to refuse duplicates. */
-  async activeOf(kind: JobKind): Promise<JobView | null> {
+  async activeOf(kind: JobKind | JobKind[]): Promise<JobView | null> {
     const job = await this.prisma.backgroundJob.findFirst({
-      where: { kind, status: 'running', heartbeatAt: { gt: new Date(Date.now() - STALE_AFTER_MS) } },
+      where: { kind: Array.isArray(kind) ? { in: kind } : kind, status: 'running', heartbeatAt: { gt: new Date(Date.now() - STALE_AFTER_MS) } },
       orderBy: { createdAt: 'desc' },
     });
     return job ? this.view(job) : null;
